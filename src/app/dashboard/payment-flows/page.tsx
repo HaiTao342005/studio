@@ -2,7 +2,12 @@ import { Header } from '@/components/dashboard/Header';
 import { PaymentFlowVisualization } from '@/components/dashboard/PaymentFlowVisualization';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 
-export default function PaymentFlowsPage() {
+interface PaymentFlowsPageProps {
+  params: {}; // Static route
+  searchParams: { [key: string]: string | string[] | undefined };
+}
+
+export default function PaymentFlowsPage({ params, searchParams }: PaymentFlowsPageProps) {
   return (
     <>
       <Header title="Payment Flow Visualization" />

@@ -2,7 +2,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { TransactionHistoryTable } from "@/components/transactions/TransactionHistoryTable";
 import { Header } from "@/components/dashboard/Header";
 
-export default function TransactionHistoryPage() {
+interface TransactionHistoryPageProps {
+  params: {}; // Static route
+  searchParams: { [key: string]: string | string[] | undefined };
+}
+
+export default function TransactionHistoryPage({ params, searchParams }: TransactionHistoryPageProps) {
   return (
     <>
       <Header title="Transaction History" />

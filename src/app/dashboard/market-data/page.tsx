@@ -1,6 +1,6 @@
 import { Header } from '@/components/dashboard/Header';
 import { MarketDataCard } from '@/components/dashboard/MarketDataCard';
-import { AppleIcon, BananaIcon, OrangeIcon, GrapeIcon, MangoIcon } from '@/components/icons/FruitIcons'; // Assuming these exist
+import { AppleIcon, BananaIcon, OrangeIcon, GrapeIcon, MangoIcon } from '@/components/icons/FruitIcons';
 
 const mockMarketData = [
   { id: '1', fruitName: 'Apples (Fuji)', price: '$2.50/kg', change: '+1.2%', trend: 'up' as const, Icon: AppleIcon },
@@ -11,8 +11,12 @@ const mockMarketData = [
   { id: '6', fruitName: 'Pears (Bartlett)', price: '$2.80/kg', change: '-1.1%', trend: 'down' as const, Icon: AppleIcon }, // Using AppleIcon as placeholder
 ];
 
+interface MarketDataPageProps {
+  params: {}; // Static route
+  searchParams: { [key: string]: string | string[] | undefined };
+}
 
-export default function MarketDataPage() {
+export default function MarketDataPage({ params, searchParams }: MarketDataPageProps) {
   return (
     <>
       <Header title="Global Fruit Market Data" />

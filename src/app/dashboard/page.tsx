@@ -24,25 +24,30 @@ const featureCards = [
     description: "Enter new import/export transaction details.",
     link: "/dashboard/transactions/new",
     icon: FilePlus,
-    color: "text-blue-500"
+    color: "text-blue-500" // Intentionally different for variety
   },
   {
     title: "Transaction History",
     description: "Browse historical transaction records.",
     link: "/dashboard/transactions/history",
     icon: History,
-    color: "text-purple-500"
+    color: "text-purple-500" // Intentionally different for variety
   },
   {
     title: "Payment Flows",
     description: "Visualize payment flows between parties.",
     link: "/dashboard/payment-flows",
     icon: Network,
-    color: "text-green-500"
+    color: "text-green-500" // Intentionally different for variety
   }
 ];
 
-export default function DashboardOverviewPage() {
+interface DashboardOverviewPageProps {
+  params: {}; // Static route
+  searchParams: { [key: string]: string | string[] | undefined };
+}
+
+export default function DashboardOverviewPage({ params, searchParams }: DashboardOverviewPageProps) {
   return (
     <>
       <Header title="Dashboard Overview" />
@@ -70,7 +75,7 @@ export default function DashboardOverviewPage() {
                 <CardDescription>{feature.description}</CardDescription>
               </CardContent>
               <CardContent className="pt-0">
-                 <Link href={feature.link} passHref> {/* Removed legacyBehavior */}
+                 <Link href={feature.link} passHref>
                   <Button asChild variant="outline" className="w-full text-primary border-primary hover:bg-primary/10">
                     <>
                       Go to {feature.title} <ArrowRight className="ml-2 h-4 w-4" />

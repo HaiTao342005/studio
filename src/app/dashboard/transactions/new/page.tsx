@@ -2,7 +2,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { TransactionForm } from "@/components/transactions/TransactionForm";
 import { Header } from "@/components/dashboard/Header";
 
-export default function NewTransactionPage() {
+interface NewTransactionPageProps {
+  params: {}; // Static route
+  searchParams: { [key: string]: string | string[] | undefined };
+}
+
+export default function NewTransactionPage({ params, searchParams }: NewTransactionPageProps) {
   return (
     <>
       <Header title="Record New Transaction" />
