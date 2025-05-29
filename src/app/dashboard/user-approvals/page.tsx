@@ -1,9 +1,9 @@
 
 "use client";
 
-import { useEffect, useState, type FormEvent, useCallback } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { useAuth, type UserRole } from '@/contexts/AuthContext';
+import { useAuth, type UserRole, type User as AuthUser } from '@/contexts/AuthContext'; // Changed StoredUser to User
 import { Header } from '@/components/dashboard/Header';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -12,13 +12,8 @@ import { Badge } from '@/components/ui/badge';
 import { CheckCircle, Loader2, Info } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
-
-interface StoredUserForDisplay {
-  id: string;
-  name: string;
-  role: UserRole;
-  isApproved: boolean;
-}
+// Using AuthUser which has id from Firestore
+interface UserForDisplay extends AuthUser {}
 
 interface UserApprovalsPageProps {
   params: {};
@@ -26,27 +21,20 @@ interface UserApprovalsPageProps {
 }
 
 export default function UserApprovalsPage({ params, searchParams }: UserApprovalsPageProps) {
-  const { user, getAllUsers, approveUser, isLoading: authLoading } = useAuth();
+  const { user, approveUser, isLoading: authLoading, allUsersList, isLoadingUsers: isLoadingAuthUsers } = useAuth();
   const router = useRouter();
-  const [pendingUsers, setPendingUsers] = useState<StoredUserForDisplay[]>([]);
-  const [approvedUsers, setApprovedUsers] = useState<StoredUserForDisplay[]>([]);
-  const [isLoadingUsers, setIsLoadingUsers] = useState(true);
-  
+  const [pendingUsers, setPendingUsers] = useState<UserForDisplay[]>([]);
+  const [approvedUsers, setApprovedUsers] = useState<UserForDisplay[]>([]);
   const { toast } = useToast();
 
   const refreshUserLists = useCallback(() => {
     if (user && user.role === 'manager') {
-      setIsLoadingUsers(true);
-      const allUsers = getAllUsers();
-      const pending = allUsers.filter(u => (u.role === 'supplier' || u.role === 'transporter') && !u.isApproved)
-                              .map(u => ({ id: u.id, name: u.name, role: u.role, isApproved: u.isApproved }));
-      const approved = allUsers.filter(u => (u.role === 'supplier' || u.role === 'transporter') && u.isApproved)
-                               .map(u => ({ id: u.id, name: u.name, role: u.role, isApproved: u.isApproved }));
+      const pending = allUsersList.filter(u => (u.role === 'supplier' || u.role === 'transporter') && !u.isApproved);
+      const approved = allUsersList.filter(u => (u.role === 'supplier' || u.role === 'transporter') && u.isApproved);
       setPendingUsers(pending);
       setApprovedUsers(approved);
-      setIsLoadingUsers(false);
     }
-  }, [user, getAllUsers]);
+  }, [user, allUsersList]);
 
 
   useEffect(() => {
@@ -55,29 +43,30 @@ export default function UserApprovalsPage({ params, searchParams }: UserApproval
     }
   }, [user, authLoading, router]);
 
+  // Refresh lists when allUsersList from context changes
   useEffect(() => {
     refreshUserLists();
-  }, [user, refreshUserLists]); 
+  }, [allUsersList, refreshUserLists]); 
 
-  const handleApprove = (userId: string) => {
-    approveUser(userId);
-    refreshUserLists(); 
+  const handleApprove = async (userId: string) => {
+    await approveUser(userId);
+    // Real-time listener in AuthContext will update allUsersList, which triggers refreshUserLists
   };
 
 
-  if (authLoading || isLoadingUsers) {
+  if (authLoading || isLoadingAuthUsers) {
     return (
       <>
         <Header title="User Approvals" />
         <main className="flex-1 p-6 flex items-center justify-center">
           <Loader2 className="h-8 w-8 animate-spin text-primary mr-2" />
-          <p className="text-muted-foreground">Loading user data...</p>
+          <p className="text-muted-foreground">Loading user data from Firestore...</p>
         </main>
       </>
     );
   }
 
-  if (!user || user.role !== 'manager') {
+  if (!user || user.role !== 'manager') { 
     return ( 
       <>
         <Header title="Access Denied" />
@@ -194,3 +183,5 @@ export default function UserApprovalsPage({ params, searchParams }: UserApproval
     </>
   );
 }
+
+    

@@ -1,9 +1,9 @@
 
 "use client";
 
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { useAuth, type UserRole, type StoredUser } from '@/contexts/AuthContext';
+import { useAuth, type UserRole, type User as AuthUser } from '@/contexts/AuthContext'; // Changed StoredUser to User
 import { Header } from '@/components/dashboard/Header';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -14,6 +14,8 @@ import { Label } from '@/components/ui/label';
 import { Loader2, Info, Users, CheckCircle, XCircle, UserPlus } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
+// Using AuthUser which has id from Firestore
+interface UserForDisplay extends AuthUser {}
 
 interface ManageUsersPageProps {
   params: {};
@@ -21,10 +23,8 @@ interface ManageUsersPageProps {
 }
 
 export default function ManageUsersPage({ params, searchParams }: ManageUsersPageProps) {
-  const { user, getAllUsers, addManager, isLoading: authLoading } = useAuth();
+  const { user, addManager, isLoading: authLoading, allUsersList, isLoadingUsers: isLoadingAuthUsers } = useAuth();
   const router = useRouter();
-  const [allUsersList, setAllUsersList] = useState<StoredUser[]>([]);
-  const [isLoadingUsers, setIsLoadingUsers] = useState(true);
   const [newManagerUsername, setNewManagerUsername] = useState('');
   const [newManagerPassword, setNewManagerPassword] = useState('');
   const [isCreatingManager, setIsCreatingManager] = useState(false);
@@ -36,15 +36,6 @@ export default function ManageUsersPage({ params, searchParams }: ManageUsersPag
     }
   }, [user, authLoading, router]);
 
-  useEffect(() => {
-    if (user && user.role === 'manager') {
-      setIsLoadingUsers(true);
-      const users = getAllUsers();
-      setAllUsersList(users);
-      setIsLoadingUsers(false);
-    }
-  }, [user, getAllUsers]);
-
   const handleCreateManager = async (e: FormEvent) => {
     e.preventDefault();
     if (!newManagerUsername || !newManagerPassword) {
@@ -52,13 +43,11 @@ export default function ManageUsersPage({ params, searchParams }: ManageUsersPag
         return;
     }
     setIsCreatingManager(true);
-    const success = addManager(newManagerUsername, newManagerPassword);
+    const success = await addManager(newManagerUsername, newManagerPassword);
     if (success) {
         setNewManagerUsername('');
         setNewManagerPassword('');
-        // Refresh user list to show the new manager
-        const updatedUsers = getAllUsers();
-        setAllUsersList(updatedUsers);
+        // Real-time listener in AuthContext will update allUsersList, triggering UI refresh.
         toast({ title: "Manager Created", description: `Manager account for ${newManagerUsername} created successfully.` });
     }
     // Toast for failure is handled within addManager in AuthContext
@@ -66,13 +55,13 @@ export default function ManageUsersPage({ params, searchParams }: ManageUsersPag
   };
 
 
-  if (authLoading || isLoadingUsers) {
+  if (authLoading || isLoadingAuthUsers) {
     return (
       <>
         <Header title="Manage Users" />
         <main className="flex-1 p-6 flex items-center justify-center">
           <Loader2 className="h-8 w-8 animate-spin text-primary mr-2" />
-          <p className="text-muted-foreground">Loading user data...</p>
+          <p className="text-muted-foreground">Loading user data from Firestore...</p>
         </main>
       </>
     );
@@ -141,7 +130,7 @@ export default function ManageUsersPage({ params, searchParams }: ManageUsersPag
               <div className="flex flex-col items-center justify-center py-10 text-center">
                 <Info className="h-12 w-12 text-muted-foreground mb-4" />
                 <p className="text-lg font-semibold text-muted-foreground">No Users Found</p>
-                <p className="text-sm text-muted-foreground">There are no registered users in the system yet.</p>
+                <p className="text-sm text-muted-foreground">There are no registered users in the system yet (or still loading).</p>
               </div>
             ) : (
               <div className="overflow-x-auto">
@@ -211,8 +200,9 @@ export default function ManageUsersPage({ params, searchParams }: ManageUsersPag
             </CardFooter>
           </form>
         </Card>
-
       </main>
     </>
   );
 }
+
+    
