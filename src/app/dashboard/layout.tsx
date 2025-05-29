@@ -49,12 +49,12 @@ const allNavItems: NavItem[] = [
   { href: '/dashboard', label: 'Overview', icon: LayoutDashboard, roles: ['supplier', 'transporter', 'customer', 'manager'] },
   // Manager specific
   { href: '/dashboard/user-approvals', label: 'User Approvals', icon: UserCheck, roles: ['manager'] },
-  // Supplier specific
-  { href: '/dashboard/market-data', label: 'Market Data', icon: CandlestickChart, roles: ['supplier'] },
-  { href: '/dashboard/risk-assessment', label: 'Customer Risk', icon: ShieldCheck, roles: ['supplier'] },
-  { href: '/dashboard/transactions/new', label: 'New Order', icon: ShoppingCart, roles: ['supplier'] },
-  { href: '/dashboard/transactions/history', label: 'Order History', icon: History, roles: ['supplier'] },
-  { href: '/dashboard/payment-flows', label: 'Payment Tracking', icon: CreditCard, roles: ['supplier'] },
+  // Supplier specific (also now accessible by manager)
+  { href: '/dashboard/market-data', label: 'Market Data', icon: CandlestickChart, roles: ['supplier', 'manager'] },
+  { href: '/dashboard/risk-assessment', label: 'Customer Risk', icon: ShieldCheck, roles: ['supplier', 'manager'] },
+  { href: '/dashboard/transactions/new', label: 'New Order', icon: ShoppingCart, roles: ['supplier', 'manager'] },
+  { href: '/dashboard/transactions/history', label: 'Order History', icon: History, roles: ['supplier', 'manager'] },
+  { href: '/dashboard/payment-flows', label: 'Payment Tracking', icon: CreditCard, roles: ['supplier', 'manager'] },
   // Transporter specific
   { href: '/dashboard/shipments', label: 'Manage Shipments', icon: Truck, roles: ['transporter'] },
   { href: '/dashboard/delivery-proof', label: 'Proof of Delivery', icon: PackageSearch, roles: ['transporter'] },
@@ -119,7 +119,6 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
   }
 
   // If a supplier or transporter is logged in but not approved, show a pending approval message.
-  // This is an additional check in case they bypass the login block somehow.
   if (!user.isApproved && (user.role === 'supplier' || user.role === 'transporter')) {
     return (
       <div className="flex min-h-screen w-full flex-col items-center justify-center bg-secondary/50 p-6 text-center">

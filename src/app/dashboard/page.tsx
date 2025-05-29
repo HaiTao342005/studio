@@ -9,7 +9,12 @@ import { ArrowRight, CandlestickChart, ShieldCheck, ShoppingCart, History, Credi
 import { useAuth, type UserRole } from '@/contexts/AuthContext';
 
 const managerFeatures = [
-  { title: "User Approvals", description: "Approve or reject new user sign-ups.", link: "/dashboard/user-approvals", icon: UserCheck, color: "text-teal-500" },
+  { title: "User Approvals", description: "Approve users and manage manager accounts.", link: "/dashboard/user-approvals", icon: UserCheck, color: "text-teal-500" },
+  { title: "Order History", description: "View all customer orders.", link: "/dashboard/transactions/history", icon: History, color: "text-purple-500" },
+  { title: "Payment Tracking", description: "Track payment statuses for all orders.", link: "/dashboard/payment-flows", icon: CreditCard, color: "text-green-500" },
+  { title: "Market Data", description: "View global fruit market data.", link: "/dashboard/market-data", icon: CandlestickChart, color: "text-primary" },
+  { title: "Customer Risk", description: "Assess payment risks for customers.", link: "/dashboard/risk-assessment", icon: ShieldCheck, color: "text-accent" },
+  { title: "New Order", description: "Create new customer orders if needed.", link: "/dashboard/transactions/new", icon: ShoppingCart, color: "text-blue-500" },
 ];
 
 const supplierFeatures = [
