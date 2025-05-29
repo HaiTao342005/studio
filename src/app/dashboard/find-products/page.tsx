@@ -10,10 +10,11 @@ import { useAuth, type User as AuthUser } from '@/contexts/AuthContext';
 import type { Product as ProductType, StoredProduct } from '@/types/product';
 import { db } from '@/lib/firebase/config';
 import { collection, getDocs, query, Timestamp, where } from 'firebase/firestore';
-import { Loader2, Search, Package, ShoppingBag, Info, ImageOff } from 'lucide-react';
+import { Loader2, Search, Package, ShoppingBag, Info, ImageOff, MessageSquare } from 'lucide-react';
 import Image from 'next/image';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
+import { useRouter } from 'next/navigation'; // Import useRouter
 
 interface SupplierWithProducts {
   supplier: AuthUser;
@@ -39,8 +40,9 @@ export default function FindProductsPage({ params, searchParams }: FindProductsP
   const [isLoading, setIsLoading] = useState(false);
   const [results, setResults] = useState<SupplierWithProducts[]>([]);
   const [hasSearched, setHasSearched] = useState(false);
-  const { allUsersList } = useAuth(); // Get all users (including suppliers) from AuthContext
+  const { allUsersList, isLoadingUsers } = useAuth();
   const { toast } = useToast();
+  const router = useRouter(); // Initialize useRouter
 
   const handleSearch = async (e?: FormEvent) => {
     if (e) e.preventDefault();
@@ -68,7 +70,7 @@ export default function FindProductsPage({ params, searchParams }: FindProductsP
       });
 
       const lowerSearchTerm = searchTerm.toLowerCase();
-      const matchingProducts = allProducts.filter(product => 
+      const matchingProducts = allProducts.filter(product =>
         product.name.toLowerCase().includes(lowerSearchTerm) ||
         (product.category && product.category.toLowerCase().includes(lowerSearchTerm))
       );
@@ -89,7 +91,7 @@ export default function FindProductsPage({ params, searchParams }: FindProductsP
           suppliersMap.get(supplier.id)!.products.push(product);
         }
       });
-      
+
       setResults(Array.from(suppliersMap.values()));
 
     } catch (error) {
@@ -98,6 +100,10 @@ export default function FindProductsPage({ params, searchParams }: FindProductsP
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleContactSupplier = (productId: string, supplierId: string) => {
+    router.push(`/dashboard/negotiate?productId=${productId}&supplierId=${supplierId}`);
   };
 
   return (
@@ -111,29 +117,29 @@ export default function FindProductsPage({ params, searchParams }: FindProductsP
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSearch} className="flex items-center gap-2">
-              <Input 
+              <Input
                 type="search"
                 placeholder="e.g., Organic Apples, Fuji, Fresh Fruits"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="flex-grow"
               />
-              <Button type="submit" disabled={isLoading}>
-                {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+              <Button type="submit" disabled={isLoading || isLoadingUsers}>
+                {(isLoading || isLoadingUsers) ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
                 <span className="ml-2">Search</span>
               </Button>
             </form>
           </CardContent>
         </Card>
 
-        {isLoading && (
+        {(isLoading || isLoadingUsers) && (
           <div className="flex justify-center items-center py-10">
             <Loader2 className="h-8 w-8 animate-spin text-primary mr-2" />
             <p className="text-muted-foreground">Searching for products...</p>
           </div>
         )}
 
-        {!isLoading && hasSearched && results.length === 0 && (
+        {!isLoading && !isLoadingUsers && hasSearched && results.length === 0 && (
           <Card>
             <CardContent className="py-10 text-center">
               <Info className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
@@ -143,7 +149,7 @@ export default function FindProductsPage({ params, searchParams }: FindProductsP
           </Card>
         )}
 
-        {!isLoading && results.length > 0 && (
+        {!isLoading && !isLoadingUsers && results.length > 0 && (
           <div className="space-y-6">
             <h2 className="text-2xl font-semibold text-primary">
               Suppliers Found for "{searchTerm}"
@@ -193,8 +199,14 @@ export default function FindProductsPage({ params, searchParams }: FindProductsP
                             <p className="text-xs text-muted-foreground line-clamp-2">{product.description}</p>
                           </CardContent>
                            <CardFooter className="pt-3 border-t">
-                            <Button variant="outline" size="sm" className="w-full">
-                              Contact Supplier (Placeholder)
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="w-full"
+                              onClick={() => handleContactSupplier(product.id, supplier.id)}
+                            >
+                              <MessageSquare className="mr-2 h-4 w-4"/>
+                              Contact Supplier
                             </Button>
                           </CardFooter>
                         </Card>

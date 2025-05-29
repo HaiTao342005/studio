@@ -5,9 +5,9 @@ import Link from 'next/link';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Header } from '@/components/dashboard/Header';
-import { ArrowRight, CandlestickChart, ShieldCheck, ShoppingCart, History, CreditCard, UserCircle, Truck, PackageSearch, ClipboardList, FileText, UserCheck, Users, PackagePlus, Activity, Search } from 'lucide-react';
+import { ArrowRight, CandlestickChart, ShieldCheck, ShoppingCart, History, CreditCard, UserCircle, Truck, PackageSearch, ClipboardList, FileText, UserCheck, Users, PackagePlus, Activity, Search, MessageSquare } from 'lucide-react';
 import { useAuth, type UserRole } from '@/contexts/AuthContext';
-import { AIProjectMonitor } from '@/components/dashboard/AIProjectMonitor'; 
+import { AIProjectMonitor } from '@/components/dashboard/AIProjectMonitor';
 
 const managerFeatures = [
   { title: "User Approvals", description: "Approve supplier & transporter accounts.", link: "/dashboard/user-approvals", icon: UserCheck, color: "text-teal-500" },
@@ -22,7 +22,7 @@ const supplierFeatures = [
   { title: "Market Data", description: "View real-time global fruit market data.", link: "/dashboard/market-data", icon: CandlestickChart, color: "text-primary" },
   { title: "My Products", description: "Manage your product listings.", link: "/dashboard/my-products", icon: PackagePlus, color: "text-orange-500" },
   { title: "Customer Payment Risk", description: "Assess payment risks for your customers.", link: "/dashboard/risk-assessment", icon: ShieldCheck, color: "text-accent" },
-  { title: "New Order", description: "Enter new customer order details.", link: "/dashboard/transactions/new", icon: ShoppingCart, color: "text-blue-500" }, 
+  // { title: "New Order", description: "Enter new customer order details.", link: "/dashboard/transactions/new", icon: ShoppingCart, color: "text-blue-500" },
   { title: "Order History", description: "Browse historical order records.", link: "/dashboard/transactions/history", icon: History, color: "text-purple-500" },
   { title: "Payment Tracking", description: "Visualize and track payment statuses.", link: "/dashboard/payment-flows", icon: CreditCard, color: "text-green-500" }
 ];
@@ -35,7 +35,7 @@ const transporterFeatures = [
 const customerFeatures = [
   { title: "Find Products", description: "Search for products from suppliers.", link: "/dashboard/find-products", icon: Search, color: "text-blue-500" },
   { title: "My Orders", description: "View your order history and status.", link: "/dashboard/my-orders", icon: ClipboardList, color: "text-primary" },
-  { title: "Make a Payment", description: "Access payment options for outstanding orders.", link: "/dashboard/my-payments", icon: CreditCard, color: "text-green-500" },
+  { title: "My Payments", description: "Access payment options for outstanding orders.", link: "/dashboard/my-payments", icon: CreditCard, color: "text-green-500" },
   { title: "My Documents", description: "Download invoices and shipping documents.", link: "/dashboard/my-documents", icon: FileText, color: "text-indigo-500" },
 ];
 
@@ -115,10 +115,10 @@ export default function DashboardOverviewPage({ params, searchParams }: Dashboar
               <CardContent>
                 <CardDescription>{feature.description}</CardDescription>
               </CardContent>
-              <CardFooter className="pt-0 mt-auto"> {/* Ensure footer is at the bottom */}
+              <CardFooter className="pt-0 mt-auto">
                 <Button asChild variant="outline" className="w-full text-primary border-primary hover:bg-primary/10">
                   <Link href={feature.link}>
-                      Go to {feature.title} <ArrowRight className="ml-2 h-4 w-4" />
+                    <>Go to {feature.title} <ArrowRight className="ml-2 h-4 w-4" /></>
                   </Link>
                 </Button>
               </CardFooter>
@@ -126,7 +126,7 @@ export default function DashboardOverviewPage({ params, searchParams }: Dashboar
           ))}
         </div>
 
-        {featureCards.length === 0 && user.role !== 'manager' && ( 
+        {featureCards.length === 0 && user.role !== 'manager' && (
           <Card>
             <CardContent className="pt-6">
               <p className="text-muted-foreground">No specific features available for your role at the moment, or your role is not recognized.</p>
