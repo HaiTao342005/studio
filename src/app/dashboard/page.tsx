@@ -1,3 +1,4 @@
+
 import Link from 'next/link';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -15,28 +16,28 @@ const featureCards = [
   {
     title: "Customer Payment Risk",
     description: "Assess payment risks for your customers.",
-    link: "/dashboard/customer-risk",
+    link: "/dashboard/risk-assessment", // Corrected link
     icon: ShieldCheck,
     color: "text-accent"
   },
   {
     title: "New Order",
     description: "Enter new customer order details.",
-    link: "/dashboard/orders/new",
+    link: "/dashboard/transactions/new", // Corrected link
     icon: ShoppingCart,
     color: "text-blue-500"
   },
   {
     title: "Order History",
     description: "Browse historical order records.",
-    link: "/dashboard/orders/history",
+    link: "/dashboard/transactions/history", // Corrected link
     icon: History,
     color: "text-purple-500"
   },
   {
     title: "Payment Tracking",
     description: "Visualize and track payment statuses.",
-    link: "/dashboard/payment-tracking",
+    link: "/dashboard/payment-flows", // Corrected link
     icon: CreditCard,
     color: "text-green-500"
   }
@@ -56,7 +57,7 @@ export default function DashboardOverviewPage({ params, searchParams }: Dashboar
           <CardHeader>
             <CardTitle className="text-3xl font-bold text-primary">Welcome to FruitFlow</CardTitle>
             <CardDescription className="text-lg text-muted-foreground">
-              Your central hub for managing customer orders, market insights, and payment risk.
+              Your platform for fruit trade operations, market insights, and transaction management.
             </CardDescription>
           </CardHeader>
           <CardContent>
