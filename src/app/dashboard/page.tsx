@@ -16,28 +16,28 @@ const featureCards = [
   {
     title: "Customer Payment Risk",
     description: "Assess payment risks for your customers.",
-    link: "/dashboard/risk-assessment", // Corrected link
+    link: "/dashboard/risk-assessment",
     icon: ShieldCheck,
     color: "text-accent"
   },
   {
     title: "New Order",
     description: "Enter new customer order details.",
-    link: "/dashboard/transactions/new", // Corrected link
+    link: "/dashboard/transactions/new",
     icon: ShoppingCart,
     color: "text-blue-500"
   },
   {
     title: "Order History",
     description: "Browse historical order records.",
-    link: "/dashboard/transactions/history", // Corrected link
+    link: "/dashboard/transactions/history",
     icon: History,
     color: "text-purple-500"
   },
   {
     title: "Payment Tracking",
     description: "Visualize and track payment statuses.",
-    link: "/dashboard/payment-flows", // Corrected link
+    link: "/dashboard/payment-flows",
     icon: CreditCard,
     color: "text-green-500"
   }
@@ -57,7 +57,7 @@ export default function DashboardOverviewPage({ params, searchParams }: Dashboar
           <CardHeader>
             <CardTitle className="text-3xl font-bold text-primary">Welcome to FruitFlow</CardTitle>
             <CardDescription className="text-lg text-muted-foreground">
-              Your platform for fruit trade operations, market insights, and transaction management.
+              Your dedicated portal as a fruit supplier, designed to help you manage customer orders, gain market insights, and track payments.
             </CardDescription>
           </CardHeader>
           <CardContent>
