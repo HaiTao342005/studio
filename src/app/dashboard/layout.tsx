@@ -49,11 +49,11 @@ const allNavItems: NavItem[] = [
   { href: '/dashboard', label: 'Overview', icon: LayoutDashboard, roles: ['supplier', 'transporter', 'customer', 'manager'] },
   // Manager specific
   { href: '/dashboard/user-approvals', label: 'User Approvals', icon: UserCheck, roles: ['manager'] },
-  { href: '/dashboard/manage-users', label: 'Manage Users', icon: Users, roles: ['manager'] }, // New: Manager can manage all users
+  { href: '/dashboard/manage-users', label: 'Manage Users', icon: Users, roles: ['manager'] },
   // Supplier specific (also now accessible by manager)
   { href: '/dashboard/market-data', label: 'Market Data', icon: CandlestickChart, roles: ['supplier', 'manager'] },
   { href: '/dashboard/risk-assessment', label: 'Customer Risk', icon: ShieldCheck, roles: ['supplier', 'manager'] },
-  { href: '/dashboard/transactions/new', label: 'New Order', icon: ShoppingCart, roles: ['supplier', 'manager'] },
+  { href: '/dashboard/transactions/new', label: 'New Order', icon: ShoppingCart, roles: ['supplier'] }, // Manager removed
   { href: '/dashboard/transactions/history', label: 'Order History', icon: History, roles: ['supplier', 'manager'] },
   { href: '/dashboard/payment-flows', label: 'Payment Tracking', icon: CreditCard, roles: ['supplier', 'manager'] },
   // Transporter specific
@@ -156,3 +156,4 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
     </SidebarProvider>
   );
 }
+
