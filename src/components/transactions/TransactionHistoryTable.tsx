@@ -12,13 +12,17 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from '@/components/ui/button';
-import { Trash2, Wallet, Loader2 } from 'lucide-react'; // Added Wallet and Loader2
+import { Trash2, Wallet, Loader2 } from 'lucide-react';
 import type { Order, OrderStatus, StoredOrder } from '@/types/transaction';
 import { AppleIcon, BananaIcon, OrangeIcon, GrapeIcon, MangoIcon, FruitIcon } from '@/components/icons/FruitIcons';
 import { format, parseISO } from 'date-fns';
-import { useToast } from "@/hooks/use-toast"; // Added useToast
+import { useToast } from "@/hooks/use-toast";
 
 const LOCAL_STORAGE_KEY = 'orders';
+
+// IMPORTANT: Replace this with one of your Ganache account addresses!
+const GANACHE_RECIPIENT_ADDRESS = "YOUR_GANACHE_ACCOUNT_ADDRESS_HERE";
+const SIMULATED_PAYMENT_ETH_AMOUNT = "0.001"; // Simulate paying 0.001 ETH
 
 const getStatusBadgeVariant = (status: OrderStatus): "default" | "secondary" | "destructive" | "outline" => {
   switch (status) {
@@ -45,7 +49,7 @@ const getFruitIcon = (fruitType: string): ElementType<SVGProps<SVGSVGElement>> =
 export function TransactionHistoryTable() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [payingOrderId, setPayingOrderId] = useState<string | null>(null); // State for managing payment simulation
+  const [payingOrderId, setPayingOrderId] = useState<string | null>(null);
   const { toast } = useToast();
 
   const loadOrders = () => {
@@ -62,6 +66,7 @@ export function TransactionHistoryTable() {
       setOrders(displayOrders);
     } catch (error) {
       console.error("Failed to load orders from localStorage:", error);
+      toast({ title: "Error Loading Orders", description: (error as Error).message, variant: "destructive" });
       setOrders([]); 
     }
     setIsLoading(false);
@@ -89,7 +94,7 @@ export function TransactionHistoryTable() {
       window.dispatchEvent(new CustomEvent('ordersUpdated'));
     } catch (error) {
       console.error("Failed to delete order from localStorage:", error);
-      toast({ title: "Error", description: "Could not delete order.", variant: "destructive" });
+      toast({ title: "Error Deleting Order", description: (error as Error).message, variant: "destructive" });
     }
   };
 
@@ -100,63 +105,91 @@ export function TransactionHistoryTable() {
       return;
     }
 
+    if (GANACHE_RECIPIENT_ADDRESS === "YOUR_GANACHE_ACCOUNT_ADDRESS_HERE") {
+      toast({
+        title: "Configuration Needed",
+        description: "Please set your Ganache recipient address in TransactionHistoryTable.tsx.",
+        variant: "destructive",
+        duration: 10000,
+      });
+      return;
+    }
+
+    if (typeof window.ethereum === 'undefined') {
+      toast({ title: "Metamask Not Found", description: "Please install Metamask to use this feature.", variant: "destructive" });
+      return;
+    }
+
     setPayingOrderId(orderId);
     toast({ 
-      title: "Initiating Smart Contract Payment", 
-      description: "Please confirm the transaction in your wallet (e.g., Metamask)." 
+      title: "Initiating Payment", 
+      description: "Please confirm the transaction in Metamask." 
     });
-
-    // Simulate Metamask interaction and user confirmation
-    await new Promise(resolve => setTimeout(resolve, 2500));
-
-    // --- START: Placeholder for actual Metamask/ethers.js interaction ---
-    // 1. Connect to Metamask/provider (e.g., using ethers.js)
-    //    const provider = new ethers.BrowserProvider(window.ethereum);
-    //    await provider.send("eth_requestAccounts", []);
-    //    const signer = await provider.getSigner();
-    //
-    // 2. Prepare the transaction details (amount, recipient from a smart contract)
-    //    const contractAddress = "YOUR_SMART_CONTRACT_ADDRESS_ON_GANACHE";
-    //    const contractABI = [ /* ... your contract's ABI ... */ ];
-    //    const contract = new ethers.Contract(contractAddress, contractABI, signer);
-    //    const amountInWei = ethers.parseEther((orderToPay.amount / 1000).toString()); // Example conversion
-    //    const transactionResponse = await contract.payOrder(orderId, { value: amountInWei });
-    //
-    // 3. Send the transaction
-    //    toast({ title: "Processing Payment", description: `Transaction sent: ${transactionResponse.hash}. Waiting for confirmation...` });
-    //    await transactionResponse.wait(); // Wait for transaction to be mined
-    // --- END: Placeholder for actual Metamask/ethers.js interaction ---
-
-    // For simulation, assume payment is successful after some delay
-    toast({ 
-      title: "Transaction Submitted", 
-      description: "Waiting for confirmation from the simulated blockchain (e.g., Ganache)..." 
-    });
-    await new Promise(resolve => setTimeout(resolve, 3500)); // Simulate transaction mining time
 
     try {
+      const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' }) as string[];
+      if (!accounts || accounts.length === 0) {
+        toast({ title: "Connection Failed", description: "No accounts found in Metamask.", variant: "destructive" });
+        setPayingOrderId(null);
+        return;
+      }
+      const fromAccount = accounts[0];
+
+      // Convert ETH amount to Wei in hexadecimal
+      // Note: For a real app, orderToPay.amount would need to be reliably in ETH or converted.
+      // Here we use a fixed SIMULATED_PAYMENT_ETH_AMOUNT.
+      const amountInWei = BigInt(Math.floor(parseFloat(SIMULATED_PAYMENT_ETH_AMOUNT) * 1e18));
+      const transactionParameters = {
+        to: GANACHE_RECIPIENT_ADDRESS,
+        from: fromAccount,
+        value: '0x' + amountInWei.toString(16), // Value in hexadecimal Wei
+      };
+
+      // Send the transaction
+      const txHash = await window.ethereum.request({
+        method: 'eth_sendTransaction',
+        params: [transactionParameters],
+      }) as string;
+
+      toast({ 
+        title: "Transaction Submitted", 
+        description: `Tx Hash: ${txHash.substring(0,10)}... Waiting for confirmation.`
+      });
+
+      // In a real app, you'd wait for transaction confirmation (e.g., by polling with ethers.js getTransactionReceipt)
+      // For this simulation, we'll proceed after a short delay.
+      await new Promise(resolve => setTimeout(resolve, 4000)); // Simulate mining time
+
+      // Update order status in localStorage
       const storedOrdersRaw = localStorage.getItem(LOCAL_STORAGE_KEY);
       let storedOrders: StoredOrder[] = storedOrdersRaw ? JSON.parse(storedOrdersRaw) : [];
       storedOrders = storedOrders.map(o => 
         o.id === orderId ? { ...o, status: 'Paid' as OrderStatus } : o
       );
       localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(storedOrders));
+      
       loadOrders(); // Reload orders to reflect the change
+      
       toast({ 
         title: "Payment Confirmed!", 
-        description: `Order for ${orderToPay.fruitType} marked as Paid. (Simulated blockchain confirmation)`, 
+        description: `Order for ${orderToPay.fruitType} marked as Paid. (Simulated confirmation)`, 
         variant: "default" 
       });
-    } catch (error) {
-      console.error("Failed to update order status in localStorage:", error);
-      toast({ title: "Storage Error", description: "Could not update order status.", variant: "destructive" });
+
+    } catch (error: any) {
+      console.error("Metamask payment failed:", error);
+      toast({ 
+        title: "Payment Error", 
+        description: error.message || "Failed to process payment with Metamask.", 
+        variant: "destructive" 
+      });
     } finally {
       setPayingOrderId(null);
     }
   };
 
   if (isLoading) {
-    return <p>Loading order history...</p>;
+    return <p className="text-center py-8">Loading order history...</p>;
   }
 
   if (orders.length === 0) {
@@ -199,8 +232,9 @@ export function TransactionHistoryTable() {
                   variant="outline"
                   size="sm"
                   onClick={() => handlePayWithMetamask(order.id)}
-                  disabled={payingOrderId === order.id || !!payingOrderId} // Disable if any payment is in progress
+                  disabled={payingOrderId === order.id || !!payingOrderId}
                   className="h-8 px-2"
+                  title="Pay with Metamask"
                 >
                   {payingOrderId === order.id ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -220,4 +254,3 @@ export function TransactionHistoryTable() {
     </Table>
   );
 }
-
