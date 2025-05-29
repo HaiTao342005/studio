@@ -27,11 +27,11 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useToast } from '@/hooks/use-toast';
-import { assessPaymentRisk, type PaymentRiskOutput } from '@/ai/flows/payment-risk-assessment'; // Ensure this path is correct
+import { assessPaymentRisk, type PaymentRiskOutput, type PaymentRiskInput } from '@/ai/flows/payment-risk-assessment';
 import { Loader2, AlertTriangle, ShieldCheck, ShieldAlert, ShieldQuestion } from 'lucide-react';
 
 interface RiskAssessmentPageProps {
-  params: {};
+  params: {}; // Static route
   searchParams: { [key: string]: string | string[] | undefined };
 }
 
@@ -40,7 +40,7 @@ const formSchema = z.object({
   exporterName: z.string().min(1, "Exporter name is required."),
   importerCountry: z.string().min(1, "Importer country is required."),
   exporterCountry: z.string().min(1, "Exporter country is required."),
-  transactionAmount: z.coerce.number().positive("Transaction amount must be a positive number."),
+  transactionAmount: z.coerce.number().positive("Transaction amount must be a positive number.").optional().or(z.literal(undefined)),
 });
 
 type FormData = z.infer<typeof formSchema>;
@@ -59,7 +59,7 @@ export default function RiskAssessmentPage({ params, searchParams }: RiskAssessm
       exporterName: '',
       importerCountry: '',
       exporterCountry: '',
-      transactionAmount: undefined, // Using undefined so placeholder and validation work as expected
+      transactionAmount: undefined, 
     },
   });
 
@@ -68,7 +68,12 @@ export default function RiskAssessmentPage({ params, searchParams }: RiskAssessm
     setError(null);
     setRiskResult(null);
     try {
-      const result = await assessPaymentRisk(data);
+      // Ensure transactionAmount is a number before sending to the AI flow
+      const validatedData: PaymentRiskInput = {
+        ...data,
+        transactionAmount: data.transactionAmount ?? 0, // Default to 0 if undefined, though schema should prevent this if positive is required
+      };
+      const result = await assessPaymentRisk(validatedData);
       setRiskResult(result);
       toast({
         title: "Risk Assessment Complete",
@@ -97,12 +102,12 @@ export default function RiskAssessmentPage({ params, searchParams }: RiskAssessm
       return { level: 'Unknown', badgeClass: 'bg-muted text-muted-foreground', Icon: ShieldQuestion };
     }
     if (score < 30) {
-      return { level: 'Low', badgeClass: 'bg-green-100 text-green-700 dark:bg-green-700 dark:text-green-100', Icon: ShieldCheck };
+      return { level: 'Low', badgeClass: 'bg-green-100 text-green-700 dark:bg-green-700 dark:text-green-100 border border-green-300 dark:border-green-600', Icon: ShieldCheck };
     }
     if (score < 70) {
-      return { level: 'Medium', badgeClass: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-600 dark:text-yellow-50', Icon: ShieldAlert };
+      return { level: 'Medium', badgeClass: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-600 dark:text-yellow-50 border border-yellow-300 dark:border-yellow-500', Icon: ShieldAlert };
     }
-    return { level: 'High', badgeClass: 'bg-red-100 text-red-700 dark:bg-red-700 dark:text-red-100', Icon: AlertTriangle };
+    return { level: 'High', badgeClass: 'bg-red-100 text-red-700 dark:bg-red-700 dark:text-red-100 border border-red-300 dark:border-red-600', Icon: AlertTriangle };
   };
   
   const currentRiskDisplay = riskResult ? getRiskLevel(riskResult.riskScore) : getRiskLevel(undefined);
@@ -180,8 +185,12 @@ export default function RiskAssessmentPage({ params, searchParams }: RiskAssessm
                     <FormItem>
                       <FormLabel>Transaction Amount (USD)</FormLabel>
                       <FormControl>
-                        <Input type="number" placeholder="e.g., 50000" {...field} 
-                          onChange={event => field.onChange(+event.target.value)} // Ensure value is number
+                        <Input 
+                          type="number" 
+                          placeholder="e.g., 50000" 
+                          {...field} 
+                          value={field.value ?? ''}
+                          onChange={event => field.onChange(event.target.value === '' ? undefined : +event.target.value)}
                         />
                       </FormControl>
                       <FormMessage />
@@ -225,10 +234,10 @@ export default function RiskAssessmentPage({ params, searchParams }: RiskAssessm
             )}
             {riskResult && !isLoading && !error && (
               <div className="space-y-6">
-                <div className="flex flex-col sm:flex-row items-center justify-between p-4 rounded-lg border gap-4">
+                <div className="flex flex-col sm:flex-row items-center justify-between p-4 rounded-lg border gap-4 bg-card">
                   <div className="text-center sm:text-left">
                     <p className="text-sm text-muted-foreground">Overall Risk Score</p>
-                    <p className="text-4xl font-bold">{riskResult.riskScore} / 100</p>
+                    <p className="text-4xl font-bold text-primary">{riskResult.riskScore} / 100</p>
                   </div>
                   <div className={`inline-flex items-center px-4 py-2 rounded-full text-md font-semibold ${currentRiskDisplay.badgeClass}`}>
                     <currentRiskDisplay.Icon className="mr-2 h-5 w-5" />
@@ -238,7 +247,7 @@ export default function RiskAssessmentPage({ params, searchParams }: RiskAssessm
                 
                 <div>
                   <h3 className="font-semibold mb-2 text-xl">Justification:</h3>
-                  <p className="text-sm text-muted-foreground bg-secondary p-4 rounded-md whitespace-pre-wrap">
+                  <p className="text-sm text-muted-foreground bg-secondary/50 p-4 rounded-md whitespace-pre-wrap border">
                     {riskResult.justification}
                   </p>
                 </div>
@@ -250,4 +259,3 @@ export default function RiskAssessmentPage({ params, searchParams }: RiskAssessm
     </div>
   );
 }
-

@@ -24,9 +24,9 @@ const transactionStatuses: [TransactionStatus, ...TransactionStatus[]] = ['Pendi
 const transactionSchema = z.object({
   transactionDate: z.date({ required_error: "Transaction date is required." }),
   fruitType: z.string().min(1, "Fruit type is required."),
-  quantity: z.coerce.number().positive("Quantity must be a positive number."),
+  quantity: z.coerce.number().positive("Quantity must be a positive number.").optional().or(z.literal(undefined)),
   unit: z.enum(['kg', 'ton', 'box', 'pallet'], { required_error: "Unit is required."}),
-  pricePerUnit: z.coerce.number().positive("Price per unit must be positive."),
+  pricePerUnit: z.coerce.number().positive("Price per unit must be positive.").optional().or(z.literal(undefined)),
   currency: z.string().min(2, "Currency is required (e.g., USD).").default("USD"),
   importerName: z.string().min(2, "Importer name is required."),
   exporterName: z.string().min(2, "Exporter name is required."),
@@ -71,12 +71,9 @@ export function TransactionForm({ onSubmitSuccess, children }: TransactionFormPr
       id: crypto.randomUUID(),
       date: data.transactionDate.toISOString(),
       fruitType: data.fruitType,
-      quantity: data.quantity,
+      quantity: data.quantity ?? 0, // Default to 0 if undefined, though schema requires positive
       unit: data.unit,
-      // Calculate total amount: pricePerUnit * quantity
-      // For simplicity, we'll store pricePerUnit and let table calculate if needed, or store total.
-      // Here, let's assume 'amount' means total transaction value for now.
-      amount: data.pricePerUnit * data.quantity, 
+      amount: (data.pricePerUnit ?? 0) * (data.quantity ?? 0), 
       currency: data.currency,
       importer: data.importerName,
       exporter: data.exporterName,
@@ -98,6 +95,8 @@ export function TransactionForm({ onSubmitSuccess, children }: TransactionFormPr
       });
       form.reset();
       if (onSubmitSuccess) onSubmitSuccess();
+       // Dispatch a custom event so other components (like history table) can be aware
+      window.dispatchEvent(new CustomEvent('transactionsUpdated'));
 
     } catch (error) {
       console.error("Failed to save transaction to localStorage:", error);
@@ -174,7 +173,15 @@ export function TransactionForm({ onSubmitSuccess, children }: TransactionFormPr
             render={({ field }) => (
               <FormItem>
                 <FormLabel>Quantity *</FormLabel>
-                <FormControl><Input type="number" placeholder="e.g., 1000" {...field} onChange={e => field.onChange(e.target.value === '' ? undefined : +e.target.value)} /></FormControl>
+                <FormControl>
+                  <Input 
+                    type="number" 
+                    placeholder="e.g., 1000" 
+                    {...field} 
+                    value={field.value ?? ''}
+                    onChange={e => field.onChange(e.target.value === '' ? undefined : +e.target.value)} 
+                  />
+                </FormControl>
                 <FormMessage />
               </FormItem>
             )}
@@ -208,7 +215,16 @@ export function TransactionForm({ onSubmitSuccess, children }: TransactionFormPr
             render={({ field }) => (
               <FormItem>
                 <FormLabel>Price Per Unit *</FormLabel>
-                <FormControl><Input type="number" step="0.01" placeholder="e.g., 1.50" {...field} onChange={e => field.onChange(e.target.value === '' ? undefined : +e.target.value)} /></FormControl>
+                <FormControl>
+                  <Input 
+                    type="number" 
+                    step="0.01" 
+                    placeholder="e.g., 1.50" 
+                    {...field} 
+                    value={field.value ?? ''}
+                    onChange={e => field.onChange(e.target.value === '' ? undefined : +e.target.value)} 
+                  />
+                </FormControl>
                 <FormMessage />
               </FormItem>
             )}
