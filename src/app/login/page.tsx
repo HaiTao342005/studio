@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, type FormEvent } from 'react';
+import { useState, type FormEvent, useEffect } from 'react'; // Added useEffect
 import { useRouter } from 'next/navigation';
 import { useAuth, type UserRole } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
@@ -9,8 +9,8 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Input } from '@/components/ui/input';
-import { Leaf, UserPlus, LogIn } from 'lucide-react'; // Added icons
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"; // For tabbed view
+import { Leaf, UserPlus, LogIn } from 'lucide-react'; 
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 
 export default function LoginPage() {
   const [username, setUsername] = useState('');
