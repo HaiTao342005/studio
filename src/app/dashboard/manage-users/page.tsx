@@ -1,14 +1,19 @@
 
 "use client";
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth, type UserRole, type StoredUser } from '@/contexts/AuthContext';
 import { Header } from '@/components/dashboard/Header';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, Info, Users, CheckCircle, XCircle } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Loader2, Info, Users, CheckCircle, XCircle, UserPlus } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
+
 
 interface ManageUsersPageProps {
   params: {};
@@ -16,10 +21,14 @@ interface ManageUsersPageProps {
 }
 
 export default function ManageUsersPage({ params, searchParams }: ManageUsersPageProps) {
-  const { user, getAllUsers, isLoading: authLoading } = useAuth();
+  const { user, getAllUsers, addManager, isLoading: authLoading } = useAuth();
   const router = useRouter();
   const [allUsersList, setAllUsersList] = useState<StoredUser[]>([]);
   const [isLoadingUsers, setIsLoadingUsers] = useState(true);
+  const [newManagerUsername, setNewManagerUsername] = useState('');
+  const [newManagerPassword, setNewManagerPassword] = useState('');
+  const [isCreatingManager, setIsCreatingManager] = useState(false);
+  const { toast } = useToast();
 
   useEffect(() => {
     if (!authLoading && (!user || user.role !== 'manager')) {
@@ -35,6 +44,27 @@ export default function ManageUsersPage({ params, searchParams }: ManageUsersPag
       setIsLoadingUsers(false);
     }
   }, [user, getAllUsers]);
+
+  const handleCreateManager = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!newManagerUsername || !newManagerPassword) {
+        toast({ title: "Error", description: "Username and password are required for new manager.", variant: "destructive" });
+        return;
+    }
+    setIsCreatingManager(true);
+    const success = addManager(newManagerUsername, newManagerPassword);
+    if (success) {
+        setNewManagerUsername('');
+        setNewManagerPassword('');
+        // Refresh user list to show the new manager
+        const updatedUsers = getAllUsers();
+        setAllUsersList(updatedUsers);
+        toast({ title: "Manager Created", description: `Manager account for ${newManagerUsername} created successfully.` });
+    }
+    // Toast for failure is handled within addManager in AuthContext
+    setIsCreatingManager(false);
+  };
+
 
   if (authLoading || isLoadingUsers) {
     return (
@@ -59,17 +89,25 @@ export default function ManageUsersPage({ params, searchParams }: ManageUsersPag
     );
   }
 
-  const getRoleBadgeVariant = (role: UserRole): "default" | "secondary" | "outline" => {
+  const getRoleBadgeVariant = (role: UserRole): "default" | "secondary" | "outline" | "destructive" => {
     switch (role) {
-      case 'manager': return 'default'; // Or a specific color for manager
+      case 'manager': return 'destructive'; 
       case 'supplier': return 'secondary';
       case 'transporter': return 'outline';
-      case 'customer': return 'outline'; // Consider a different color for customer if needed
+      case 'customer': return 'default'; 
       default: return 'outline';
     }
   };
   
-  const getApprovalBadge = (isApproved: boolean) => {
+  const getApprovalBadge = (isApproved: boolean, role: UserRole) => {
+    if (role === 'customer' || role === 'manager') { // Customers and Managers are auto-approved
+         return (
+            <Badge variant="default" className="bg-green-500 hover:bg-green-600 text-white">
+                <CheckCircle className="h-4 w-4 mr-1.5" />
+                Auto-Approved
+            </Badge>
+         );
+    }
     return isApproved ? (
       <Badge variant="default" className="bg-green-500 hover:bg-green-600 text-white">
         <CheckCircle className="h-4 w-4 mr-1.5" />
@@ -95,7 +133,7 @@ export default function ManageUsersPage({ params, searchParams }: ManageUsersPag
               All Registered Users
             </CardTitle>
             <CardDescription>
-              View all users in the system, their roles, and approval status.
+              View all users in the system, their roles, and approval status. Managers can also create new manager accounts.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -113,7 +151,6 @@ export default function ManageUsersPage({ params, searchParams }: ManageUsersPag
                       <TableHead>Username</TableHead>
                       <TableHead>Role</TableHead>
                       <TableHead className="text-center">Approval Status</TableHead>
-                      {/* Add more columns like "Actions" for future enhancements e.g., Edit/Deactivate */}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -126,7 +163,7 @@ export default function ManageUsersPage({ params, searchParams }: ManageUsersPag
                           </Badge>
                         </TableCell>
                         <TableCell className="text-center">
-                          {getApprovalBadge(listedUser.isApproved)}
+                          {getApprovalBadge(listedUser.isApproved, listedUser.role)}
                         </TableCell>
                       </TableRow>
                     ))}
@@ -136,10 +173,46 @@ export default function ManageUsersPage({ params, searchParams }: ManageUsersPag
             )}
           </CardContent>
         </Card>
+
+        <Card className="shadow-md">
+          <CardHeader>
+            <CardTitle>Create New Manager Account</CardTitle>
+            <CardDescription>Add a new manager to the system. This account will be auto-approved.</CardDescription>
+          </CardHeader>
+          <form onSubmit={handleCreateManager}>
+            <CardContent className="space-y-4">
+              <div className="space-y-1">
+                <Label htmlFor="newManagerUsername">New Manager Username</Label>
+                <Input 
+                  id="newManagerUsername" 
+                  value={newManagerUsername} 
+                  onChange={(e) => setNewManagerUsername(e.target.value)} 
+                  placeholder="Enter username"
+                  required 
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="newManagerPassword">New Manager Password</Label>
+                <Input 
+                  id="newManagerPassword" 
+                  type="password" 
+                  value={newManagerPassword} 
+                  onChange={(e) => setNewManagerPassword(e.target.value)} 
+                  placeholder="Enter password"
+                  required 
+                />
+              </div>
+            </CardContent>
+            <CardFooter>
+              <Button type="submit" disabled={isCreatingManager} className="w-full">
+                {isCreatingManager && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                <UserPlus className="mr-2 h-4 w-4" /> Create Manager
+              </Button>
+            </CardFooter>
+          </form>
+        </Card>
+
       </main>
     </>
   );
 }
-
-// Ensure StoredUser type is exported from AuthContext if not already
-// For this page, StoredUser needs: id, name, role, isApproved

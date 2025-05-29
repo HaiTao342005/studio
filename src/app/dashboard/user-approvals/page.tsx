@@ -1,17 +1,15 @@
 
 "use client";
 
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth, type UserRole } from '@/contexts/AuthContext';
 import { Header } from '@/components/dashboard/Header';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { CheckCircle, XCircle, Loader2, Info, UserPlus } from 'lucide-react';
+import { CheckCircle, Loader2, Info } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
 
@@ -28,14 +26,12 @@ interface UserApprovalsPageProps {
 }
 
 export default function UserApprovalsPage({ params, searchParams }: UserApprovalsPageProps) {
-  const { user, getAllUsers, approveUser, addManager, isLoading: authLoading } = useAuth();
+  const { user, getAllUsers, approveUser, isLoading: authLoading } = useAuth();
   const router = useRouter();
   const [pendingUsers, setPendingUsers] = useState<StoredUserForDisplay[]>([]);
   const [approvedUsers, setApprovedUsers] = useState<StoredUserForDisplay[]>([]);
   const [isLoadingUsers, setIsLoadingUsers] = useState(true);
-  const [newManagerUsername, setNewManagerUsername] = useState('');
-  const [newManagerPassword, setNewManagerPassword] = useState('');
-  const [isCreatingManager, setIsCreatingManager] = useState(false);
+  
   const { toast } = useToast();
 
   const refreshUserLists = useCallback(() => {
@@ -61,28 +57,13 @@ export default function UserApprovalsPage({ params, searchParams }: UserApproval
 
   useEffect(() => {
     refreshUserLists();
-  }, [user, refreshUserLists]); // Rerun if user object itself changes (e.g., due to context update)
+  }, [user, refreshUserLists]); 
 
   const handleApprove = (userId: string) => {
     approveUser(userId);
-    refreshUserLists(); // Refresh lists after approval
+    refreshUserLists(); 
   };
 
-  const handleCreateManager = async (e: FormEvent) => {
-    e.preventDefault();
-    if (!newManagerUsername || !newManagerPassword) {
-        toast({ title: "Error", description: "Username and password are required for new manager.", variant: "destructive" });
-        return;
-    }
-    setIsCreatingManager(true);
-    const success = addManager(newManagerUsername, newManagerPassword);
-    if (success) {
-        setNewManagerUsername('');
-        setNewManagerPassword('');
-        // Optionally refresh list of all users if needed, though this page doesn't display other managers
-    }
-    setIsCreatingManager(false);
-  };
 
   if (authLoading || isLoadingUsers) {
     return (
@@ -166,44 +147,6 @@ export default function UserApprovalsPage({ params, searchParams }: UserApproval
 
         <Card className="shadow-md">
           <CardHeader>
-            <CardTitle>Create New Manager Account</CardTitle>
-            <CardDescription>Add a new manager to the system.</CardDescription>
-          </CardHeader>
-          <form onSubmit={handleCreateManager}>
-            <CardContent className="space-y-4">
-              <div className="space-y-1">
-                <Label htmlFor="newManagerUsername">New Manager Username</Label>
-                <Input 
-                  id="newManagerUsername" 
-                  value={newManagerUsername} 
-                  onChange={(e) => setNewManagerUsername(e.target.value)} 
-                  placeholder="Enter username"
-                  required 
-                />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="newManagerPassword">New Manager Password</Label>
-                <Input 
-                  id="newManagerPassword" 
-                  type="password" 
-                  value={newManagerPassword} 
-                  onChange={(e) => setNewManagerPassword(e.target.value)} 
-                  placeholder="Enter password"
-                  required 
-                />
-              </div>
-            </CardContent>
-            <CardFooter>
-              <Button type="submit" disabled={isCreatingManager} className="w-full">
-                {isCreatingManager && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                <UserPlus className="mr-2 h-4 w-4" /> Create Manager
-              </Button>
-            </CardFooter>
-          </form>
-        </Card>
-
-        <Card className="shadow-md">
-          <CardHeader>
             <CardTitle>Approved Suppliers &amp; Transporters</CardTitle>
             <CardDescription>List of already approved Suppliers and Transporters.</CardDescription>
           </CardHeader>
@@ -251,6 +194,3 @@ export default function UserApprovalsPage({ params, searchParams }: UserApproval
     </>
   );
 }
-
-// Added useCallback to satisfy useEffect dependency array requirements for refreshUserLists
-import { useCallback } from 'react';
