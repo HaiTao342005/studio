@@ -2,20 +2,20 @@
 "use client";
 
 import type { ReactNode} from 'react';
-import { createContext, useContext, useState, useEffect } from 'react';
-import { useToast } from '@/hooks/use-toast'; // Import useToast
+import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { useToast } from '@/hooks/use-toast';
 
-export type UserRole = 'supplier' | 'transporter' | 'customer' | null;
+export type UserRole = 'supplier' | 'transporter' | 'customer' | 'manager' | null;
 
 interface User {
-  id: string; 
-  name: string; 
+  id: string;
+  name: string;
   role: UserRole;
+  isApproved: boolean; // Added for approval status
 }
 
-// Interface for stored user data, including a mock password
 interface StoredUser extends User {
-  mockPassword?: string; // Optional for users created before this change
+  mockPassword?: string;
 }
 
 interface AuthContextType {
@@ -24,6 +24,8 @@ interface AuthContextType {
   signup: (username: string, mockPasswordNew: string, role: UserRole) => void;
   logout: () => void;
   isLoading: boolean;
+  getAllUsers: () => StoredUser[]; // For manager page
+  approveUser: (userId: string) => void; // For manager page
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -34,7 +36,7 @@ const ALL_USERS_STORAGE_KEY = 'fruitflow-allUsers';
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const { toast } = useToast(); // Initialize toast
+  const { toast } = useToast();
 
   useEffect(() => {
     try {
@@ -49,7 +51,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsLoading(false);
   }, []);
 
-  const getStoredUsers = (): StoredUser[] => {
+  const getStoredUsers = useCallback((): StoredUser[] => {
     try {
       const users = localStorage.getItem(ALL_USERS_STORAGE_KEY);
       return users ? JSON.parse(users) : [];
@@ -57,13 +59,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       console.error("Failed to parse all users from localStorage", error);
       return [];
     }
-  };
+  }, []);
 
-  const saveStoredUsers = (users: StoredUser[]) => {
+  const saveStoredUsers = useCallback((users: StoredUser[]) => {
     localStorage.setItem(ALL_USERS_STORAGE_KEY, JSON.stringify(users));
-  };
+  }, []);
 
-  const signup = (username: string, mockPasswordNew: string, role: UserRole) => {
+  const signup = useCallback((username: string, mockPasswordNew: string, role: UserRole) => {
     if (!username || !mockPasswordNew || !role) {
       toast({ title: "Sign Up Error", description: "All fields are required for sign up.", variant: "destructive" });
       return;
@@ -76,23 +78,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    const newUser: StoredUser = { 
-      id: Date.now().toString(), 
-      name: username, 
-      role, 
-      mockPassword: mockPasswordNew 
+    const isManager = role === 'manager';
+    const newUser: StoredUser = {
+      id: Date.now().toString(),
+      name: username,
+      role,
+      mockPassword: mockPasswordNew,
+      isApproved: isManager, // Managers are auto-approved
     };
     allUsers.push(newUser);
     saveStoredUsers(allUsers);
 
-    // Log in the new user
-    const userToSet: User = { id: newUser.id, name: newUser.name, role: newUser.role };
-    setUser(userToSet);
-    localStorage.setItem(CURRENT_USER_STORAGE_KEY, JSON.stringify(userToSet));
-    toast({ title: "Sign Up Successful!", description: `Welcome, ${username}! You are now logged in as a ${role}.` });
-  };
+    if (isManager) {
+      const userToSet: User = { id: newUser.id, name: newUser.name, role: newUser.role, isApproved: newUser.isApproved };
+      setUser(userToSet);
+      localStorage.setItem(CURRENT_USER_STORAGE_KEY, JSON.stringify(userToSet));
+      toast({ title: "Sign Up Successful!", description: `Welcome, ${username}! You are now logged in as a ${role}.` });
+    } else {
+      toast({ title: "Sign Up Successful!", description: `Account for ${username} (${role}) created. Awaiting manager approval.` });
+      // Do not automatically log in non-managers; they need approval.
+    }
+  }, [getStoredUsers, saveStoredUsers, toast]);
 
-  const login = (username: string, mockPasswordAttempt: string) => {
+  const login = useCallback((username: string, mockPasswordAttempt: string) => {
      if (!username || !mockPasswordAttempt) {
       toast({ title: "Login Error", description: "Username and password are required.", variant: "destructive" });
       return;
@@ -101,29 +109,44 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const foundUser = allUsers.find(u => u.name.toLowerCase() === username.toLowerCase());
 
     if (foundUser && foundUser.mockPassword === mockPasswordAttempt) {
-      const userToSet: User = { id: foundUser.id, name: foundUser.name, role: foundUser.role };
+      if (foundUser.role !== 'manager' && !foundUser.isApproved) {
+        toast({ title: "Login Failed", description: "Your account is awaiting manager approval.", variant: "destructive" });
+        return;
+      }
+      const userToSet: User = { id: foundUser.id, name: foundUser.name, role: foundUser.role, isApproved: foundUser.isApproved };
       setUser(userToSet);
       localStorage.setItem(CURRENT_USER_STORAGE_KEY, JSON.stringify(userToSet));
       toast({ title: "Login Successful!", description: `Welcome back, ${username}!` });
-    } else if (foundUser && !foundUser.mockPassword) {
-      // Handle users created before password system - allow login by role if they exist
-      // This part is tricky without knowing the original role. We'll assume old users need to sign up again.
-      toast({ title: "Login Failed", description: "This account was created before password support. Please sign up again with a password.", variant: "destructive" });
-    }
-    
-    else {
+    } else {
       toast({ title: "Login Failed", description: "Invalid username or password.", variant: "destructive" });
     }
-  };
+  }, [getStoredUsers, toast]);
 
-  const logout = () => {
+  const logout = useCallback(() => {
     setUser(null);
     localStorage.removeItem(CURRENT_USER_STORAGE_KEY);
     toast({ title: "Logged Out", description: "You have been successfully logged out." });
-  };
+  }, [toast]);
+
+  const getAllUsers = useCallback((): StoredUser[] => {
+    return getStoredUsers();
+  }, [getStoredUsers]);
+
+  const approveUser = useCallback((userId: string) => {
+    const allUsers = getStoredUsers();
+    const userIndex = allUsers.findIndex(u => u.id === userId);
+    if (userIndex > -1) {
+      allUsers[userIndex].isApproved = true;
+      saveStoredUsers(allUsers);
+      toast({ title: "User Approved", description: `User ${allUsers[userIndex].name} has been approved.` });
+    } else {
+      toast({ title: "Error", description: "User not found for approval.", variant: "destructive" });
+    }
+  }, [getStoredUsers, saveStoredUsers, toast]);
+
 
   return (
-    <AuthContext.Provider value={{ user, login, signup, logout, isLoading }}>
+    <AuthContext.Provider value={{ user, login, signup, logout, isLoading, getAllUsers, approveUser }}>
       {children}
     </AuthContext.Provider>
   );

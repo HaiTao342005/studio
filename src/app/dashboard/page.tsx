@@ -5,8 +5,12 @@ import Link from 'next/link';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Header } from '@/components/dashboard/Header';
-import { ArrowRight, CandlestickChart, ShieldCheck, ShoppingCart, History, CreditCard, UserCircle, Truck, PackageSearch, ClipboardList, FileText } from 'lucide-react';
+import { ArrowRight, CandlestickChart, ShieldCheck, ShoppingCart, History, CreditCard, UserCircle, Truck, PackageSearch, ClipboardList, FileText, UserCheck } from 'lucide-react';
 import { useAuth, type UserRole } from '@/contexts/AuthContext';
+
+const managerFeatures = [
+  { title: "User Approvals", description: "Approve or reject new user sign-ups.", link: "/dashboard/user-approvals", icon: UserCheck, color: "text-teal-500" },
+];
 
 const supplierFeatures = [
   { title: "Market Data", description: "View real-time global fruit market data.", link: "/dashboard/market-data", icon: CandlestickChart, color: "text-primary" },
@@ -38,6 +42,8 @@ interface FeatureCard {
 
 const getRoleSpecificFeatures = (role: UserRole): FeatureCard[] => {
   switch (role) {
+    case 'manager':
+      return managerFeatures;
     case 'supplier':
       return supplierFeatures;
     case 'transporter':
@@ -50,7 +56,7 @@ const getRoleSpecificFeatures = (role: UserRole): FeatureCard[] => {
 };
 
 interface DashboardOverviewPageProps {
-  params: {}; 
+  params: {};
   searchParams: { [key: string]: string | string[] | undefined };
 }
 
@@ -109,7 +115,7 @@ export default function DashboardOverviewPage({ params, searchParams }: Dashboar
             </Card>
           ))}
         </div>
-        
+
         {featureCards.length === 0 && (
           <Card>
             <CardContent className="pt-6">

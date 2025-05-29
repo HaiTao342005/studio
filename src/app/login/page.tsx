@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, type FormEvent, useEffect } from 'react'; // Added useEffect
+import { useState, type FormEvent, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth, type UserRole } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
@@ -9,8 +9,10 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Input } from '@/components/ui/input';
-import { Leaf, UserPlus, LogIn } from 'lucide-react'; 
+import { Leaf, UserPlus, LogIn } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+
+const ALL_ROLES: UserRole[] = ['supplier', 'transporter', 'customer', 'manager'];
 
 export default function LoginPage() {
   const [username, setUsername] = useState('');
@@ -32,14 +34,14 @@ export default function LoginPage() {
   const handleLoginSubmit = (e: FormEvent) => {
     e.preventDefault();
     login(username, password);
-    // Auth context will handle navigation on successful login via useEffect in Header or Layout
   };
 
   const handleSignupSubmit = (e: FormEvent) => {
     e.preventDefault();
     if (selectedRole) {
       signup(username, password, selectedRole);
-      // Auth context will handle navigation on successful signup
+      // Potentially clear form or switch to login tab after signup
+      // For now, signup toast will inform about approval status
     }
   };
 
@@ -121,16 +123,16 @@ export default function LoginPage() {
                   <RadioGroup
                     value={selectedRole || 'supplier'}
                     onValueChange={(value: UserRole) => setSelectedRole(value)}
-                    className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2"
+                    className="grid grid-cols-2 sm:grid-cols-2 gap-4 pt-2" // Adjusted for 4 roles
                   >
-                    {['supplier', 'transporter', 'customer'].map((role) => (
+                    {ALL_ROLES.filter(role => role !== null).map((role) => (
                       <div key={role}>
-                        <RadioGroupItem value={role} id={`signup-${role}`} className="peer sr-only" />
+                        <RadioGroupItem value={role as string} id={`signup-${role}`} className="peer sr-only" />
                         <Label
                           htmlFor={`signup-${role}`}
-                          className="flex flex-col items-center justify-between rounded-md border-2 border-muted bg-popover p-4 hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary cursor-pointer transition-all"
+                          className="flex flex-col items-center justify-between rounded-md border-2 border-muted bg-popover p-4 hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary cursor-pointer transition-all text-center"
                         >
-                          {role.charAt(0).toUpperCase() + role.slice(1)}
+                          {role!.charAt(0).toUpperCase() + role!.slice(1)}
                         </Label>
                       </div>
                     ))}
@@ -146,7 +148,7 @@ export default function LoginPage() {
         <CardFooter className="text-center text-sm text-muted-foreground">
           <p>
             This is a demonstration. Passwords are not stored securely.
-            For a real application, use Firebase Authentication.
+            For a real application, use Firebase Authentication. Suppliers & Customers require manager approval.
           </p>
         </CardFooter>
       </Card>
