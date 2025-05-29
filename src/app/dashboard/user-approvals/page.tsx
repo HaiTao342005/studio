@@ -40,9 +40,9 @@ export default function UserApprovalsPage({ params, searchParams }: UserApproval
     if (user && user.role === 'manager') {
       setIsLoadingUsers(true);
       const allUsers = getAllUsers();
-      const pending = allUsers.filter(u => (u.role === 'supplier' || u.role === 'customer' || u.role === 'transporter') && !u.isApproved)
+      const pending = allUsers.filter(u => (u.role === 'supplier' || u.role === 'transporter') && !u.isApproved)
                               .map(u => ({ id: u.id, name: u.name, role: u.role, isApproved: u.isApproved }));
-      const approved = allUsers.filter(u => (u.role === 'supplier' || u.role === 'customer' || u.role === 'transporter') && u.isApproved)
+      const approved = allUsers.filter(u => (u.role === 'supplier' || u.role === 'transporter') && u.isApproved)
                                .map(u => ({ id: u.id, name: u.name, role: u.role, isApproved: u.isApproved }));
       setPendingUsers(pending);
       setApprovedUsers(approved);
@@ -54,10 +54,10 @@ export default function UserApprovalsPage({ params, searchParams }: UserApproval
     approveUser(userId);
     // Refresh the list after approval
     const allUsers = getAllUsers();
-      const pending = allUsers.filter(u => (u.role === 'supplier' || u.role === 'customer' || u.role === 'transporter') && !u.isApproved)
-                              .map(u => ({ id: u.id, name: u.name, role: u.role, isApproved: u.isApproved }));
-      const approved = allUsers.filter(u => (u.role === 'supplier' || u.role === 'customer' || u.role === 'transporter') && u.isApproved)
-                               .map(u => ({ id: u.id, name: u.name, role: u.role, isApproved: u.isApproved }));
+    const pending = allUsers.filter(u => (u.role === 'supplier' || u.role === 'transporter') && !u.isApproved)
+                            .map(u => ({ id: u.id, name: u.name, role: u.role, isApproved: u.isApproved }));
+    const approved = allUsers.filter(u => (u.role === 'supplier' || u.role === 'transporter') && u.isApproved)
+                             .map(u => ({ id: u.id, name: u.name, role: u.role, isApproved: u.isApproved }));
     setPendingUsers(pending);
     setApprovedUsers(approved);
   };
@@ -93,7 +93,7 @@ export default function UserApprovalsPage({ params, searchParams }: UserApproval
           <CardHeader>
             <CardTitle>Pending Approvals</CardTitle>
             <CardDescription>
-              Review and approve new Supplier and Customer accounts.
+              Review and approve new Supplier and Transporter accounts. Customer accounts are auto-approved.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -101,7 +101,7 @@ export default function UserApprovalsPage({ params, searchParams }: UserApproval
               <div className="flex flex-col items-center justify-center py-10 text-center">
                 <Info className="h-12 w-12 text-primary mb-4" />
                 <p className="text-lg font-semibold text-muted-foreground">No Pending Approvals</p>
-                <p className="text-sm text-muted-foreground">All new user registrations have been processed.</p>
+                <p className="text-sm text-muted-foreground">All new Supplier and Transporter registrations have been processed.</p>
               </div>
             ) : (
               <div className="overflow-x-auto">
@@ -118,7 +118,7 @@ export default function UserApprovalsPage({ params, searchParams }: UserApproval
                       <TableRow key={pendingUser.id}>
                         <TableCell>{pendingUser.name}</TableCell>
                         <TableCell>
-                           <Badge variant={pendingUser.role === 'supplier' ? 'default' : pendingUser.role === 'customer' ? 'secondary' : 'outline'}>
+                           <Badge variant={pendingUser.role === 'supplier' ? 'default' : pendingUser.role === 'transporter' ? 'secondary' : 'outline'}>
                             {pendingUser.role ? pendingUser.role.charAt(0).toUpperCase() + pendingUser.role.slice(1) : 'N/A'}
                            </Badge>
                         </TableCell>
@@ -145,8 +145,8 @@ export default function UserApprovalsPage({ params, searchParams }: UserApproval
 
         <Card className="shadow-md">
           <CardHeader>
-            <CardTitle>Approved Users</CardTitle>
-            <CardDescription>List of already approved Suppliers and Customers.</CardDescription>
+            <CardTitle>Approved Suppliers &amp; Transporters</CardTitle>
+            <CardDescription>List of already approved Suppliers and Transporters.</CardDescription>
           </CardHeader>
           <CardContent>
              {approvedUsers.length === 0 ? (
@@ -170,7 +170,7 @@ export default function UserApprovalsPage({ params, searchParams }: UserApproval
                       <TableRow key={approvedUser.id}>
                         <TableCell>{approvedUser.name}</TableCell>
                         <TableCell>
-                          <Badge variant={approvedUser.role === 'supplier' ? 'default' : approvedUser.role === 'customer' ? 'secondary' : 'outline'}>
+                          <Badge variant={approvedUser.role === 'supplier' ? 'default' : approvedUser.role === 'transporter' ? 'secondary' : 'outline'}>
                             {approvedUser.role ? approvedUser.role.charAt(0).toUpperCase() + approvedUser.role.slice(1) : 'N/A'}
                           </Badge>
                         </TableCell>

@@ -11,7 +11,7 @@ interface User {
   id: string;
   name: string;
   role: UserRole;
-  isApproved: boolean; // Added for approval status
+  isApproved: boolean;
 }
 
 interface StoredUser extends User {
@@ -24,8 +24,8 @@ interface AuthContextType {
   signup: (username: string, mockPasswordNew: string, role: UserRole) => void;
   logout: () => void;
   isLoading: boolean;
-  getAllUsers: () => StoredUser[]; // For manager page
-  approveUser: (userId: string) => void; // For manager page
+  getAllUsers: () => StoredUser[];
+  approveUser: (userId: string) => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -79,24 +79,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     const isManager = role === 'manager';
+    const isCustomer = role === 'customer';
+    const autoApproved = isManager || isCustomer;
+
     const newUser: StoredUser = {
       id: Date.now().toString(),
       name: username,
       role,
       mockPassword: mockPasswordNew,
-      isApproved: isManager, // Managers are auto-approved
+      isApproved: autoApproved,
     };
     allUsers.push(newUser);
     saveStoredUsers(allUsers);
 
-    if (isManager) {
+    if (autoApproved) {
       const userToSet: User = { id: newUser.id, name: newUser.name, role: newUser.role, isApproved: newUser.isApproved };
-      setUser(userToSet);
+      setUser(userToSet); // Auto-login for manager and customer
       localStorage.setItem(CURRENT_USER_STORAGE_KEY, JSON.stringify(userToSet));
-      toast({ title: "Sign Up Successful!", description: `Welcome, ${username}! You are now logged in as a ${role}.` });
-    } else {
+      toast({ title: "Sign Up Successful!", description: `Welcome, ${username}! Your ${role} account is approved and you are now logged in.` });
+    } else { // Supplier or Transporter
       toast({ title: "Sign Up Successful!", description: `Account for ${username} (${role}) created. Awaiting manager approval.` });
-      // Do not automatically log in non-managers; they need approval.
     }
   }, [getStoredUsers, saveStoredUsers, toast]);
 
@@ -109,8 +111,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const foundUser = allUsers.find(u => u.name.toLowerCase() === username.toLowerCase());
 
     if (foundUser && foundUser.mockPassword === mockPasswordAttempt) {
-      if (foundUser.role !== 'manager' && !foundUser.isApproved) {
-        toast({ title: "Login Failed", description: "Your account is awaiting manager approval.", variant: "destructive" });
+      if ((foundUser.role === 'supplier' || foundUser.role === 'transporter') && !foundUser.isApproved) {
+        toast({ title: "Login Failed", description: "Your account as a " + foundUser.role + " is awaiting manager approval.", variant: "destructive" });
         return;
       }
       const userToSet: User = { id: foundUser.id, name: foundUser.name, role: foundUser.role, isApproved: foundUser.isApproved };
@@ -135,12 +137,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const approveUser = useCallback((userId: string) => {
     const allUsers = getStoredUsers();
     const userIndex = allUsers.findIndex(u => u.id === userId);
-    if (userIndex > -1) {
+    if (userIndex > -1 && (allUsers[userIndex].role === 'supplier' || allUsers[userIndex].role === 'transporter')) {
       allUsers[userIndex].isApproved = true;
       saveStoredUsers(allUsers);
-      toast({ title: "User Approved", description: `User ${allUsers[userIndex].name} has been approved.` });
+      toast({ title: "User Approved", description: `User ${allUsers[userIndex].name} (${allUsers[userIndex].role}) has been approved.` });
     } else {
-      toast({ title: "Error", description: "User not found for approval.", variant: "destructive" });
+      toast({ title: "Error", description: "User not found or not eligible for approval.", variant: "destructive" });
     }
   }, [getStoredUsers, saveStoredUsers, toast]);
 

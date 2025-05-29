@@ -104,11 +104,8 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!isLoading && !user) {
       router.replace('/login');
-    } else if (!isLoading && user && !user.isApproved && user.role !== 'manager') {
-      // If user is logged in (somehow, or their approval was revoked) but not approved and not a manager,
-      // keep them on a page or redirect them to a "pending approval" page if you create one.
-      // For now, this might not be strictly necessary if login is blocked, but good for robustness.
-      // router.replace('/pending-approval'); // Example: if you create such a page
+    } else if (!isLoading && user && !user.isApproved && (user.role === 'supplier' || user.role === 'transporter')) {
+      // Handled further down, this is just an early check if needed for other logic
     }
   }, [user, isLoading, router]);
 
@@ -121,9 +118,9 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
     );
   }
 
-  // If user is not approved and not a manager, show a pending approval message.
+  // If a supplier or transporter is logged in but not approved, show a pending approval message.
   // This is an additional check in case they bypass the login block somehow.
-  if (!user.isApproved && user.role !== 'manager') {
+  if (!user.isApproved && (user.role === 'supplier' || user.role === 'transporter')) {
     return (
       <div className="flex min-h-screen w-full flex-col items-center justify-center bg-secondary/50 p-6 text-center">
         <Leaf className="h-16 w-16 text-primary mb-6" />
