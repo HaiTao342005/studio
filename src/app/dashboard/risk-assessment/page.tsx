@@ -30,22 +30,22 @@ import { useToast } from '@/hooks/use-toast';
 import { assessPaymentRisk, type PaymentRiskOutput, type PaymentRiskInput } from '@/ai/flows/payment-risk-assessment';
 import { Loader2, AlertTriangle, ShieldCheck, ShieldAlert, ShieldQuestion } from 'lucide-react';
 
-interface RiskAssessmentPageProps {
-  params: {}; // Static route
+interface CustomerRiskPageProps { // Renamed page props
+  params: {}; 
   searchParams: { [key: string]: string | string[] | undefined };
 }
 
 const formSchema = z.object({
-  importerName: z.string().min(1, "Importer name is required."),
-  exporterName: z.string().min(1, "Exporter name is required."),
-  importerCountry: z.string().min(1, "Importer country is required."),
-  exporterCountry: z.string().min(1, "Exporter country is required."),
+  customerName: z.string().min(1, "Customer name is required."), // Changed from importerName
+  supplierName: z.string().min(1, "Supplier name is required."), // Changed from exporterName
+  customerCountry: z.string().min(1, "Customer country is required."), // Changed from importerCountry
+  supplierCountry: z.string().min(1, "Supplier country is required."), // Changed from exporterCountry
   transactionAmount: z.coerce.number().positive("Transaction amount must be a positive number.").optional().or(z.literal(undefined)),
 });
 
 type FormData = z.infer<typeof formSchema>;
 
-export default function RiskAssessmentPage({ params, searchParams }: RiskAssessmentPageProps) {
+export default function CustomerRiskPage({ params, searchParams }: CustomerRiskPageProps) { // Renamed page component
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [riskResult, setRiskResult] = useState<PaymentRiskOutput | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -55,10 +55,10 @@ export default function RiskAssessmentPage({ params, searchParams }: RiskAssessm
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      importerName: '',
-      exporterName: '',
-      importerCountry: '',
-      exporterCountry: '',
+      customerName: '',
+      supplierName: '', // Could be pre-filled if known
+      customerCountry: '',
+      supplierCountry: '', // Could be pre-filled if known
       transactionAmount: undefined, 
     },
   });
@@ -68,20 +68,19 @@ export default function RiskAssessmentPage({ params, searchParams }: RiskAssessm
     setError(null);
     setRiskResult(null);
     try {
-      // Ensure transactionAmount is a number before sending to the AI flow
       const validatedData: PaymentRiskInput = {
         ...data,
-        transactionAmount: data.transactionAmount ?? 0, // Default to 0 if undefined, though schema should prevent this if positive is required
+        transactionAmount: data.transactionAmount ?? 0,
       };
       const result = await assessPaymentRisk(validatedData);
       setRiskResult(result);
       toast({
         title: "Risk Assessment Complete",
-        description: `Risk score: ${result.riskScore}`,
+        description: `Customer payment risk score: ${result.riskScore}`,
       });
     } catch (err) {
       console.error("Risk assessment failed:", err);
-      const errorMessage = err instanceof Error ? err.message : "An unknown error occurred during risk assessment.";
+      const errorMessage = err instanceof Error ? err.message : "An unknown error occurred.";
       setError(errorMessage);
       toast({
         title: "Assessment Error",
@@ -99,7 +98,7 @@ export default function RiskAssessmentPage({ params, searchParams }: RiskAssessm
     Icon: ElementType;
   } => {
     if (score === undefined || score === null) {
-      return { level: 'Unknown', badgeClass: 'bg-muted text-muted-foreground', Icon: ShieldQuestion };
+      return { level: 'Unknown', badgeClass: 'bg-muted text-muted-foreground border', Icon: ShieldQuestion };
     }
     if (score < 30) {
       return { level: 'Low', badgeClass: 'bg-green-100 text-green-700 dark:bg-green-700 dark:text-green-100 border border-green-300 dark:border-green-600', Icon: ShieldCheck };
@@ -114,13 +113,13 @@ export default function RiskAssessmentPage({ params, searchParams }: RiskAssessm
 
   return (
     <div>
-      <Header title="Payment Risk Assessment" />
+      <Header title="Customer Payment Risk Assessment" /> {/* Changed title */}
       <main className="flex-1 p-6 grid md:grid-cols-2 gap-6 items-start">
         <Card className="shadow-lg">
           <CardHeader>
-            <CardTitle>Assess Transaction Risk</CardTitle>
+            <CardTitle>Assess Customer Payment Risk</CardTitle> {/* Changed title */}
             <CardDescription>
-              Enter transaction details to get an AI-powered risk assessment.
+              Enter customer and transaction details to get an AI-powered risk assessment.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -128,12 +127,12 @@ export default function RiskAssessmentPage({ params, searchParams }: RiskAssessm
               <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
                 <FormField
                   control={form.control}
-                  name="importerName"
+                  name="customerName"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Importer Name</FormLabel>
+                      <FormLabel>Customer Name</FormLabel>
                       <FormControl>
-                        <Input placeholder="e.g., Global Fruits Inc." {...field} />
+                        <Input placeholder="e.g., Global Fruits Retail" {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -141,12 +140,12 @@ export default function RiskAssessmentPage({ params, searchParams }: RiskAssessm
                 />
                 <FormField
                   control={form.control}
-                  name="exporterName"
+                  name="supplierName"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Exporter Name</FormLabel>
+                      <FormLabel>Supplier Name (Your Company)</FormLabel>
                       <FormControl>
-                        <Input placeholder="e.g., Tropical Exports Co." {...field} />
+                        <Input placeholder="e.g., Sunny Valley Fruits" {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -154,12 +153,12 @@ export default function RiskAssessmentPage({ params, searchParams }: RiskAssessm
                 />
                 <FormField
                   control={form.control}
-                  name="importerCountry"
+                  name="customerCountry"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Importer Country</FormLabel>
+                      <FormLabel>Customer Country</FormLabel>
                       <FormControl>
-                        <Input placeholder="e.g., Germany" {...field} />
+                        <Input placeholder="e.g., USA" {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -167,12 +166,12 @@ export default function RiskAssessmentPage({ params, searchParams }: RiskAssessm
                 />
                 <FormField
                   control={form.control}
-                  name="exporterCountry"
+                  name="supplierCountry"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Exporter Country</FormLabel>
+                      <FormLabel>Supplier Country (Your Country)</FormLabel>
                       <FormControl>
-                        <Input placeholder="e.g., Brazil" {...field} />
+                        <Input placeholder="e.g., Spain" {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -210,7 +209,7 @@ export default function RiskAssessmentPage({ params, searchParams }: RiskAssessm
           <CardHeader>
             <CardTitle>Assessment Result</CardTitle>
             <CardDescription>
-              The AI's evaluation of the payment risk for this transaction.
+              The AI's evaluation of the payment risk for this customer transaction.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">

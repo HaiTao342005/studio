@@ -1,26 +1,26 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { TransactionHistoryTable } from "@/components/transactions/TransactionHistoryTable";
+import { TransactionHistoryTable } from "@/components/transactions/TransactionHistoryTable"; // Keeping component name for now
 import { Header } from "@/components/dashboard/Header";
 
-interface TransactionHistoryPageProps {
-  params: {}; // Static route
+interface OrderHistoryPageProps { // Renamed from TransactionHistoryPageProps
+  params: {}; 
   searchParams: { [key: string]: string | string[] | undefined };
 }
 
-export default function TransactionHistoryPage({ params, searchParams }: TransactionHistoryPageProps) {
+export default function OrderHistoryPage({ params, searchParams }: OrderHistoryPageProps) { // Renamed
   return (
     <>
-      <Header title="Transaction History" />
+      <Header title="Order History" /> {/* Changed title */}
       <main className="flex-1 p-6">
         <Card className="shadow-lg">
           <CardHeader>
-            <CardTitle>Historical Transactions</CardTitle>
+            <CardTitle>Historical Orders</CardTitle> {/* Changed title */}
             <CardDescription>
-              Browse through all recorded import/export deals.
+              Browse through all recorded customer orders.
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <TransactionHistoryTable />
+            <TransactionHistoryTable /> {/* The underlying table component is still named TransactionHistoryTable */}
           </CardContent>
         </Card>
       </main>

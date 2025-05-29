@@ -8,8 +8,8 @@ import { Toaster } from "@/components/ui/toaster";
 // const geistMono = GeistMono;
 
 export const metadata: Metadata = {
-  title: 'NewTech Fruit Trading Platform',
-  description: 'Modern solutions for global fruit trade.',
+  title: 'FruitFlow Supplier Portal',
+  description: 'Streamlined order and payment management for fruit suppliers.',
 };
 
 export default function RootLayout({

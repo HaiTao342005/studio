@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Header } from '@/components/dashboard/Header';
-import { ArrowRight, CandlestickChart, ShieldCheck, FilePlus, History, Network } from 'lucide-react';
+import { ArrowRight, CandlestickChart, ShieldCheck, ShoppingCart, History, CreditCard } from 'lucide-react';
 
 const featureCards = [
   {
@@ -13,32 +13,32 @@ const featureCards = [
     color: "text-primary"
   },
   {
-    title: "Risk Assessment",
-    description: "Assess payment risks with our AI-powered tool.",
-    link: "/dashboard/risk-assessment",
+    title: "Customer Payment Risk",
+    description: "Assess payment risks for your customers.",
+    link: "/dashboard/customer-risk",
     icon: ShieldCheck,
     color: "text-accent"
   },
   {
-    title: "New Transaction",
-    description: "Enter new import/export transaction details.",
-    link: "/dashboard/transactions/new",
-    icon: FilePlus,
-    color: "text-blue-500" // Intentionally different for variety
+    title: "New Order",
+    description: "Enter new customer order details.",
+    link: "/dashboard/orders/new",
+    icon: ShoppingCart,
+    color: "text-blue-500"
   },
   {
-    title: "Transaction History",
-    description: "Browse historical transaction records.",
-    link: "/dashboard/transactions/history",
+    title: "Order History",
+    description: "Browse historical order records.",
+    link: "/dashboard/orders/history",
     icon: History,
-    color: "text-purple-500" // Intentionally different for variety
+    color: "text-purple-500"
   },
   {
-    title: "Payment Flows",
-    description: "Visualize payment flows between parties.",
-    link: "/dashboard/payment-flows",
-    icon: Network,
-    color: "text-green-500" // Intentionally different for variety
+    title: "Payment Tracking",
+    description: "Visualize and track payment statuses.",
+    link: "/dashboard/payment-tracking",
+    icon: CreditCard,
+    color: "text-green-500"
   }
 ];
 
@@ -54,9 +54,9 @@ export default function DashboardOverviewPage({ params, searchParams }: Dashboar
       <main className="flex-1 p-6 space-y-6">
         <Card className="bg-card shadow-lg">
           <CardHeader>
-            <CardTitle className="text-3xl font-bold text-primary">Welcome to NewTech</CardTitle>
+            <CardTitle className="text-3xl font-bold text-primary">Welcome to FruitFlow</CardTitle>
             <CardDescription className="text-lg text-muted-foreground">
-              Your central hub for managing fruit trade operations, market insights, and risk assessment.
+              Your central hub for managing customer orders, market insights, and payment risk.
             </CardDescription>
           </CardHeader>
           <CardContent>

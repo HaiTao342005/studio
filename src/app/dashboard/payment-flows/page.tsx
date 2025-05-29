@@ -1,22 +1,22 @@
 import { Header } from '@/components/dashboard/Header';
-import { PaymentFlowVisualization } from '@/components/dashboard/PaymentFlowVisualization';
+import { PaymentFlowVisualization } from '@/components/dashboard/PaymentFlowVisualization'; // Will need updates
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 
-interface PaymentFlowsPageProps {
-  params: {}; // Static route
+interface PaymentTrackingPageProps { // Renamed page props
+  params: {}; 
   searchParams: { [key: string]: string | string[] | undefined };
 }
 
-export default function PaymentFlowsPage({ params, searchParams }: PaymentFlowsPageProps) {
+export default function PaymentTrackingPage({ params, searchParams }: PaymentTrackingPageProps) { // Renamed page component
   return (
     <>
-      <Header title="Payment Flow Visualization" />
+      <Header title="Payment Tracking" /> {/* Changed title */}
       <main className="flex-1 p-6 space-y-6">
         <Card className="shadow-lg">
           <CardHeader>
-            <CardTitle>Understanding Payment Flows</CardTitle>
+            <CardTitle>Understanding Order Payment Status</CardTitle> {/* Changed title */}
             <CardDescription>
-              Visualize the typical journey of payments in international fruit trade.
+              Visualize the typical journey of payments for customer orders.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -26,13 +26,13 @@ export default function PaymentFlowsPage({ params, searchParams }: PaymentFlowsP
         
         <Card className="shadow-md">
           <CardHeader>
-            <CardTitle>Key Considerations</CardTitle>
+            <CardTitle>Key Considerations for Suppliers</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2 text-sm text-muted-foreground">
-            <p><strong>Payment Methods:</strong> Common methods include Letters of Credit (L/C), Documentary Collections, and Open Account.</p>
-            <p><strong>Intermediary Banks:</strong> Often, payments pass through one or more intermediary (correspondent) banks, especially for cross-border transactions.</p>
-            <p><strong>Currency Exchange:</strong> FX rates and fees can impact the final amount received.</p>
-            <p><strong>Timing:</strong> Payment processing times can vary significantly based on the method, banks involved, and regulatory checks.</p>
+            <p><strong>Payment Terms:</strong> Clearly define payment terms with your customers (e.g., Net 30, upfront, Letter of Credit).</p>
+            <p><strong>Payment Methods:</strong> Offer and track various payment methods (e.g., bank transfer, credit card - if applicable, L/C).</p>
+            <p><strong>Communication:</strong> Maintain clear communication with customers regarding payment due dates and confirmations.</p>
+            <p><strong>Record Keeping:</strong> Ensure accurate records of payments received and outstanding balances.</p>
           </CardContent>
         </Card>
       </main>

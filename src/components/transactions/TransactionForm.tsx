@@ -6,7 +6,6 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label'; // Unused, but kept for consistency if needed later
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -17,45 +16,46 @@ import { format } from "date-fns";
 import { CalendarIcon, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import type { ReactNode } from 'react';
-import type { StoredTransaction, TransactionStatus } from '@/types/transaction';
+import type { StoredOrder, OrderStatus } from '@/types/transaction'; // Changed StoredTransaction to StoredOrder, TransactionStatus to OrderStatus
 
-const transactionStatuses: [TransactionStatus, ...TransactionStatus[]] = ['Pending', 'Completed', 'In Transit', 'Cancelled'];
+// Updated statuses for a supplier-customer model
+const orderStatuses: [OrderStatus, ...OrderStatus[]] = ['Pending', 'Awaiting Payment', 'Paid', 'Shipped', 'Delivered', 'Cancelled'];
 
-const transactionSchema = z.object({
-  transactionDate: z.date({ required_error: "Transaction date is required." }),
+const orderSchema = z.object({
+  transactionDate: z.date({ required_error: "Order date is required." }),
   fruitType: z.string().min(1, "Fruit type is required."),
   quantity: z.coerce.number().positive("Quantity must be a positive number.").optional().or(z.literal(undefined)),
   unit: z.enum(['kg', 'ton', 'box', 'pallet'], { required_error: "Unit is required."}),
   pricePerUnit: z.coerce.number().positive("Price per unit must be positive.").optional().or(z.literal(undefined)),
   currency: z.string().min(2, "Currency is required (e.g., USD).").default("USD"),
-  importerName: z.string().min(2, "Importer name is required."),
-  exporterName: z.string().min(2, "Exporter name is required."),
-  status: z.enum(transactionStatuses).default('Pending'),
+  customerName: z.string().min(2, "Customer name is required."), // Changed from importerName
+  supplierName: z.string().min(2, "Supplier name is required."), // Changed from exporterName (assuming supplier might have multiple entities or this is for record)
+  status: z.enum(orderStatuses).default('Pending'),
   notes: z.string().optional(),
 });
 
-type TransactionFormData = z.infer<typeof transactionSchema>;
+type OrderFormData = z.infer<typeof orderSchema>; // Changed from TransactionFormData
 
-interface TransactionFormProps {
+interface OrderFormProps { // Changed from TransactionFormProps
   onSubmitSuccess?: () => void;
-  children?: ReactNode; // For submit button or other elements
+  children?: ReactNode; 
 }
 
-const LOCAL_STORAGE_KEY = 'transactions';
+const LOCAL_STORAGE_KEY = 'orders'; // Changed from 'transactions'
 
-export function TransactionForm({ onSubmitSuccess, children }: TransactionFormProps) {
+export function TransactionForm({ onSubmitSuccess, children }: OrderFormProps) { // Renamed to OrderForm internally, but keeping TransactionForm export for now to avoid breaking page import
   const { toast } = useToast();
-  const form = useForm<TransactionFormData>({
-    resolver: zodResolver(transactionSchema),
+  const form = useForm<OrderFormData>({
+    resolver: zodResolver(orderSchema),
     defaultValues: {
       transactionDate: new Date(),
       fruitType: '',
-      quantity: undefined, // Use undefined for numeric inputs with placeholders
+      quantity: undefined,
       unit: 'kg',
       pricePerUnit: undefined,
       currency: 'USD',
-      importerName: '',
-      exporterName: '',
+      customerName: '',
+      supplierName: '', // Or prefill if supplier is always the app user
       status: 'Pending',
       notes: '',
     },
@@ -63,46 +63,42 @@ export function TransactionForm({ onSubmitSuccess, children }: TransactionFormPr
 
   const {formState: { isSubmitting }} = form;
 
-  const onSubmit: SubmitHandler<TransactionFormData> = async (data) => {
-    // Simulate API call delay if needed, or remove for faster client-side ops
-    // await new Promise(resolve => setTimeout(resolve, 1000));
-
-    const newTransaction: StoredTransaction = {
+  const onSubmit: SubmitHandler<OrderFormData> = async (data) => {
+    const newOrder: StoredOrder = { // Changed from newTransaction, StoredTransaction
       id: crypto.randomUUID(),
       date: data.transactionDate.toISOString(),
       fruitType: data.fruitType,
-      quantity: data.quantity ?? 0, // Default to 0 if undefined, though schema requires positive
+      quantity: data.quantity ?? 0,
       unit: data.unit,
       amount: (data.pricePerUnit ?? 0) * (data.quantity ?? 0), 
       currency: data.currency,
-      importer: data.importerName,
-      exporter: data.exporterName,
+      customer: data.customerName, // Changed from importer
+      supplier: data.supplierName, // Changed from exporter
       status: data.status,
       notes: data.notes,
     };
 
     try {
-      const existingTransactionsRaw = localStorage.getItem(LOCAL_STORAGE_KEY);
-      const existingTransactions: StoredTransaction[] = existingTransactionsRaw ? JSON.parse(existingTransactionsRaw) : [];
-      existingTransactions.push(newTransaction);
-      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(existingTransactions));
+      const existingOrdersRaw = localStorage.getItem(LOCAL_STORAGE_KEY);
+      const existingOrders: StoredOrder[] = existingOrdersRaw ? JSON.parse(existingOrdersRaw) : [];
+      existingOrders.push(newOrder);
+      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(existingOrders));
       
-      console.log("Transaction Data Saved:", newTransaction);
+      console.log("Order Data Saved:", newOrder);
       toast({
-        title: "Transaction Submitted!",
-        description: `${data.fruitType} transaction for ${data.importerName} successfully recorded.`,
+        title: "Order Submitted!",
+        description: `${data.fruitType} order for ${data.customerName} successfully recorded.`,
         variant: "default",
       });
       form.reset();
       if (onSubmitSuccess) onSubmitSuccess();
-       // Dispatch a custom event so other components (like history table) can be aware
-      window.dispatchEvent(new CustomEvent('transactionsUpdated'));
+      window.dispatchEvent(new CustomEvent('ordersUpdated')); // Changed event name
 
     } catch (error) {
-      console.error("Failed to save transaction to localStorage:", error);
+      console.error("Failed to save order to localStorage:", error);
       toast({
         title: "Storage Error",
-        description: "Could not save transaction. Please try again.",
+        description: "Could not save order. Please try again.",
         variant: "destructive",
       });
     }
@@ -117,7 +113,7 @@ export function TransactionForm({ onSubmitSuccess, children }: TransactionFormPr
             name="transactionDate"
             render={({ field }) => (
               <FormItem className="flex flex-col">
-                <FormLabel>Transaction Date *</FormLabel>
+                <FormLabel>Order Date *</FormLabel>
                 <Popover>
                   <PopoverTrigger asChild>
                     <FormControl>
@@ -179,7 +175,7 @@ export function TransactionForm({ onSubmitSuccess, children }: TransactionFormPr
                     placeholder="e.g., 1000" 
                     {...field} 
                     value={field.value ?? ''}
-                    onChange={e => field.onChange(e.target.value === '' ? undefined : +e.target.value)} 
+                    onChange={event => field.onChange(event.target.value === '' ? undefined : +event.target.value)} 
                   />
                 </FormControl>
                 <FormMessage />
@@ -222,7 +218,7 @@ export function TransactionForm({ onSubmitSuccess, children }: TransactionFormPr
                     placeholder="e.g., 1.50" 
                     {...field} 
                     value={field.value ?? ''}
-                    onChange={e => field.onChange(e.target.value === '' ? undefined : +e.target.value)} 
+                    onChange={event => field.onChange(event.target.value === '' ? undefined : +event.target.value)} 
                   />
                 </FormControl>
                 <FormMessage />
@@ -234,22 +230,22 @@ export function TransactionForm({ onSubmitSuccess, children }: TransactionFormPr
         <div className="grid md:grid-cols-2 gap-6">
           <FormField
             control={form.control}
-            name="importerName"
+            name="customerName" 
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Importer Name *</FormLabel>
-                <FormControl><Input placeholder="e.g., FreshProduce Imports Ltd." {...field} /></FormControl>
+                <FormLabel>Customer Name *</FormLabel>
+                <FormControl><Input placeholder="e.g., FreshProduce Retail Inc." {...field} /></FormControl>
                 <FormMessage />
               </FormItem>
             )}
           />
           <FormField
             control={form.control}
-            name="exporterName"
+            name="supplierName"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Exporter Name *</FormLabel>
-                <FormControl><Input placeholder="e.g., SunnyFarms Exports" {...field} /></FormControl>
+                <FormLabel>Supplier Name *</FormLabel> 
+                <FormControl><Input placeholder="e.g., Your Fruit Co." {...field} /></FormControl>
                 <FormMessage />
               </FormItem>
             )}
@@ -273,7 +269,7 @@ export function TransactionForm({ onSubmitSuccess, children }: TransactionFormPr
             name="status"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Status *</FormLabel>
+                <FormLabel>Order Status *</FormLabel>
                  <Select onValueChange={field.onChange} defaultValue={field.value}>
                   <FormControl>
                     <SelectTrigger>
@@ -281,7 +277,7 @@ export function TransactionForm({ onSubmitSuccess, children }: TransactionFormPr
                     </SelectTrigger>
                   </FormControl>
                   <SelectContent>
-                    {transactionStatuses.map(status => (
+                    {orderStatuses.map(status => ( // Changed transactionStatuses to orderStatuses
                        <SelectItem key={status} value={status}>{status}</SelectItem>
                     ))}
                   </SelectContent>
@@ -298,7 +294,7 @@ export function TransactionForm({ onSubmitSuccess, children }: TransactionFormPr
           render={({ field }) => (
             <FormItem>
               <FormLabel>Notes (Optional)</FormLabel>
-              <FormControl><Textarea placeholder="Any additional details about the transaction..." {...field} /></FormControl>
+              <FormControl><Textarea placeholder="Any additional details about the order..." {...field} /></FormControl>
               <FormMessage />
             </FormItem>
           )}
@@ -307,7 +303,7 @@ export function TransactionForm({ onSubmitSuccess, children }: TransactionFormPr
         {children ? children : (
            <Button type="submit" disabled={isSubmitting} className="w-full bg-primary hover:bg-primary/90 text-primary-foreground">
             {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-            Record Transaction
+            Record Order
           </Button>
         )}
       </form>

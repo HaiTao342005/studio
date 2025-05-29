@@ -1,11 +1,11 @@
 "use client";
 
-import { Users, Landmark, ArrowRight } from 'lucide-react';
+import { Users, Landmark, ArrowRight, ShoppingBag } from 'lucide-react'; // Added ShoppingBag for Supplier
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
 interface FlowPartyProps {
   name: string;
-  type: 'Importer' | 'Exporter' | 'Bank';
+  type: 'Customer' | 'Supplier' | 'Bank' | 'Payment Gateway'; // Updated types
   Icon: React.ElementType;
 }
 
@@ -23,31 +23,30 @@ const FlowArrow = () => (
   </div>
 );
 
-
 export function PaymentFlowVisualization() {
   // Example data, can be customized or made dynamic
-  const importerName = "Global Fruits Inc.";
-  const exporterName = "Tropical Exports Co.";
-  const importerBank = "City Bank";
-  const exporterBank = "National Trade Bank";
+  const customerName = "Global Fruits Retail"; // Changed from Importer
+  const supplierName = "Your Fruit Co."; // Changed from Exporter
+  const paymentGateway = "SecurePay Gateway";
+  const supplierBank = "National Trade Bank";
 
   return (
     <Card className="shadow-lg">
       <CardHeader>
-        <CardTitle>Typical Payment Flow</CardTitle>
+        <CardTitle>Typical Customer Payment Flow</CardTitle> {/* Changed title */}
       </CardHeader>
       <CardContent className="flex flex-col md:flex-row items-center justify-center space-y-4 md:space-y-0 md:space-x-2 overflow-x-auto py-8">
-        <FlowParty name={importerName} type="Importer" Icon={Users} />
+        <FlowParty name={customerName} type="Customer" Icon={Users} />
         <FlowArrow />
-        <FlowParty name={importerBank} type="Bank" Icon={Landmark} />
+        <FlowParty name={paymentGateway} type="Payment Gateway" Icon={Landmark} /> {/* Or Bank */}
         <FlowArrow />
-        <FlowParty name={exporterBank} type="Bank" Icon={Landmark} />
+        <FlowParty name={supplierBank} type="Bank" Icon={Landmark} />
         <FlowArrow />
-        <FlowParty name={exporterName} type="Exporter" Icon={Users} />
+        <FlowParty name={supplierName} type="Supplier" Icon={ShoppingBag} />
       </CardContent>
       <CardContent>
         <p className="text-sm text-muted-foreground text-center">
-          This diagram illustrates a common international payment flow involving correspondent banks. Actual flows may vary.
+          This diagram illustrates a common payment flow from a customer to a supplier. Actual flows may vary.
         </p>
       </CardContent>
     </Card>

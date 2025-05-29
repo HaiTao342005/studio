@@ -21,12 +21,9 @@ import {
   LayoutDashboard,
   CandlestickChart,
   ShieldCheck,
-  FilePlus,
+  ShoppingCart, // Changed from FilePlus
   History,
-  Network,
-  Users,
-  Landmark,
-  ArrowRight,
+  CreditCard, // Changed from Network
   Menu,
   Leaf
 } from 'lucide-react';
@@ -34,10 +31,10 @@ import {
 const navItems = [
   { href: '/dashboard', label: 'Overview', icon: LayoutDashboard },
   { href: '/dashboard/market-data', label: 'Market Data', icon: CandlestickChart },
-  { href: '/dashboard/risk-assessment', label: 'Risk Assessment', icon: ShieldCheck },
-  { href: '/dashboard/transactions/new', label: 'New Transaction', icon: FilePlus },
-  { href: '/dashboard/transactions/history', label: 'Transaction History', icon: History },
-  { href: '/dashboard/payment-flows', label: 'Payment Flows', icon: Network },
+  { href: '/dashboard/customer-risk', label: 'Customer Risk', icon: ShieldCheck },
+  { href: '/dashboard/orders/new', label: 'New Order', icon: ShoppingCart },
+  { href: '/dashboard/orders/history', label: 'Order History', icon: History },
+  { href: '/dashboard/payment-tracking', label: 'Payment Tracking', icon: CreditCard },
 ];
 
 function AppSidebarNav() {
@@ -72,7 +69,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
             <Link href="/dashboard" className="flex items-center gap-2 font-semibold text-primary">
               <Leaf className="h-8 w-8" />
               {/* Applying style directly as group-data might not always work with link children for complex scenarios */}
-              <span className="text-xl group-data-[collapsible=icon]:hidden">NewTech</span>
+              <span className="text-xl group-data-[collapsible=icon]:hidden">FruitFlow</span>
             </Link>
           </SidebarHeader>
           <Separator />
