@@ -19,7 +19,13 @@ const nextConfig: NextConfig = {
       },
       {
         protocol: 'https',
-        hostname: 'www.mouser.vn', // Added new hostname
+        hostname: 'www.mouser.vn',
+        port: '',
+        pathname: '/**',
+      },
+      {
+        protocol: 'https',
+        hostname: 'nshopvn.com', // Added new hostname
         port: '',
         pathname: '/**',
       },
