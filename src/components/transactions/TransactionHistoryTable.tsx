@@ -12,19 +12,20 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from '@/components/ui/button';
-import { Trash2 } from 'lucide-react';
-import type { Order, OrderStatus, StoredOrder } from '@/types/transaction'; // Changed Transaction to Order, etc.
+import { Trash2, Wallet, Loader2 } from 'lucide-react'; // Added Wallet and Loader2
+import type { Order, OrderStatus, StoredOrder } from '@/types/transaction';
 import { AppleIcon, BananaIcon, OrangeIcon, GrapeIcon, MangoIcon, FruitIcon } from '@/components/icons/FruitIcons';
 import { format, parseISO } from 'date-fns';
+import { useToast } from "@/hooks/use-toast"; // Added useToast
 
-const LOCAL_STORAGE_KEY = 'orders'; // Changed from 'transactions'
+const LOCAL_STORAGE_KEY = 'orders';
 
 const getStatusBadgeVariant = (status: OrderStatus): "default" | "secondary" | "destructive" | "outline" => {
   switch (status) {
-    case 'Paid': return 'default'; // Green for paid
+    case 'Paid': return 'default';
     case 'Delivered': return 'default';
     case 'Shipped': return 'secondary';
-    case 'Awaiting Payment': return 'outline'; // Yellow/Orange for awaiting payment
+    case 'Awaiting Payment': return 'outline';
     case 'Pending': return 'outline';
     case 'Cancelled': return 'destructive';
     default: return 'secondary';
@@ -38,21 +39,22 @@ const getFruitIcon = (fruitType: string): ElementType<SVGProps<SVGSVGElement>> =
   if (lowerFruitType.includes('orange')) return OrangeIcon;
   if (lowerFruitType.includes('grape')) return GrapeIcon;
   if (lowerFruitType.includes('mango')) return MangoIcon;
-  return FruitIcon; // Default icon
+  return FruitIcon;
 };
 
-// Renamed TransactionHistoryTable to OrderHistoryTable internally, but keeping export name for now
-export function TransactionHistoryTable() { 
-  const [orders, setOrders] = useState<Order[]>([]); // Changed transactions to orders
+export function TransactionHistoryTable() {
+  const [orders, setOrders] = useState<Order[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [payingOrderId, setPayingOrderId] = useState<string | null>(null); // State for managing payment simulation
+  const { toast } = useToast();
 
-  const loadOrders = () => { // Renamed from loadTransactions
+  const loadOrders = () => {
     setIsLoading(true);
     try {
       const storedOrdersRaw = localStorage.getItem(LOCAL_STORAGE_KEY);
       const storedOrders: StoredOrder[] = storedOrdersRaw ? JSON.parse(storedOrdersRaw) : [];
       
-      const displayOrders: Order[] = storedOrders.map(order => ({ // Changed tx to order
+      const displayOrders: Order[] = storedOrders.map(order => ({
         ...order,
         FruitIcon: getFruitIcon(order.fruitType),
       })).sort((a, b) => parseISO(b.date).getTime() - parseISO(a.date).getTime()); 
@@ -69,7 +71,7 @@ export function TransactionHistoryTable() {
     loadOrders();
     const handleStorageChange = () => loadOrders();
     window.addEventListener('storage', handleStorageChange); 
-    window.addEventListener('ordersUpdated', handleStorageChange); // Changed event name
+    window.addEventListener('ordersUpdated', handleStorageChange);
 
     return () => {
       window.removeEventListener('storage', handleStorageChange);
@@ -77,15 +79,69 @@ export function TransactionHistoryTable() {
     };
   }, []);
 
-  const handleDeleteOrder = (orderId: string) => { // Changed transactionId to orderId
+  const handleDeleteOrder = (orderId: string) => {
     try {
       const updatedOrders = orders.filter(order => order.id !== orderId);
       const storedUpdatedOrders = updatedOrders.map(({ FruitIcon, ...rest}) => rest); 
       localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(storedUpdatedOrders));
       setOrders(updatedOrders); 
-      window.dispatchEvent(new CustomEvent('ordersUpdated')); // Changed event name
+      toast({ title: "Order Deleted", description: "The order has been removed from history." });
+      window.dispatchEvent(new CustomEvent('ordersUpdated'));
     } catch (error) {
       console.error("Failed to delete order from localStorage:", error);
+      toast({ title: "Error", description: "Could not delete order.", variant: "destructive" });
+    }
+  };
+
+  const handlePayWithMetamask = async (orderId: string) => {
+    const orderToPay = orders.find(o => o.id === orderId);
+    if (!orderToPay) {
+      toast({ title: "Error", description: "Order not found.", variant: "destructive" });
+      return;
+    }
+
+    setPayingOrderId(orderId);
+    toast({ title: "Initiating Payment", description: "Please confirm in Metamask..." });
+
+    // Simulate Metamask interaction and user confirmation
+    await new Promise(resolve => setTimeout(resolve, 2500));
+
+    // --- START: Placeholder for actual Metamask/ethers.js interaction ---
+    // 1. Connect to Metamask/provider (e.g., using ethers.js)
+    //    const provider = new ethers.BrowserProvider(window.ethereum);
+    //    await provider.send("eth_requestAccounts", []);
+    //    const signer = await provider.getSigner();
+    //
+    // 2. Prepare the transaction details
+    //    const tx = {
+    //      to: "YOUR_GANACHE_WALLET_ADDRESS", // Replace with your Ganache address
+    //      value: ethers.parseEther((orderToPay.amount / 1000).toString()) // Example: convert amount to ETH, adjust as needed
+    //    };
+    //
+    // 3. Send the transaction
+    //    const transactionResponse = await signer.sendTransaction(tx);
+    //    toast({ title: "Processing Payment", description: `Transaction sent: ${transactionResponse.hash}. Waiting for confirmation...` });
+    //    await transactionResponse.wait(); // Wait for transaction to be mined
+    // --- END: Placeholder for actual Metamask/ethers.js interaction ---
+
+    // For simulation, assume payment is successful after some delay
+    toast({ title: "Processing Payment", description: "Waiting for blockchain confirmation..." });
+    await new Promise(resolve => setTimeout(resolve, 3500)); // Simulate transaction mining time
+
+    try {
+      const storedOrdersRaw = localStorage.getItem(LOCAL_STORAGE_KEY);
+      let storedOrders: StoredOrder[] = storedOrdersRaw ? JSON.parse(storedOrdersRaw) : [];
+      storedOrders = storedOrders.map(o => 
+        o.id === orderId ? { ...o, status: 'Paid' as OrderStatus } : o
+      );
+      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(storedOrders));
+      loadOrders(); // Reload orders to reflect the change
+      toast({ title: "Payment Successful!", description: `Order ${orderToPay.fruitType} marked as Paid.`, variant: "default" });
+    } catch (error) {
+      console.error("Failed to update order status in localStorage:", error);
+      toast({ title: "Storage Error", description: "Could not update order status.", variant: "destructive" });
+    } finally {
+      setPayingOrderId(null);
     }
   };
 
@@ -104,31 +160,47 @@ export function TransactionHistoryTable() {
           <TableHead className="w-[60px]">Icon</TableHead>
           <TableHead>Date</TableHead>
           <TableHead>Type</TableHead>
-          <TableHead>Customer</TableHead> {/* Changed from Importer */}
-          <TableHead>Supplier</TableHead> {/* Changed from Exporter */}
+          <TableHead>Customer</TableHead>
+          <TableHead>Supplier</TableHead>
           <TableHead className="text-right">Amount</TableHead>
           <TableHead className="text-right">Quantity</TableHead>
           <TableHead>Status</TableHead>
-          <TableHead className="w-[80px]">Actions</TableHead>
+          <TableHead className="w-[120px] text-center">Actions</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
-        {orders.map((order) => ( // Changed transaction to order
+        {orders.map((order) => (
           <TableRow key={order.id}>
             <TableCell>
               {order.FruitIcon ? <order.FruitIcon className="h-6 w-6 text-accent" /> : <FruitIcon className="h-6 w-6 text-gray-400" />}
             </TableCell>
             <TableCell>{format(parseISO(order.date), "MMM d, yyyy")}</TableCell>
             <TableCell className="font-medium">{order.fruitType}</TableCell>
-            <TableCell>{order.customer}</TableCell> {/* Changed from importer */}
-            <TableCell>{order.supplier}</TableCell> {/* Changed from exporter */}
+            <TableCell>{order.customer}</TableCell>
+            <TableCell>{order.supplier}</TableCell>
             <TableCell className="text-right">{order.currency} {order.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</TableCell>
             <TableCell className="text-right">{order.quantity.toLocaleString()} {order.unit}</TableCell>
             <TableCell>
               <Badge variant={getStatusBadgeVariant(order.status)}>{order.status}</Badge>
             </TableCell>
-            <TableCell>
-              <Button variant="ghost" size="icon" onClick={() => handleDeleteOrder(order.id)} aria-label="Delete order">
+            <TableCell className="space-x-1 text-center">
+              {order.status === 'Awaiting Payment' && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handlePayWithMetamask(order.id)}
+                  disabled={payingOrderId === order.id || !!payingOrderId} // Disable if any payment is in progress
+                  className="h-8 px-2"
+                >
+                  {payingOrderId === order.id ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Wallet className="h-4 w-4" />
+                  )}
+                  <span className={payingOrderId === order.id ? "sr-only" : "ml-1"}>Pay</span>
+                </Button>
+              )}
+              <Button variant="ghost" size="icon" onClick={() => handleDeleteOrder(order.id)} aria-label="Delete order" className="h-8 w-8">
                 <Trash2 className="h-4 w-4 text-destructive" />
               </Button>
             </TableCell>
@@ -138,3 +210,4 @@ export function TransactionHistoryTable() {
     </Table>
   );
 }
+
