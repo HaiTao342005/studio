@@ -5,11 +5,12 @@ import Link from 'next/link';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Header } from '@/components/dashboard/Header';
-import { ArrowRight, CandlestickChart, ShieldCheck, ShoppingCart, History, CreditCard, UserCircle, Truck, PackageSearch, ClipboardList, FileText, UserCheck } from 'lucide-react';
+import { ArrowRight, CandlestickChart, ShieldCheck, ShoppingCart, History, CreditCard, UserCircle, Truck, PackageSearch, ClipboardList, FileText, UserCheck, Users } from 'lucide-react';
 import { useAuth, type UserRole } from '@/contexts/AuthContext';
 
 const managerFeatures = [
-  { title: "User Approvals", description: "Approve users and manage manager accounts.", link: "/dashboard/user-approvals", icon: UserCheck, color: "text-teal-500" },
+  { title: "User Approvals", description: "Approve supplier & transporter accounts.", link: "/dashboard/user-approvals", icon: UserCheck, color: "text-teal-500" },
+  { title: "Manage Users", description: "View all users and their statuses.", link: "/dashboard/manage-users", icon: Users, color: "text-sky-500" }, // New
   { title: "Order History", description: "View all customer orders.", link: "/dashboard/transactions/history", icon: History, color: "text-purple-500" },
   { title: "Payment Tracking", description: "Track payment statuses for all orders.", link: "/dashboard/payment-flows", icon: CreditCard, color: "text-green-500" },
   { title: "Market Data", description: "View global fruit market data.", link: "/dashboard/market-data", icon: CandlestickChart, color: "text-primary" },

@@ -14,7 +14,8 @@ interface User {
   isApproved: boolean;
 }
 
-interface StoredUser extends User {
+// Make StoredUser exportable if ManageUsersPage needs it directly
+export interface StoredUser extends User {
   mockPassword?: string;
 }
 
@@ -26,7 +27,7 @@ interface AuthContextType {
   isLoading: boolean;
   getAllUsers: () => StoredUser[];
   approveUser: (userId: string) => void;
-  addManager: (newManagerUsername: string, newManagerPassword: string) => boolean; // Added
+  addManager: (newManagerUsername: string, newManagerPassword: string) => boolean; 
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -48,7 +49,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       
       const managerExists = users.some(u => u.role === 'manager' && u.name === DEFAULT_MANAGER_USERNAME);
       if (!managerExists) {
-        users = users.filter(u => !(u.role === 'manager' && u.name === 'manager')); // Clean up old default
+        users = users.filter(u => !(u.role === 'manager' && u.name === 'manager')); // Clean up old default 'manager'
         const defaultManager: StoredUser = {
           id: 'default-manager-001', 
           name: DEFAULT_MANAGER_USERNAME,
@@ -59,6 +60,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         users.push(defaultManager);
         localStorage.setItem(ALL_USERS_STORAGE_KEY, JSON.stringify(users)); 
       } else {
+        // Ensure the default manager has the correct password if it exists
         const managerIndex = users.findIndex(u => u.role === 'manager' && u.name === DEFAULT_MANAGER_USERNAME);
         if (managerIndex > -1 && users[managerIndex].mockPassword !== DEFAULT_MANAGER_PASSWORD) {
             users[managerIndex].mockPassword = DEFAULT_MANAGER_PASSWORD;
@@ -105,7 +107,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       toast({ title: "Sign Up Error", description: "Username, password, and role are required.", variant: "destructive" });
       return;
     }
-    if (role === 'manager') {
+    if (role === 'manager') { // Should not be possible from UI, but as a safeguard
         toast({ title: "Sign Up Error", description: "Manager accounts cannot be created through public signup.", variant: "destructive" });
         return;
     }
@@ -118,8 +120,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    const isCustomer = role === 'customer';
-    const autoApproved = isCustomer || role === 'manager'; // Manager role handled by addManager
+    const isSupplierOrTransporter = role === 'supplier' || role === 'transporter';
+    const needsApproval = isSupplierOrTransporter;
+    const autoApproved = !needsApproval; // Customers and (theoretically, if allowed) Managers are auto-approved
 
     const newUser: StoredUser = {
       id: Date.now().toString(), 
@@ -131,14 +134,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     allUsers.push(newUser);
     saveStoredUsers(allUsers);
 
-    if (autoApproved && role === 'customer') { // Auto-login only customers
+    if (autoApproved && role === 'customer') {
       const userToSet: User = { id: newUser.id, name: newUser.name, role: newUser.role, isApproved: newUser.isApproved };
       setUser(userToSet); 
       localStorage.setItem(CURRENT_USER_STORAGE_KEY, JSON.stringify(userToSet));
       toast({ title: "Sign Up Successful!", description: `Welcome, ${username}! Your ${role} account is active and you are now logged in.` });
-    } else if (!autoApproved) {
+    } else if (needsApproval) {
       toast({ title: "Sign Up Successful!", description: `Account for ${username} (${role}) created. Awaiting manager approval.` });
     } else {
+      // Should not be reached if manager signup is blocked and only other role is customer
       toast({ title: "Sign Up Successful!", description: `Account for ${username} (${role}) created.` });
     }
   }, [getStoredUsers, saveStoredUsers, toast]);
@@ -153,7 +157,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     if (foundUser && foundUser.mockPassword === mockPasswordAttempt) {
       if ((foundUser.role === 'supplier' || foundUser.role === 'transporter') && !foundUser.isApproved) {
-        toast({ title: "Login Failed", description: "Your account as a " + foundUser.role + " is awaiting manager approval.", variant: "destructive" });
+        toast({ title: "Login Blocked", description: "Your account as a " + foundUser.role + " is awaiting manager approval.", variant: "destructive" });
         setUser(null); 
         localStorage.removeItem(CURRENT_USER_STORAGE_KEY);
         return;
@@ -184,8 +188,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       allUsers[userIndex].isApproved = true;
       saveStoredUsers(allUsers);
       toast({ title: "User Approved", description: `User ${allUsers[userIndex].name} (${allUsers[userIndex].role}) has been approved.` });
-       // Force re-render of UserApprovalsPage by updating user list
-       setUser(prevUser => ({...prevUser!})); // This is a bit of a hack for mock state
     } else {
       toast({ title: "Error", description: "User not found or not eligible for approval.", variant: "destructive" });
     }

@@ -26,7 +26,7 @@ import {
   History,
   CreditCard,
   Truck,
-  Users,
+  Users, // For Transporter: Manage Users (now also for Manager) / General User Management
   Leaf,
   PackageSearch, // For Transporter: View Shipments
   ClipboardList, // For Customer: My Orders
@@ -49,6 +49,7 @@ const allNavItems: NavItem[] = [
   { href: '/dashboard', label: 'Overview', icon: LayoutDashboard, roles: ['supplier', 'transporter', 'customer', 'manager'] },
   // Manager specific
   { href: '/dashboard/user-approvals', label: 'User Approvals', icon: UserCheck, roles: ['manager'] },
+  { href: '/dashboard/manage-users', label: 'Manage Users', icon: Users, roles: ['manager'] }, // New: Manager can manage all users
   // Supplier specific (also now accessible by manager)
   { href: '/dashboard/market-data', label: 'Market Data', icon: CandlestickChart, roles: ['supplier', 'manager'] },
   { href: '/dashboard/risk-assessment', label: 'Customer Risk', icon: ShieldCheck, roles: ['supplier', 'manager'] },
