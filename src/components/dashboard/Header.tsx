@@ -80,7 +80,7 @@ export function Header({ title, children }: HeaderProps) {
     setCurrentAccount(null);
     toast({ 
       title: 'Wallet Disconnected', 
-      description: "You've disconnected from the app. Click 'Connect Wallet' again to choose a different account." 
+      description: "You've disconnected. Click 'Connect Wallet' again to choose an account or connect a different wallet." 
     });
     // Note: This does not programmatically disconnect from Metamask itself,
     // as dapps don't have permission to do that. It clears the app's state.
@@ -88,7 +88,7 @@ export function Header({ title, children }: HeaderProps) {
 
   return (
     <header className="sticky top-0 z-10 flex h-16 items-center gap-4 border-b bg-background/80 backdrop-blur-sm px-4 md:px-6">
-      <div className="md:hidden">
+      <div> {/* Removed md:hidden to make SidebarTrigger always visible */}
         <SidebarTrigger asChild>
           <Button variant="outline" size="icon" className="shrink-0">
             <PanelLeft /> 
