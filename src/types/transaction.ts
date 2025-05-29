@@ -2,16 +2,22 @@ import type { ElementType, SVGProps } from 'react';
 
 export type TransactionStatus = 'Pending' | 'Completed' | 'Cancelled' | 'In Transit';
 
-export interface Transaction {
+// This interface will be used for data stored in localStorage
+export interface StoredTransaction {
   id: string;
-  date: string; // ISO string or formatted date string
+  date: string; // ISO string
   fruitType: string;
   importer: string;
   exporter: string;
-  amount: number; // USD
+  amount: number;
   currency: string;
   quantity: number;
   unit: 'kg' | 'ton' | 'box' | 'pallet';
   status: TransactionStatus;
-  FruitIcon?: ElementType<SVGProps<SVGSVGElement>>; // Optional: specific icon for the fruit
+  notes?: string;
+}
+
+// This interface can be used by components, including dynamic FruitIcon
+export interface Transaction extends StoredTransaction {
+  FruitIcon?: ElementType<SVGProps<SVGSVGElement>>;
 }
