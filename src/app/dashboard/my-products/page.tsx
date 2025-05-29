@@ -61,7 +61,7 @@ function ProductCard({ product, onDelete, onEdit }: { product: ProductType, onDe
       </CardContent>
       <CardFooter className="flex justify-between items-center pt-4 border-t">
          <p className="text-xs text-muted-foreground">
-            Listed: {format(product.createdAt, "MMM d, yyyy")}
+            Listed: {product.createdAt ? format(product.createdAt, "MMM d, yyyy") : 'N/A'}
           </p>
         <div className="flex gap-1">
           <Button variant="outline" size="icon" onClick={() => onEdit(product)} aria-label="Edit product">
@@ -102,11 +102,11 @@ export default function MyProductsPage({ params, searchParams }: MyProductsPageP
     const unsubscribe = onSnapshot(q, (querySnapshot) => {
       const fetchedProducts: ProductType[] = [];
       querySnapshot.forEach((doc) => {
-        const data = doc.data() as Omit<StoredProduct, 'id' | 'createdAt' | 'updatedAt'>; // Ensure data matches StoredProduct
+        const data = doc.data() as Omit<StoredProduct, 'id' | 'createdAt' | 'updatedAt'>;
         fetchedProducts.push({
           ...data,
           id: doc.id,
-          createdAt: (doc.data().createdAt as Timestamp)?.toDate() || new Date(), // Handle potential null Timestamps
+          createdAt: (doc.data().createdAt as Timestamp)?.toDate() || new Date(),
           updatedAt: (doc.data().updatedAt as Timestamp)?.toDate() || new Date(),
         });
       });
@@ -122,18 +122,26 @@ export default function MyProductsPage({ params, searchParams }: MyProductsPageP
   }, [user, toast]);
 
   const handleDeleteProduct = async (productId: string) => {
-    if (!confirm("Are you sure you want to delete this product?")) return;
+    console.log("handleDeleteProduct called with productId:", productId);
+    if (!confirm("Are you sure you want to delete this product? This action cannot be undone.")) {
+      console.log("Deletion cancelled by user.");
+      return;
+    }
+    
+    console.log("User confirmed deletion for productId:", productId);
     try {
+      console.log("Attempting to delete product from Firestore:", productId);
       await deleteDoc(doc(db, "products", productId));
-      toast({ title: "Product Deleted", description: "The product has been removed." });
+      console.log("Product successfully deleted from Firestore:", productId);
+      toast({ title: "Product Deleted", description: "The product has been removed from your listings." });
     } catch (error) {
-      console.error("Error deleting product: ", error);
-      toast({ title: "Error", description: "Could not delete product.", variant: "destructive" });
+      console.error("Error deleting product from Firestore:", error);
+      toast({ title: "Error Deleting Product", description: `Could not delete product. ${error instanceof Error ? error.message : 'Unknown error'}`, variant: "destructive" });
     }
   };
 
   const handleOpenAddProductForm = () => {
-    setEditingProduct(null); // Ensure we are in "add" mode
+    setEditingProduct(null); 
     setIsFormOpen(true);
   };
 
@@ -144,7 +152,7 @@ export default function MyProductsPage({ params, searchParams }: MyProductsPageP
 
   const handleFormSubmitSuccess = () => {
     setIsFormOpen(false);
-    setEditingProduct(null); // Reset editing state
+    setEditingProduct(null); 
   };
 
   return (
@@ -192,7 +200,7 @@ export default function MyProductsPage({ params, searchParams }: MyProductsPageP
 
         <Dialog open={isFormOpen} onOpenChange={(isOpen) => {
           setIsFormOpen(isOpen);
-          if (!isOpen) setEditingProduct(null); // Reset editing state when dialog closes
+          if (!isOpen) setEditingProduct(null); 
         }}>
           <DialogContent className="sm:max-w-2xl">
             <DialogHeader>
