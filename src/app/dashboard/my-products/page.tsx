@@ -4,7 +4,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"; // DialogClose might not be needed if form success closes it
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Header } from "@/components/dashboard/Header";
 import { ProductForm } from "@/components/products/ProductForm";
 import { useAuth } from '@/contexts/AuthContext';
@@ -17,7 +17,17 @@ import Image from 'next/image';
 import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
 
+const generateAiHint = (name: string, category?: string): string => {
+  if (category) {
+    const categoryWords = category.split(' ').map(word => word.toLowerCase().replace(/[^a-z0-9]/gi, '')).filter(Boolean);
+    if (categoryWords.length > 0) return categoryWords.slice(0, 2).join(' ');
+  }
+  const nameWords = name.split(' ').map(word => word.toLowerCase().replace(/[^a-z0-9]/gi, '')).filter(Boolean);
+  return nameWords.slice(0, 2).join(' ');
+};
+
 function ProductCard({ product, onDelete, onEdit }: { product: ProductType, onDelete: (productId: string) => void, onEdit: (product: ProductType) => void }) {
+  const aiHint = generateAiHint(product.name, product.category);
   return (
     <Card className="flex flex-col shadow-lg hover:shadow-xl transition-shadow duration-300">
       <CardHeader className="pb-2">
@@ -28,7 +38,7 @@ function ProductCard({ product, onDelete, onEdit }: { product: ProductType, onDe
               alt={product.name}
               fill
               style={{ objectFit: 'cover' }}
-              data-ai-hint="product image"
+              data-ai-hint={aiHint || "product image"}
             />
           </div>
         ) : (
