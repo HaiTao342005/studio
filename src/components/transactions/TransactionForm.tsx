@@ -16,9 +16,10 @@ import { format } from "date-fns";
 import { CalendarIcon, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import type { ReactNode } from 'react';
-import type { StoredOrder, OrderStatus } from '@/types/transaction'; // Changed StoredTransaction to StoredOrder, TransactionStatus to OrderStatus
+import type { OrderStatus } from '@/types/transaction'; // StoredOrder not needed here for form data directly
+import { db } from '@/lib/firebase/config';
+import { collection, addDoc, Timestamp } from 'firebase/firestore';
 
-// Updated statuses for a supplier-customer model
 const orderStatuses: [OrderStatus, ...OrderStatus[]] = ['Pending', 'Awaiting Payment', 'Paid', 'Shipped', 'Delivered', 'Cancelled'];
 
 const orderSchema = z.object({
@@ -28,22 +29,20 @@ const orderSchema = z.object({
   unit: z.enum(['kg', 'ton', 'box', 'pallet'], { required_error: "Unit is required."}),
   pricePerUnit: z.coerce.number().positive("Price per unit must be positive.").optional().or(z.literal(undefined)),
   currency: z.string().min(2, "Currency is required (e.g., USD).").default("USD"),
-  customerName: z.string().min(2, "Customer name is required."), // Changed from importerName
-  supplierName: z.string().min(2, "Supplier name is required."), // Changed from exporterName (assuming supplier might have multiple entities or this is for record)
+  customerName: z.string().min(2, "Customer name is required."),
+  supplierName: z.string().min(2, "Supplier name is required."),
   status: z.enum(orderStatuses).default('Pending'),
   notes: z.string().optional(),
 });
 
-type OrderFormData = z.infer<typeof orderSchema>; // Changed from TransactionFormData
+type OrderFormData = z.infer<typeof orderSchema>;
 
-interface OrderFormProps { // Changed from TransactionFormProps
+interface OrderFormProps {
   onSubmitSuccess?: () => void;
   children?: ReactNode; 
 }
 
-const LOCAL_STORAGE_KEY = 'orders'; // Changed from 'transactions'
-
-export function TransactionForm({ onSubmitSuccess, children }: OrderFormProps) { // Renamed to OrderForm internally, but keeping TransactionForm export for now to avoid breaking page import
+export function TransactionForm({ onSubmitSuccess, children }: OrderFormProps) {
   const { toast } = useToast();
   const form = useForm<OrderFormData>({
     resolver: zodResolver(orderSchema),
@@ -55,7 +54,7 @@ export function TransactionForm({ onSubmitSuccess, children }: OrderFormProps) {
       pricePerUnit: undefined,
       currency: 'USD',
       customerName: '',
-      supplierName: '', // Or prefill if supplier is always the app user
+      supplierName: '',
       status: 'Pending',
       notes: '',
     },
@@ -64,41 +63,35 @@ export function TransactionForm({ onSubmitSuccess, children }: OrderFormProps) {
   const {formState: { isSubmitting }} = form;
 
   const onSubmit: SubmitHandler<OrderFormData> = async (data) => {
-    const newOrder: StoredOrder = { // Changed from newTransaction, StoredTransaction
-      id: crypto.randomUUID(),
-      date: data.transactionDate.toISOString(),
+    const orderDataToSave = {
+      date: Timestamp.fromDate(data.transactionDate),
       fruitType: data.fruitType,
       quantity: data.quantity ?? 0,
       unit: data.unit,
       amount: (data.pricePerUnit ?? 0) * (data.quantity ?? 0), 
       currency: data.currency,
-      customer: data.customerName, // Changed from importer
-      supplier: data.supplierName, // Changed from exporter
+      customer: data.customerName,
+      supplier: data.supplierName,
       status: data.status,
-      notes: data.notes,
+      notes: data.notes ?? '',
     };
 
     try {
-      const existingOrdersRaw = localStorage.getItem(LOCAL_STORAGE_KEY);
-      const existingOrders: StoredOrder[] = existingOrdersRaw ? JSON.parse(existingOrdersRaw) : [];
-      existingOrders.push(newOrder);
-      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(existingOrders));
+      await addDoc(collection(db, "orders"), orderDataToSave);
       
-      console.log("Order Data Saved:", newOrder);
       toast({
         title: "Order Submitted!",
-        description: `${data.fruitType} order for ${data.customerName} successfully recorded.`,
+        description: `${data.fruitType} order for ${data.customerName} successfully recorded in Firestore.`,
         variant: "default",
       });
       form.reset();
       if (onSubmitSuccess) onSubmitSuccess();
-      window.dispatchEvent(new CustomEvent('ordersUpdated')); // Changed event name
 
     } catch (error) {
-      console.error("Failed to save order to localStorage:", error);
+      console.error("Failed to save order to Firestore:", error);
       toast({
-        title: "Storage Error",
-        description: "Could not save order. Please try again.",
+        title: "Firestore Error",
+        description: "Could not save order. Please try again. " + (error instanceof Error ? error.message : ""),
         variant: "destructive",
       });
     }
@@ -277,7 +270,7 @@ export function TransactionForm({ onSubmitSuccess, children }: OrderFormProps) {
                     </SelectTrigger>
                   </FormControl>
                   <SelectContent>
-                    {orderStatuses.map(status => ( // Changed transactionStatuses to orderStatuses
+                    {orderStatuses.map(status => (
                        <SelectItem key={status} value={status}>{status}</SelectItem>
                     ))}
                   </SelectContent>

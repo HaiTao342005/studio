@@ -12,16 +12,15 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from '@/components/ui/button';
-import { Trash2, Wallet, Loader2, Info } from 'lucide-react'; // Added Info icon
+import { Trash2, Wallet, Loader2 } from 'lucide-react';
 import type { Order, OrderStatus, StoredOrder } from '@/types/transaction';
 import { AppleIcon, BananaIcon, OrangeIcon, GrapeIcon, MangoIcon, FruitIcon } from '@/components/icons/FruitIcons';
-import { format, parseISO } from 'date-fns';
+import { format } from 'date-fns';
 import { useToast } from "@/hooks/use-toast";
-
-const LOCAL_STORAGE_KEY = 'orders';
+import { db } from '@/lib/firebase/config';
+import { collection, onSnapshot, query, orderBy, doc, deleteDoc, updateDoc, Timestamp } from 'firebase/firestore';
 
 const GANACHE_RECIPIENT_ADDRESS = "0x83491285C0aC3dd64255A5D68f0C3e919A5Eacf2";
-// Fallback simulated ETH price if API fails
 const FALLBACK_SIMULATED_ETH_USD_PRICE = 2000; 
 
 const getStatusBadgeVariant = (status: OrderStatus): "default" | "secondary" | "destructive" | "outline" => {
@@ -52,48 +51,39 @@ export function TransactionHistoryTable() {
   const [payingOrderId, setPayingOrderId] = useState<string | null>(null);
   const { toast } = useToast();
 
-  const loadOrders = () => {
-    setIsLoading(true);
-    try {
-      const storedOrdersRaw = localStorage.getItem(LOCAL_STORAGE_KEY);
-      const storedOrders: StoredOrder[] = storedOrdersRaw ? JSON.parse(storedOrdersRaw) : [];
-      
-      const displayOrders: Order[] = storedOrders.map(order => ({
-        ...order,
-        FruitIcon: getFruitIcon(order.fruitType),
-      })).sort((a, b) => parseISO(b.date).getTime() - parseISO(a.date).getTime()); 
-
-      setOrders(displayOrders);
-    } catch (error) {
-      console.error("Failed to load orders from localStorage:", error);
-      toast({ title: "Error Loading Orders", description: (error as Error).message, variant: "destructive" });
-      setOrders([]); 
-    }
-    setIsLoading(false);
-  };
-
   useEffect(() => {
-    loadOrders();
-    const handleStorageChange = () => loadOrders();
-    window.addEventListener('storage', handleStorageChange); 
-    window.addEventListener('ordersUpdated', handleStorageChange);
+    setIsLoading(true);
+    const q = query(collection(db, "orders"), orderBy("date", "desc"));
+    const unsubscribe = onSnapshot(q, (querySnapshot) => {
+      const fetchedOrders: Order[] = [];
+      querySnapshot.forEach((doc) => {
+        const data = doc.data() as Omit<StoredOrder, 'id'>;
+        fetchedOrders.push({
+          ...data,
+          id: doc.id,
+          date: (data.date as Timestamp).toDate(), // Convert Firestore Timestamp to JS Date
+          FruitIcon: getFruitIcon(data.fruitType),
+        });
+      });
+      setOrders(fetchedOrders);
+      setIsLoading(false);
+    }, (error) => {
+      console.error("Error fetching orders from Firestore:", error);
+      toast({ title: "Error Loading Orders", description: (error as Error).message, variant: "destructive" });
+      setIsLoading(false);
+      setOrders([]);
+    });
 
-    return () => {
-      window.removeEventListener('storage', handleStorageChange);
-      window.removeEventListener('ordersUpdated', handleStorageChange);
-    };
-  }, []);
+    return () => unsubscribe(); // Cleanup listener on component unmount
+  }, [toast]);
 
-  const handleDeleteOrder = (orderId: string) => {
+  const handleDeleteOrder = async (orderId: string) => {
     try {
-      const updatedOrders = orders.filter(order => order.id !== orderId);
-      const storedUpdatedOrders = updatedOrders.map(({ FruitIcon, ...rest}) => rest); 
-      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(storedUpdatedOrders));
-      setOrders(updatedOrders); 
-      toast({ title: "Order Deleted", description: "The order has been removed from history." });
-      window.dispatchEvent(new CustomEvent('ordersUpdated'));
+      await deleteDoc(doc(db, "orders", orderId));
+      toast({ title: "Order Deleted", description: "The order has been removed from Firestore." });
+      // Real-time listener will update the UI
     } catch (error) {
-      console.error("Failed to delete order from localStorage:", error);
+      console.error("Failed to delete order from Firestore:", error);
       toast({ title: "Error Deleting Order", description: (error as Error).message, variant: "destructive" });
     }
   };
@@ -130,7 +120,6 @@ export function TransactionHistoryTable() {
     }
   };
 
-
   const handlePayWithMetamask = async (orderId: string) => {
     const orderToPay = orders.find(o => o.id === orderId);
     if (!orderToPay) {
@@ -164,8 +153,6 @@ export function TransactionHistoryTable() {
     try {
       currentEthUsdPrice = await fetchEthPrice();
     } catch (priceError) {
-      // Error toast is handled within fetchEthPrice, which returns fallback.
-      // We can re-assign here if needed, but it's already done.
       currentEthUsdPrice = FALLBACK_SIMULATED_ETH_USD_PRICE;
     }
     
@@ -215,16 +202,16 @@ export function TransactionHistoryTable() {
         description: `Tx Hash: ${txHash.substring(0,10)}... Simulating block confirmation.`
       });
 
+      // Simulate block confirmation delay
       await new Promise(resolve => setTimeout(resolve, 4000)); 
 
-      const storedOrdersRaw = localStorage.getItem(LOCAL_STORAGE_KEY);
-      let storedOrders: StoredOrder[] = storedOrdersRaw ? JSON.parse(storedOrdersRaw) : [];
-      storedOrders = storedOrders.map(o => 
-        o.id === orderId ? { ...o, status: 'Paid' as OrderStatus } : o
-      );
-      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(storedOrders));
+      // Update status in Firestore
+      const orderRef = doc(db, "orders", orderId);
+      await updateDoc(orderRef, {
+        status: 'Paid' as OrderStatus
+      });
       
-      loadOrders(); 
+      // Real-time listener will update the UI, no manual loadOrders needed
       
       toast({ 
         title: "Payment Confirmed (Simulated)", 
@@ -245,7 +232,7 @@ export function TransactionHistoryTable() {
   };
 
   if (isLoading) {
-    return <div className="flex justify-center items-center py-8"><Loader2 className="h-8 w-8 animate-spin mr-2" /> Loading order history...</div>;
+    return <div className="flex justify-center items-center py-8"><Loader2 className="h-8 w-8 animate-spin mr-2" /> Loading order history from Firestore...</div>;
   }
 
   if (orders.length === 0) {
@@ -274,7 +261,7 @@ export function TransactionHistoryTable() {
               <TableCell>
                 {order.FruitIcon ? <order.FruitIcon className="h-6 w-6 text-accent" /> : <FruitIcon className="h-6 w-6 text-gray-400" />}
               </TableCell>
-              <TableCell>{format(parseISO(order.date), "MMM d, yyyy")}</TableCell>
+              <TableCell>{format(order.date, "MMM d, yyyy")}</TableCell>
               <TableCell className="font-medium">{order.fruitType}</TableCell>
               <TableCell>{order.customer}</TableCell>
               <TableCell>{order.supplier}</TableCell>
@@ -312,6 +299,3 @@ export function TransactionHistoryTable() {
     </div>
   );
 }
-
-
-    
