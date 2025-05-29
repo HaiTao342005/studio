@@ -12,7 +12,9 @@ import { Input } from '@/components/ui/input';
 import { Leaf, UserPlus, LogIn } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 
-const ALL_ROLES: UserRole[] = ['supplier', 'transporter', 'customer', 'manager'];
+// Manager role is removed from public signup
+const SIGNUP_ROLES: Exclude<UserRole, 'manager' | null>[] = ['supplier', 'transporter', 'customer'];
+
 
 export default function LoginPage() {
   const [username, setUsername] = useState('');
@@ -38,10 +40,11 @@ export default function LoginPage() {
 
   const handleSignupSubmit = (e: FormEvent) => {
     e.preventDefault();
-    if (selectedRole) {
+    if (selectedRole && selectedRole !== 'manager') { // Ensure manager cannot be selected via form
       signup(username, password, selectedRole);
-      // Potentially clear form or switch to login tab after signup
-      // For now, signup toast will inform about approval status
+    } else if (selectedRole === 'manager') {
+        // This case should ideally not be reachable if UI prevents manager selection
+        alert("Manager accounts cannot be created through this form.");
     }
   };
 
@@ -73,7 +76,7 @@ export default function LoginPage() {
                   <Label htmlFor="login-username">Username</Label>
                   <Input
                     id="login-username"
-                    placeholder="Enter your username"
+                    placeholder="Enter your username (e.g., manager)"
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
                     required
@@ -84,7 +87,7 @@ export default function LoginPage() {
                   <Input
                     id="login-password"
                     type="password"
-                    placeholder="Enter your password"
+                    placeholder="Enter your password (e.g., password)"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     required
@@ -123,9 +126,9 @@ export default function LoginPage() {
                   <RadioGroup
                     value={selectedRole || 'supplier'}
                     onValueChange={(value: UserRole) => setSelectedRole(value)}
-                    className="grid grid-cols-2 sm:grid-cols-2 gap-4 pt-2" // Adjusted for 4 roles
+                    className="grid grid-cols-2 sm:grid-cols-3 gap-4 pt-2" 
                   >
-                    {ALL_ROLES.filter(role => role !== null).map((role) => (
+                    {SIGNUP_ROLES.map((role) => (
                       <div key={role}>
                         <RadioGroupItem value={role as string} id={`signup-${role}`} className="peer sr-only" />
                         <Label
@@ -147,8 +150,8 @@ export default function LoginPage() {
         </CardContent>
         <CardFooter className="text-center text-sm text-muted-foreground">
           <p>
-            This is a demonstration. Passwords are not stored securely.
-            For a real application, use Firebase Authentication. Suppliers & Customers require manager approval.
+            This is a demonstration. Passwords are not stored securely. Manager accounts are pre-configured.
+            Suppliers & Transporters require manager approval after signup. Customers are auto-approved.
           </p>
         </CardFooter>
       </Card>

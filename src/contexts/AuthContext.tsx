@@ -32,11 +32,48 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 const CURRENT_USER_STORAGE_KEY = 'fruitflow-currentUser';
 const ALL_USERS_STORAGE_KEY = 'fruitflow-allUsers';
+const DEFAULT_MANAGER_USERNAME = 'manager';
+const DEFAULT_MANAGER_PASSWORD = 'password';
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const { toast } = useToast();
+
+  const getStoredUsers = useCallback((): StoredUser[] => {
+    try {
+      const usersString = localStorage.getItem(ALL_USERS_STORAGE_KEY);
+      let users: StoredUser[] = usersString ? JSON.parse(usersString) : [];
+      
+      // Ensure a default manager account exists
+      const managerExists = users.some(u => u.role === 'manager' && u.name === DEFAULT_MANAGER_USERNAME);
+      if (!managerExists) {
+        const defaultManager: StoredUser = {
+          id: 'default-manager-001', // Static ID for the default manager
+          name: DEFAULT_MANAGER_USERNAME,
+          mockPassword: DEFAULT_MANAGER_PASSWORD,
+          role: 'manager',
+          isApproved: true,
+        };
+        users.push(defaultManager);
+        localStorage.setItem(ALL_USERS_STORAGE_KEY, JSON.stringify(users)); // Save back if modified
+      }
+      return users;
+    } catch (error) {
+      console.error("Failed to parse or seed users from localStorage", error);
+      // Attempt to clear corrupted data and re-seed
+      localStorage.removeItem(ALL_USERS_STORAGE_KEY);
+      const defaultManager: StoredUser = {
+          id: 'default-manager-001',
+          name: DEFAULT_MANAGER_USERNAME,
+          mockPassword: DEFAULT_MANAGER_PASSWORD,
+          role: 'manager',
+          isApproved: true,
+        };
+      localStorage.setItem(ALL_USERS_STORAGE_KEY, JSON.stringify([defaultManager]));
+      return [defaultManager];
+    }
+  }, []);
 
   useEffect(() => {
     try {
@@ -44,30 +81,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (storedCurrentUser) {
         setUser(JSON.parse(storedCurrentUser));
       }
+      // Initialize user list and ensure manager exists (getStoredUsers handles seeding)
+      getStoredUsers(); 
     } catch (error) {
       console.error("Failed to parse current user from localStorage", error);
       localStorage.removeItem(CURRENT_USER_STORAGE_KEY);
     }
     setIsLoading(false);
-  }, []);
+  }, [getStoredUsers]);
 
-  const getStoredUsers = useCallback((): StoredUser[] => {
-    try {
-      const users = localStorage.getItem(ALL_USERS_STORAGE_KEY);
-      return users ? JSON.parse(users) : [];
-    } catch (error) {
-      console.error("Failed to parse all users from localStorage", error);
-      return [];
-    }
-  }, []);
 
   const saveStoredUsers = useCallback((users: StoredUser[]) => {
     localStorage.setItem(ALL_USERS_STORAGE_KEY, JSON.stringify(users));
   }, []);
 
   const signup = useCallback((username: string, mockPasswordNew: string, role: UserRole) => {
-    if (!username || !mockPasswordNew || !role) {
-      toast({ title: "Sign Up Error", description: "All fields are required for sign up.", variant: "destructive" });
+    if (!username || !mockPasswordNew || !role || role === 'manager') { // Prevent manager signup via this form
+      toast({ title: "Sign Up Error", description: "Username, password, and a valid role (Supplier, Transporter, or Customer) are required.", variant: "destructive" });
       return;
     }
     const allUsers = getStoredUsers();
@@ -78,12 +108,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    const isManager = role === 'manager';
     const isCustomer = role === 'customer';
-    const autoApproved = isManager || isCustomer;
+    // Suppliers & Transporters need approval, Customers are auto-approved
+    const autoApproved = isCustomer; 
 
     const newUser: StoredUser = {
-      id: Date.now().toString(),
+      id: Date.now().toString(), // Simple unique ID for mock
       name: username,
       role,
       mockPassword: mockPasswordNew,
@@ -92,11 +122,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     allUsers.push(newUser);
     saveStoredUsers(allUsers);
 
-    if (autoApproved) {
+    if (autoApproved) { // Only customers are auto-approved and logged in here
       const userToSet: User = { id: newUser.id, name: newUser.name, role: newUser.role, isApproved: newUser.isApproved };
-      setUser(userToSet); // Auto-login for manager and customer
+      setUser(userToSet); 
       localStorage.setItem(CURRENT_USER_STORAGE_KEY, JSON.stringify(userToSet));
-      toast({ title: "Sign Up Successful!", description: `Welcome, ${username}! Your ${role} account is approved and you are now logged in.` });
+      toast({ title: "Sign Up Successful!", description: `Welcome, ${username}! Your ${role} account is active and you are now logged in.` });
     } else { // Supplier or Transporter
       toast({ title: "Sign Up Successful!", description: `Account for ${username} (${role}) created. Awaiting manager approval.` });
     }
@@ -113,6 +143,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (foundUser && foundUser.mockPassword === mockPasswordAttempt) {
       if ((foundUser.role === 'supplier' || foundUser.role === 'transporter') && !foundUser.isApproved) {
         toast({ title: "Login Failed", description: "Your account as a " + foundUser.role + " is awaiting manager approval.", variant: "destructive" });
+        setUser(null); // Ensure user is not set if approval is pending
+        localStorage.removeItem(CURRENT_USER_STORAGE_KEY);
         return;
       }
       const userToSet: User = { id: foundUser.id, name: foundUser.name, role: foundUser.role, isApproved: foundUser.isApproved };
@@ -141,6 +173,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       allUsers[userIndex].isApproved = true;
       saveStoredUsers(allUsers);
       toast({ title: "User Approved", description: `User ${allUsers[userIndex].name} (${allUsers[userIndex].role}) has been approved.` });
+       // Force re-render or update relevant components if needed.
+       // For this mock system, a page refresh on the approvals page might be simplest
+       // or trigger a state update that causes a re-fetch/re-filter of users.
     } else {
       toast({ title: "Error", description: "User not found or not eligible for approval.", variant: "destructive" });
     }
