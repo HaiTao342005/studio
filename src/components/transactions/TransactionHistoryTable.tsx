@@ -101,7 +101,10 @@ export function TransactionHistoryTable() {
     }
 
     setPayingOrderId(orderId);
-    toast({ title: "Initiating Payment", description: "Please confirm in Metamask..." });
+    toast({ 
+      title: "Initiating Smart Contract Payment", 
+      description: "Please confirm the transaction in your wallet (e.g., Metamask)." 
+    });
 
     // Simulate Metamask interaction and user confirmation
     await new Promise(resolve => setTimeout(resolve, 2500));
@@ -112,20 +115,23 @@ export function TransactionHistoryTable() {
     //    await provider.send("eth_requestAccounts", []);
     //    const signer = await provider.getSigner();
     //
-    // 2. Prepare the transaction details
-    //    const tx = {
-    //      to: "YOUR_GANACHE_WALLET_ADDRESS", // Replace with your Ganache address
-    //      value: ethers.parseEther((orderToPay.amount / 1000).toString()) // Example: convert amount to ETH, adjust as needed
-    //    };
+    // 2. Prepare the transaction details (amount, recipient from a smart contract)
+    //    const contractAddress = "YOUR_SMART_CONTRACT_ADDRESS_ON_GANACHE";
+    //    const contractABI = [ /* ... your contract's ABI ... */ ];
+    //    const contract = new ethers.Contract(contractAddress, contractABI, signer);
+    //    const amountInWei = ethers.parseEther((orderToPay.amount / 1000).toString()); // Example conversion
+    //    const transactionResponse = await contract.payOrder(orderId, { value: amountInWei });
     //
     // 3. Send the transaction
-    //    const transactionResponse = await signer.sendTransaction(tx);
     //    toast({ title: "Processing Payment", description: `Transaction sent: ${transactionResponse.hash}. Waiting for confirmation...` });
     //    await transactionResponse.wait(); // Wait for transaction to be mined
     // --- END: Placeholder for actual Metamask/ethers.js interaction ---
 
     // For simulation, assume payment is successful after some delay
-    toast({ title: "Processing Payment", description: "Waiting for blockchain confirmation..." });
+    toast({ 
+      title: "Transaction Submitted", 
+      description: "Waiting for confirmation from the simulated blockchain (e.g., Ganache)..." 
+    });
     await new Promise(resolve => setTimeout(resolve, 3500)); // Simulate transaction mining time
 
     try {
@@ -136,7 +142,11 @@ export function TransactionHistoryTable() {
       );
       localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(storedOrders));
       loadOrders(); // Reload orders to reflect the change
-      toast({ title: "Payment Successful!", description: `Order ${orderToPay.fruitType} marked as Paid.`, variant: "default" });
+      toast({ 
+        title: "Payment Confirmed!", 
+        description: `Order for ${orderToPay.fruitType} marked as Paid. (Simulated blockchain confirmation)`, 
+        variant: "default" 
+      });
     } catch (error) {
       console.error("Failed to update order status in localStorage:", error);
       toast({ title: "Storage Error", description: "Could not update order status.", variant: "destructive" });
