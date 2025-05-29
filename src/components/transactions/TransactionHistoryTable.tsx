@@ -22,7 +22,8 @@ const LOCAL_STORAGE_KEY = 'orders';
 
 // IMPORTANT: Replace this with one of your Ganache account addresses!
 const GANACHE_RECIPIENT_ADDRESS = "0x83491285C0aC3dd64255A5D68f0C3e919A5Eacf2";
-const SIMULATED_PAYMENT_ETH_AMOUNT = "0.001"; // Simulate paying 0.001 ETH
+// Simulate a fixed ETH price for conversion. In a real app, you'd fetch this from an API.
+const SIMULATED_ETH_USD_PRICE = 2000; // e.g., 1 ETH = $2000 USD
 
 const getStatusBadgeVariant = (status: OrderStatus): "default" | "secondary" | "destructive" | "outline" => {
   switch (status) {
@@ -105,7 +106,13 @@ export function TransactionHistoryTable() {
       return;
     }
 
-    if (GANACHE_RECIPIENT_ADDRESS === "0x83491285C0aC3dd64255A5D68f0C3e919A5Eacf2" && GANACHE_RECIPIENT_ADDRESS.toUpperCase().includes("YOUR_GANACHE_ACCOUNT_ADDRESS_HERE")) { // Defensive check
+    if (orderToPay.amount <= 0) {
+      toast({ title: "Payment Error", description: "Order amount must be greater than zero to pay.", variant: "destructive" });
+      return;
+    }
+    
+    // In a real app, verify this address carefully or fetch from a secure source
+    if (GANACHE_RECIPIENT_ADDRESS === "YOUR_GANACHE_ACCOUNT_ADDRESS_HERE" || GANACHE_RECIPIENT_ADDRESS.toUpperCase().includes("YOUR_GANACHE_ACCOUNT_ADDRESS_HERE")) { 
       toast({
         title: "Configuration Needed",
         description: "Please set your Ganache recipient address in TransactionHistoryTable.tsx.",
@@ -121,9 +128,15 @@ export function TransactionHistoryTable() {
     }
 
     setPayingOrderId(orderId);
+
+    // Calculate ETH amount from USD order amount using simulated price
+    // In a real app, fetch live ETH price from a reliable oracle or API (e.g., Chainlink, Coinbase API)
+    const ethAmount = orderToPay.amount / SIMULATED_ETH_USD_PRICE;
+    const ethAmountFixed = parseFloat(ethAmount.toFixed(18)); // Use toFixed for better precision before BigInt conversion
+
     toast({ 
       title: "Initiating Payment", 
-      description: "Please confirm the transaction in Metamask to interact with the (simulated) smart contract." 
+      description: `Preparing to pay ${orderToPay.amount.toFixed(2)} USD (${ethAmountFixed.toFixed(6)} ETH at simulated 1 ETH = ${SIMULATED_ETH_USD_PRICE} USD). Confirm in Metamask.` 
     });
 
     try {
@@ -135,10 +148,16 @@ export function TransactionHistoryTable() {
       }
       const fromAccount = accounts[0];
 
-      // Convert ETH amount to Wei in hexadecimal
-      // Note: For a real app, orderToPay.amount would need to be reliably in ETH or converted.
-      // Here we use a fixed SIMULATED_PAYMENT_ETH_AMOUNT.
-      const amountInWei = BigInt(Math.floor(parseFloat(SIMULATED_PAYMENT_ETH_AMOUNT) * 1e18));
+      // Convert calculated ETH amount to Wei in hexadecimal
+      // Multiply by 10^18 to convert ETH to Wei. Use BigInt for large numbers.
+      const amountInWei = BigInt(Math.floor(ethAmountFixed * 1e18)); 
+
+      if (amountInWei <= 0) {
+        toast({ title: "Payment Error", description: "Calculated ETH amount is too small or zero.", variant: "destructive" });
+        setPayingOrderId(null);
+        return;
+      }
+
       const transactionParameters = {
         to: GANACHE_RECIPIENT_ADDRESS,
         from: fromAccount,
@@ -149,8 +168,8 @@ export function TransactionHistoryTable() {
       };
 
       toast({
-        title: "Sending to Smart Contract",
-        description: "Awaiting your confirmation in Metamask..."
+        title: "Sending to Smart Contract (Simulated)",
+        description: `Sending ${ethAmountFixed.toFixed(6)} ETH. Awaiting your confirmation in Metamask...`
       });
 
       // Send the transaction
@@ -181,7 +200,7 @@ export function TransactionHistoryTable() {
       
       toast({ 
         title: "Payment Confirmed (Simulated)", 
-        description: `Order for ${orderToPay.fruitType} marked as Paid. Block confirmed on Ganache (simulated).`, 
+        description: `Order for ${orderToPay.fruitType} (Amount: ${ethAmountFixed.toFixed(6)} ETH) marked as Paid. Block confirmed on Ganache (simulated).`, 
         variant: "default" 
       });
 
@@ -263,5 +282,3 @@ export function TransactionHistoryTable() {
     </Table>
   );
 }
-
-    
