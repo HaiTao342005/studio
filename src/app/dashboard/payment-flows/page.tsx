@@ -203,10 +203,10 @@ export default function PaymentTrackingPage({ params, searchParams }: PaymentTra
             <CardTitle>Key Considerations for Suppliers</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2 text-sm text-muted-foreground">
-            <p><strong>Payment Terms:</strong> Clearly define payment terms with your customers (e.g., Net 30, upfront, Letter of Credit).</p>
-            <p><strong>Payment Methods:</strong> Offer and track various payment methods (e.g., bank transfer, crypto - as simulated here, L/C).</p>
-            <p><strong>Communication:</strong> Maintain clear communication with customers regarding payment due dates and confirmations.</p>
-            <p><strong>Record Keeping:</strong> Ensure accurate records of payments received and outstanding balances using a centralized system like Firestore.</p>
+            <p><strong>Payment Terms:</strong> Clearly define payment terms with your customers (e.g., Net 30, upfront payment before shipping).</p>
+            <p><strong>Payment Method (Simulated):</strong> This app simulates payments using Metamask for Ethereum (ETH). In a real-world scenario, ensure your customers are comfortable and equipped for cryptocurrency transactions if this is your primary method.</p>
+            <p><strong>Communication:</strong> Maintain clear communication with customers regarding payment due dates and confirmations, especially for crypto transactions which involve wallet addresses and network confirmations.</p>
+            <p><strong>Record Keeping:</strong> Ensure accurate records of payments received and outstanding balances using a centralized system like Firestore, which tracks order statuses updated via the simulated Metamask payments.</p>
           </CardContent>
         </Card>
       </main>
