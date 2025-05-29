@@ -12,10 +12,10 @@ import { AIProjectMonitor } from '@/components/dashboard/AIProjectMonitor'; // I
 const managerFeatures = [
   { title: "User Approvals", description: "Approve supplier & transporter accounts.", link: "/dashboard/user-approvals", icon: UserCheck, color: "text-teal-500" },
   { title: "Manage Users", description: "View all users and their statuses.", link: "/dashboard/manage-users", icon: Users, color: "text-sky-500" },
-  { title: "Order History", description: "View all customer orders.", link: "/dashboard/transactions/history", icon: History, color: "text-purple-500" },
-  { title: "Payment Tracking", description: "Track payment statuses for all orders.", link: "/dashboard/payment-flows", icon: CreditCard, color: "text-green-500" },
   { title: "Market Data", description: "View global fruit market data.", link: "/dashboard/market-data", icon: CandlestickChart, color: "text-primary" },
   { title: "Customer Risk", description: "Assess payment risks for customers.", link: "/dashboard/risk-assessment", icon: ShieldCheck, color: "text-accent" },
+  { title: "Order History", description: "View all customer orders.", link: "/dashboard/transactions/history", icon: History, color: "text-purple-500" },
+  { title: "Payment Tracking", description: "Track payment statuses for all orders.", link: "/dashboard/payment-flows", icon: CreditCard, color: "text-green-500" },
 ];
 
 const supplierFeatures = [
@@ -38,7 +38,7 @@ const customerFeatures = [
 ];
 
 
-interface FeatureCardProps { // Renamed for clarity
+interface FeatureCardProps {
   title: string;
   description: string;
   link: string;
@@ -91,7 +91,7 @@ export default function DashboardOverviewPage({ params, searchParams }: Dashboar
           <CardHeader>
             <CardTitle className="text-3xl font-bold text-primary">Welcome to FruitFlow, {user.name || 'User'}!</CardTitle>
             <CardDescription className="text-lg text-muted-foreground">
-              Your dedicated {user.role} portal for managing fruit trade operations.
+              Your dedicated portal for managing fruit trade operations.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -114,19 +114,19 @@ export default function DashboardOverviewPage({ params, searchParams }: Dashboar
                 <CardDescription>{feature.description}</CardDescription>
               </CardContent>
               <CardContent className="pt-0">
-                 <Link href={feature.link} passHref>
-                  <Button asChild variant="outline" className="w-full text-primary border-primary hover:bg-primary/10">
+                 <Button asChild variant="outline" className="w-full text-primary border-primary hover:bg-primary/10">
+                  <Link href={feature.link} passHref>
                     <>
                       Go to {feature.title} <ArrowRight className="ml-2 h-4 w-4" />
                     </>
-                  </Button>
-                </Link>
+                  </Link>
+                </Button>
               </CardContent>
             </Card>
           ))}
         </div>
 
-        {featureCards.length === 0 && user.role !== 'manager' && ( // Ensure AI monitor doesn't trigger this
+        {featureCards.length === 0 && user.role !== 'manager' && ( 
           <Card>
             <CardContent className="pt-6">
               <p className="text-muted-foreground">No specific features available for your role at the moment, or your role is not recognized.</p>
