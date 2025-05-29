@@ -32,7 +32,8 @@ import {
   ClipboardList, 
   FileText, 
   UserCheck, 
-  PackagePlus, // New Icon for My Products
+  PackagePlus,
+  Search, // New Icon for Find Products
 } from 'lucide-react';
 import { useAuth, type UserRole } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
@@ -54,14 +55,15 @@ const allNavItems: NavItem[] = [
   // Supplier specific (also now accessible by manager)
   { href: '/dashboard/market-data', label: 'Market Data', icon: CandlestickChart, roles: ['supplier', 'manager'] },
   { href: '/dashboard/risk-assessment', label: 'Customer Risk', icon: ShieldCheck, roles: ['supplier', 'manager'] },
-  { href: '/dashboard/transactions/new', label: 'New Order', icon: ShoppingCart, roles: ['supplier'] }, 
+  // { href: '/dashboard/transactions/new', label: 'New Order', icon: ShoppingCart, roles: ['supplier', 'manager'] }, // Manager no longer creates orders directly
   { href: '/dashboard/transactions/history', label: 'Order History', icon: History, roles: ['supplier', 'manager'] },
   { href: '/dashboard/payment-flows', label: 'Payment Tracking', icon: CreditCard, roles: ['supplier', 'manager'] },
-  { href: '/dashboard/my-products', label: 'My Products', icon: PackagePlus, roles: ['supplier'] }, // New navigation item for suppliers
+  { href: '/dashboard/my-products', label: 'My Products', icon: PackagePlus, roles: ['supplier'] }, 
   // Transporter specific
   { href: '/dashboard/shipments', label: 'Manage Shipments', icon: Truck, roles: ['transporter'] },
   { href: '/dashboard/delivery-proof', label: 'Proof of Delivery', icon: PackageSearch, roles: ['transporter'] },
   // Customer specific
+  { href: '/dashboard/find-products', label: 'Find Products', icon: Search, roles: ['customer'] }, // New navigation item for customers
   { href: '/dashboard/my-orders', label: 'My Orders', icon: ClipboardList, roles: ['customer'] },
   { href: '/dashboard/my-payments', label: 'My Payments', icon: CreditCard, roles: ['customer'] },
   { href: '/dashboard/my-documents', label: 'My Documents', icon: FileText, roles: ['customer'] },
