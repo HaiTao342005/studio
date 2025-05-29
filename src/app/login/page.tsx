@@ -21,8 +21,8 @@ export default function LoginPage() {
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
     if (selectedRole) {
-      // In a real app, you'd validate username/password here
-      login(username, selectedRole); // Pass username (or mock user ID) and role
+      // In this mock setup, login also serves as a mock sign-up
+      login(username || `User-${Date.now().toString().slice(-4)}`, selectedRole); // Pass username (or mock user ID) and role
       router.push('/dashboard');
     }
   };
@@ -35,29 +35,32 @@ export default function LoginPage() {
             <Leaf className="h-16 w-16 text-primary" />
           </div>
           <CardTitle className="text-3xl font-bold text-primary">Welcome to FruitFlow</CardTitle>
-          <CardDescription className="text-lg">Please select your role and sign in.</CardDescription>
+          <CardDescription className="text-lg">
+            Select your role and provide a username to continue.
+            This is a mock sign-in/sign-up.
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-6">
             <div className="space-y-2">
-              <Label htmlFor="username">Username (mock)</Label>
-              <Input 
-                id="username" 
-                placeholder="Enter any username" 
+              <Label htmlFor="username">Username</Label>
+              <Input
+                id="username"
+                placeholder="Enter any username"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                required 
+                required
               />
             </div>
             <div className="space-y-2">
               <Label htmlFor="password">Password (mock)</Label>
-              <Input 
-                id="password" 
-                type="password" 
-                placeholder="Enter any password" 
+              <Input
+                id="password"
+                type="password"
+                placeholder="Enter any password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                required 
+                required
               />
             </div>
             <div className="space-y-2">
@@ -81,12 +84,16 @@ export default function LoginPage() {
               </RadioGroup>
             </div>
             <Button type="submit" className="w-full text-lg py-3 bg-primary hover:bg-primary/90 text-primary-foreground">
-              Sign In
+              Sign In / Sign Up (Mock)
             </Button>
           </form>
         </CardContent>
         <CardFooter className="text-center text-sm text-muted-foreground">
-          <p>This is a simplified login for demonstration. Real authentication would be more secure.</p>
+          <p>
+            For demonstration: entering a username and role will "log you in" or "create a mock account"
+            if the username hasn't been used before in this browser session.
+            Real sign-up and password management would use Firebase Authentication.
+          </p>
         </CardFooter>
       </Card>
     </div>
