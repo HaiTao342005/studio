@@ -32,7 +32,7 @@ import {
 const navItems = [
   { href: '/dashboard', label: 'Overview', icon: LayoutDashboard },
   { href: '/dashboard/market-data', label: 'Market Data', icon: CandlestickChart },
-  { href: '/dashboard/risk-assessment', label: 'Customer Risk', icon: ShieldCheck }, // Updated href
+  { href: '/dashboard/risk-assessment', label: 'Customer Risk', icon: ShieldCheck },
   { href: '/dashboard/transactions/new', label: 'New Order', icon: ShoppingCart },
   { href: '/dashboard/transactions/history', label: 'Order History', icon: History },
   { href: '/dashboard/payment-flows', label: 'Payment Tracking', icon: CreditCard },
@@ -46,15 +46,18 @@ function AppSidebarNav() {
     <SidebarMenu>
       {navItems.map((item) => (
         <SidebarMenuItem key={item.href}>
-          <Link href={item.href} passHref>
-            <SidebarMenuButton
-              isActive={pathname === item.href || (pathname.startsWith(item.href) && item.href !== '/dashboard')}
-              tooltip={open ? undefined : item.label}
-            >
-              <item.icon className="h-5 w-5" />
-              <span className="truncate">{item.label}</span>
-            </SidebarMenuButton>
-          </Link>
+          <SidebarMenuButton
+            asChild
+            isActive={pathname === item.href || (pathname.startsWith(item.href) && item.href !== '/dashboard')}
+            tooltip={open ? undefined : item.label}
+          >
+            <Link href={item.href} passHref>
+              <>
+                <item.icon className="h-5 w-5" />
+                <span className="truncate">{item.label}</span>
+              </>
+            </Link>
+          </SidebarMenuButton>
         </SidebarMenuItem>
       ))}
     </SidebarMenu>
