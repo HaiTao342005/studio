@@ -26,12 +26,13 @@ import {
   History,
   CreditCard,
   Truck,
-  Users, // For Transporter: Manage Users (now also for Manager) / General User Management
+  Users, 
   Leaf,
-  PackageSearch, // For Transporter: View Shipments
-  ClipboardList, // For Customer: My Orders
-  FileText, // For Customer: Invoices/Docs
-  UserCheck, // For Manager: User Approvals
+  PackageSearch, 
+  ClipboardList, 
+  FileText, 
+  UserCheck, 
+  PackagePlus, // New Icon for My Products
 } from 'lucide-react';
 import { useAuth, type UserRole } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
@@ -42,7 +43,7 @@ type NavItem = {
   href: string;
   label: string;
   icon: React.ElementType;
-  roles: UserRole[]; // Roles that can see this item
+  roles: UserRole[]; 
 };
 
 const allNavItems: NavItem[] = [
@@ -53,9 +54,10 @@ const allNavItems: NavItem[] = [
   // Supplier specific (also now accessible by manager)
   { href: '/dashboard/market-data', label: 'Market Data', icon: CandlestickChart, roles: ['supplier', 'manager'] },
   { href: '/dashboard/risk-assessment', label: 'Customer Risk', icon: ShieldCheck, roles: ['supplier', 'manager'] },
-  { href: '/dashboard/transactions/new', label: 'New Order', icon: ShoppingCart, roles: ['supplier'] }, // Manager removed
+  { href: '/dashboard/transactions/new', label: 'New Order', icon: ShoppingCart, roles: ['supplier'] }, 
   { href: '/dashboard/transactions/history', label: 'Order History', icon: History, roles: ['supplier', 'manager'] },
   { href: '/dashboard/payment-flows', label: 'Payment Tracking', icon: CreditCard, roles: ['supplier', 'manager'] },
+  { href: '/dashboard/my-products', label: 'My Products', icon: PackagePlus, roles: ['supplier'] }, // New navigation item for suppliers
   // Transporter specific
   { href: '/dashboard/shipments', label: 'Manage Shipments', icon: Truck, roles: ['transporter'] },
   { href: '/dashboard/delivery-proof', label: 'Proof of Delivery', icon: PackageSearch, roles: ['transporter'] },
@@ -70,7 +72,7 @@ function AppSidebarNav() {
   const { open } = useSidebar();
   const { user } = useAuth();
 
-  if (!user || !user.role) { // Ensure user and role exist
+  if (!user || !user.role) { 
     return null;
   }
 
@@ -85,7 +87,7 @@ function AppSidebarNav() {
             isActive={pathname === item.href || (pathname.startsWith(item.href) && item.href !== '/dashboard')}
             tooltip={open ? undefined : item.label}
           >
-            <Link href={item.href} passHref>
+            <Link href={item.href}>
               <>
                 <item.icon className="h-5 w-5" />
                 <span className="truncate">{item.label}</span>
@@ -105,8 +107,6 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!isLoading && !user) {
       router.replace('/login');
-    } else if (!isLoading && user && !user.isApproved && (user.role === 'supplier' || user.role === 'transporter')) {
-      // Handled further down, this is just an early check if needed for other logic
     }
   }, [user, isLoading, router]);
 
@@ -119,7 +119,6 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
     );
   }
 
-  // If a supplier or transporter is logged in but not approved, show a pending approval message.
   if (!user.isApproved && (user.role === 'supplier' || user.role === 'transporter')) {
     return (
       <div className="flex min-h-screen w-full flex-col items-center justify-center bg-secondary/50 p-6 text-center">
@@ -156,4 +155,3 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
     </SidebarProvider>
   );
 }
-

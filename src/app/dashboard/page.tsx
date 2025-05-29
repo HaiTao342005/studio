@@ -5,9 +5,9 @@ import Link from 'next/link';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Header } from '@/components/dashboard/Header';
-import { ArrowRight, CandlestickChart, ShieldCheck, ShoppingCart, History, CreditCard, UserCircle, Truck, PackageSearch, ClipboardList, FileText, UserCheck, Users } from 'lucide-react';
+import { ArrowRight, CandlestickChart, ShieldCheck, ShoppingCart, History, CreditCard, UserCircle, Truck, PackageSearch, ClipboardList, FileText, UserCheck, Users, PackagePlus, Activity } from 'lucide-react';
 import { useAuth, type UserRole } from '@/contexts/AuthContext';
-import { AIProjectMonitor } from '@/components/dashboard/AIProjectMonitor'; // Import the new component
+import { AIProjectMonitor } from '@/components/dashboard/AIProjectMonitor'; 
 
 const managerFeatures = [
   { title: "User Approvals", description: "Approve supplier & transporter accounts.", link: "/dashboard/user-approvals", icon: UserCheck, color: "text-teal-500" },
@@ -20,6 +20,7 @@ const managerFeatures = [
 
 const supplierFeatures = [
   { title: "Market Data", description: "View real-time global fruit market data.", link: "/dashboard/market-data", icon: CandlestickChart, color: "text-primary" },
+  { title: "My Products", description: "Manage your product listings.", link: "/dashboard/my-products", icon: PackagePlus, color: "text-orange-500" },
   { title: "Customer Payment Risk", description: "Assess payment risks for your customers.", link: "/dashboard/risk-assessment", icon: ShieldCheck, color: "text-accent" },
   { title: "New Order", description: "Enter new customer order details.", link: "/dashboard/transactions/new", icon: ShoppingCart, color: "text-blue-500" },
   { title: "Order History", description: "Browse historical order records.", link: "/dashboard/transactions/history", icon: History, color: "text-purple-500" },
@@ -91,7 +92,7 @@ export default function DashboardOverviewPage({ params, searchParams }: Dashboar
           <CardHeader>
             <CardTitle className="text-3xl font-bold text-primary">Welcome to FruitFlow, {user.name || 'User'}!</CardTitle>
             <CardDescription className="text-lg text-muted-foreground">
-              Your dedicated portal for managing fruit trade operations.
+              Your portal for managing fruit trade operations.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -114,11 +115,9 @@ export default function DashboardOverviewPage({ params, searchParams }: Dashboar
                 <CardDescription>{feature.description}</CardDescription>
               </CardContent>
               <CardContent className="pt-0">
-                 <Button asChild variant="outline" className="w-full text-primary border-primary hover:bg-primary/10">
-                  <Link href={feature.link} passHref>
-                    <>
+                <Button asChild variant="outline" className="w-full text-primary border-primary hover:bg-primary/10">
+                  <Link href={feature.link}>
                       Go to {feature.title} <ArrowRight className="ml-2 h-4 w-4" />
-                    </>
                   </Link>
                 </Button>
               </CardContent>
