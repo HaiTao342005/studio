@@ -6,7 +6,7 @@ import { useState, useEffect } from 'react';
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
-import { Wallet, PanelLeft } from 'lucide-react'; // Added Wallet
+import { Wallet, PanelLeft, LogOut } from 'lucide-react'; // Added Wallet, LogOut
 
 interface HeaderProps {
   title: string;
@@ -20,11 +20,11 @@ export function Header({ title, children }: HeaderProps) {
 
   useEffect(() => {
     setIsClient(true);
-    // Check if already connected on component mount (optional)
+    // Check if already connected on component mount
     const checkIfWalletIsConnected = async () => {
       if (typeof window.ethereum !== 'undefined') {
         try {
-          const accounts = await window.ethereum.request({ method: 'eth_accounts' });
+          const accounts = await window.ethereum.request({ method: 'eth_accounts' }) as string[];
           if (accounts && accounts.length > 0) {
             setCurrentAccount(accounts[0]);
           }
@@ -34,24 +34,36 @@ export function Header({ title, children }: HeaderProps) {
       }
     };
     checkIfWalletIsConnected();
-  }, []);
+
+    // Listen for account changes
+    if (typeof window.ethereum !== 'undefined') {
+      window.ethereum.on('accountsChanged', (accounts: string[]) => {
+        if (accounts.length > 0) {
+          setCurrentAccount(accounts[0]);
+          toast({ title: 'Account Switched', description: `Connected to ${accounts[0].substring(0,6)}...${accounts[0].substring(accounts[0].length - 4)}` });
+        } else {
+          setCurrentAccount(null);
+          toast({ title: 'Wallet Disconnected', description: 'Your wallet has been disconnected from Metamask.' });
+        }
+      });
+    }
+
+    return () => {
+      if (typeof window.ethereum !== 'undefined' && window.ethereum.removeListener) {
+         window.ethereum.removeListener('accountsChanged', () => {});
+      }
+    };
+
+  }, [toast]);
 
   const connectWallet = async () => {
     if (typeof window.ethereum !== 'undefined') {
       try {
         // Request account access
-        const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+        const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' }) as string[];
         if (accounts && accounts.length > 0) {
           setCurrentAccount(accounts[0]);
-          console.log('Connected account:', accounts[0]);
           toast({ title: 'Wallet Connected', description: `Account: ${accounts[0].substring(0,6)}...${accounts[0].substring(accounts[0].length - 4)}` });
-
-          // You would typically initialize ethers provider here
-          // import { BrowserProvider } from 'ethers';
-          // const provider = new BrowserProvider(window.ethereum);
-          // const signer = await provider.getSigner();
-          // console.log('Signer:', signer);
-
         } else {
           toast({ title: 'Connection Failed', description: 'No accounts found.', variant: 'destructive' });
         }
@@ -61,8 +73,14 @@ export function Header({ title, children }: HeaderProps) {
       }
     } else {
       toast({ title: 'Metamask Not Found', description: 'Please install Metamask to connect your wallet.', variant: 'destructive' });
-      // Consider adding a link to Metamask website: https://metamask.io/download/
     }
+  };
+
+  const disconnectWallet = () => {
+    setCurrentAccount(null);
+    toast({ title: 'Wallet Disconnected', description: 'You have disconnected your wallet from the app.' });
+    // Note: This does not programmatically disconnect from Metamask itself,
+    // as dapps don't have permission to do that. It clears the app's state.
   };
 
   return (
@@ -79,9 +97,15 @@ export function Header({ title, children }: HeaderProps) {
       <div className="ml-auto flex items-center gap-4">
         {children}
         {isClient && currentAccount ? (
-          <div className="text-sm text-muted-foreground border px-3 py-2 rounded-md shadow-sm bg-card">
-            <Wallet className="inline-block mr-2 h-4 w-4 text-green-500" />
-            Connected: {currentAccount.substring(0, 6)}...{currentAccount.substring(currentAccount.length - 4)}
+          <div className="flex items-center gap-2">
+            <div className="text-sm text-muted-foreground border px-3 py-2 rounded-md shadow-sm bg-card">
+              <Wallet className="inline-block mr-2 h-4 w-4 text-green-500" />
+              {currentAccount.substring(0, 6)}...{currentAccount.substring(currentAccount.length - 4)}
+            </div>
+            <Button onClick={disconnectWallet} variant="outline" size="icon" className="shadow-sm" title="Disconnect Wallet">
+              <LogOut className="h-4 w-4" />
+              <span className="sr-only">Disconnect Wallet</span>
+            </Button>
           </div>
         ) : isClient ? (
           <Button onClick={connectWallet} variant="outline" className="shadow-sm">
