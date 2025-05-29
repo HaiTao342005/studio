@@ -26,14 +26,15 @@ interface AuthContextType {
   isLoading: boolean;
   getAllUsers: () => StoredUser[];
   approveUser: (userId: string) => void;
+  addManager: (newManagerUsername: string, newManagerPassword: string) => boolean; // Added
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 const CURRENT_USER_STORAGE_KEY = 'fruitflow-currentUser';
 const ALL_USERS_STORAGE_KEY = 'fruitflow-allUsers';
-const DEFAULT_MANAGER_USERNAME = 'Nhom1'; // Updated
-const DEFAULT_MANAGER_PASSWORD = '123';   // Updated
+const DEFAULT_MANAGER_USERNAME = 'Nhom1';
+const DEFAULT_MANAGER_PASSWORD = '123';
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -45,12 +46,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const usersString = localStorage.getItem(ALL_USERS_STORAGE_KEY);
       let users: StoredUser[] = usersString ? JSON.parse(usersString) : [];
       
-      // Ensure a default manager account exists
       const managerExists = users.some(u => u.role === 'manager' && u.name === DEFAULT_MANAGER_USERNAME);
       if (!managerExists) {
-        // If a manager with the *old* default username exists, remove it to avoid duplicates or confusion.
-        users = users.filter(u => !(u.role === 'manager' && u.name === 'manager'));
-
+        users = users.filter(u => !(u.role === 'manager' && u.name === 'manager')); // Clean up old default
         const defaultManager: StoredUser = {
           id: 'default-manager-001', 
           name: DEFAULT_MANAGER_USERNAME,
@@ -61,7 +59,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         users.push(defaultManager);
         localStorage.setItem(ALL_USERS_STORAGE_KEY, JSON.stringify(users)); 
       } else {
-        // If manager with new name exists, ensure password is updated (in case it changed after initial seed)
         const managerIndex = users.findIndex(u => u.role === 'manager' && u.name === DEFAULT_MANAGER_USERNAME);
         if (managerIndex > -1 && users[managerIndex].mockPassword !== DEFAULT_MANAGER_PASSWORD) {
             users[managerIndex].mockPassword = DEFAULT_MANAGER_PASSWORD;
@@ -71,7 +68,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return users;
     } catch (error) {
       console.error("Failed to parse or seed users from localStorage", error);
-      localStorage.removeItem(ALL_USERS_STORAGE_KEY);
+      localStorage.removeItem(ALL_USERS_STORAGE_KEY); // Clear corrupted data
       const defaultManager: StoredUser = {
           id: 'default-manager-001',
           name: DEFAULT_MANAGER_USERNAME,
@@ -82,7 +79,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       localStorage.setItem(ALL_USERS_STORAGE_KEY, JSON.stringify([defaultManager]));
       return [defaultManager];
     }
-  }, [toast]); // Added toast to dependency array if it's used indirectly via getStoredUsers -> error logging
+  }, []); 
 
   useEffect(() => {
     try {
@@ -90,7 +87,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (storedCurrentUser) {
         setUser(JSON.parse(storedCurrentUser));
       }
-      getStoredUsers(); 
+      getStoredUsers(); // Ensure users are seeded/checked on initial load
     } catch (error) {
       console.error("Failed to parse current user from localStorage", error);
       localStorage.removeItem(CURRENT_USER_STORAGE_KEY);
@@ -104,10 +101,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signup = useCallback((username: string, mockPasswordNew: string, role: UserRole) => {
-    if (!username || !mockPasswordNew || !role || role === 'manager') {
-      toast({ title: "Sign Up Error", description: "Username, password, and a valid role (Supplier, Transporter, or Customer) are required.", variant: "destructive" });
+    if (!username || !mockPasswordNew || !role) {
+      toast({ title: "Sign Up Error", description: "Username, password, and role are required.", variant: "destructive" });
       return;
     }
+    if (role === 'manager') {
+        toast({ title: "Sign Up Error", description: "Manager accounts cannot be created through public signup.", variant: "destructive" });
+        return;
+    }
+
     const allUsers = getStoredUsers();
     const existingUser = allUsers.find(u => u.name.toLowerCase() === username.toLowerCase());
 
@@ -117,7 +119,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     const isCustomer = role === 'customer';
-    const autoApproved = isCustomer || role === 'manager'; 
+    const autoApproved = isCustomer || role === 'manager'; // Manager role handled by addManager
 
     const newUser: StoredUser = {
       id: Date.now().toString(), 
@@ -129,13 +131,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     allUsers.push(newUser);
     saveStoredUsers(allUsers);
 
-    if (autoApproved) {
+    if (autoApproved && role === 'customer') { // Auto-login only customers
       const userToSet: User = { id: newUser.id, name: newUser.name, role: newUser.role, isApproved: newUser.isApproved };
       setUser(userToSet); 
       localStorage.setItem(CURRENT_USER_STORAGE_KEY, JSON.stringify(userToSet));
       toast({ title: "Sign Up Successful!", description: `Welcome, ${username}! Your ${role} account is active and you are now logged in.` });
-    } else { 
+    } else if (!autoApproved) {
       toast({ title: "Sign Up Successful!", description: `Account for ${username} (${role}) created. Awaiting manager approval.` });
+    } else {
+      toast({ title: "Sign Up Successful!", description: `Account for ${username} (${role}) created.` });
     }
   }, [getStoredUsers, saveStoredUsers, toast]);
 
@@ -180,14 +184,47 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       allUsers[userIndex].isApproved = true;
       saveStoredUsers(allUsers);
       toast({ title: "User Approved", description: `User ${allUsers[userIndex].name} (${allUsers[userIndex].role}) has been approved.` });
+       // Force re-render of UserApprovalsPage by updating user list
+       setUser(prevUser => ({...prevUser!})); // This is a bit of a hack for mock state
     } else {
       toast({ title: "Error", description: "User not found or not eligible for approval.", variant: "destructive" });
     }
   }, [getStoredUsers, saveStoredUsers, toast]);
 
+  const addManager = useCallback((newManagerUsername: string, newManagerPassword: string): boolean => {
+    if (user?.role !== 'manager') {
+        toast({ title: "Permission Denied", description: "Only managers can create new manager accounts.", variant: "destructive" });
+        return false;
+    }
+    if (!newManagerUsername || !newManagerPassword) {
+      toast({ title: "Creation Error", description: "New manager username and password are required.", variant: "destructive" });
+      return false;
+    }
+
+    const allUsers = getStoredUsers();
+    const existingUser = allUsers.find(u => u.name.toLowerCase() === newManagerUsername.toLowerCase());
+
+    if (existingUser) {
+      toast({ title: "Creation Failed", description: "Username already taken. Please choose another.", variant: "destructive" });
+      return false;
+    }
+
+    const newManager: StoredUser = {
+      id: Date.now().toString(),
+      name: newManagerUsername,
+      mockPassword: newManagerPassword,
+      role: 'manager',
+      isApproved: true, // Managers are auto-approved
+    };
+    allUsers.push(newManager);
+    saveStoredUsers(allUsers);
+    toast({ title: "Manager Created", description: `Manager account for ${newManagerUsername} created successfully.` });
+    return true;
+  }, [user, getStoredUsers, saveStoredUsers, toast]);
+
 
   return (
-    <AuthContext.Provider value={{ user, login, signup, logout, isLoading, getAllUsers, approveUser }}>
+    <AuthContext.Provider value={{ user, login, signup, logout, isLoading, getAllUsers, approveUser, addManager }}>
       {children}
     </AuthContext.Provider>
   );
