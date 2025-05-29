@@ -37,7 +37,7 @@ export function Header({ title, children }: HeaderProps) {
 
     // Listen for account changes
     if (typeof window.ethereum !== 'undefined') {
-      window.ethereum.on('accountsChanged', (accounts: string[]) => {
+      const handleAccountsChanged = (accounts: string[]) => {
         if (accounts.length > 0) {
           setCurrentAccount(accounts[0]);
           toast({ title: 'Account Switched', description: `Connected to ${accounts[0].substring(0,6)}...${accounts[0].substring(accounts[0].length - 4)}` });
@@ -45,15 +45,15 @@ export function Header({ title, children }: HeaderProps) {
           setCurrentAccount(null);
           toast({ title: 'Wallet Disconnected', description: 'Your wallet has been disconnected from Metamask.' });
         }
-      });
+      };
+      window.ethereum.on('accountsChanged', handleAccountsChanged);
+
+      return () => {
+        if (typeof window.ethereum !== 'undefined' && window.ethereum.removeListener) {
+           window.ethereum.removeListener('accountsChanged', handleAccountsChanged);
+        }
+      };
     }
-
-    return () => {
-      if (typeof window.ethereum !== 'undefined' && window.ethereum.removeListener) {
-         window.ethereum.removeListener('accountsChanged', () => {});
-      }
-    };
-
   }, [toast]);
 
   const connectWallet = async () => {
@@ -78,7 +78,10 @@ export function Header({ title, children }: HeaderProps) {
 
   const disconnectWallet = () => {
     setCurrentAccount(null);
-    toast({ title: 'Wallet Disconnected', description: 'You have disconnected your wallet from the app.' });
+    toast({ 
+      title: 'Wallet Disconnected', 
+      description: "You've disconnected from the app. Click 'Connect Wallet' again to choose a different account." 
+    });
     // Note: This does not programmatically disconnect from Metamask itself,
     // as dapps don't have permission to do that. It clears the app's state.
   };
