@@ -1,3 +1,5 @@
+"use client";
+
 import type { SVGProps } from 'react';
 import { Apple, Citrus, Grape, Leaf } from 'lucide-react';
 
