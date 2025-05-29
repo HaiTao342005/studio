@@ -19,7 +19,7 @@ import { format } from 'date-fns';
 import { useToast } from "@/hooks/use-toast";
 import { db } from '@/lib/firebase/config';
 import { collection, onSnapshot, query, orderBy, doc, deleteDoc, updateDoc, Timestamp, where } from 'firebase/firestore';
-import { useAuth } from '@/contexts/AuthContext'; // Import useAuth
+import { useAuth } from '@/contexts/AuthContext';
 
 const GANACHE_RECIPIENT_ADDRESS = "0x83491285C0aC3dd64255A5D68f0C3e919A5Eacf2";
 const FALLBACK_SIMULATED_ETH_USD_PRICE = 2000;
@@ -36,7 +36,8 @@ const getStatusBadgeVariant = (status: OrderStatus): "default" | "secondary" | "
   }
 };
 
-const getFruitIcon = (fruitType: string): ElementType<SVGProps<SVGSVGElement>> => {
+const getFruitIcon = (fruitTypeInput: string | undefined): ElementType<SVGProps<SVGSVGElement>> => {
+  const fruitType = fruitTypeInput || ""; // Ensure fruitType is a string
   const lowerFruitType = fruitType.toLowerCase();
   if (lowerFruitType.includes('apple')) return AppleIcon;
   if (lowerFruitType.includes('banana')) return BananaIcon;
@@ -47,8 +48,8 @@ const getFruitIcon = (fruitType: string): ElementType<SVGProps<SVGSVGElement>> =
 };
 
 interface TransactionHistoryTableProps {
-  initialOrders?: StoredOrder[]; // For pre-loading orders in customer view
-  isCustomerView?: boolean;     // To adapt behavior for customer
+  initialOrders?: StoredOrder[];
+  isCustomerView?: boolean;
 }
 
 export function TransactionHistoryTable({ initialOrders, isCustomerView = false }: TransactionHistoryTableProps) {
@@ -56,33 +57,33 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
   const [isLoading, setIsLoading] = useState(true);
   const [payingOrderId, setPayingOrderId] = useState<string | null>(null);
   const { toast } = useToast();
-  const { user } = useAuth(); // Get current user
+  const { user } = useAuth();
 
   useEffect(() => {
     if (isCustomerView && initialOrders) {
       const mappedOrders: Order[] = initialOrders.map(order => ({
         ...order,
-        // Firestore Timestamps are objects with toDate(), ensure correct conversion
-        date: (order.date as Timestamp).toDate(),
-        FruitIcon: getFruitIcon(order.fruitType),
+        date: (order.orderDate as Timestamp).toDate(), // Ensure we use orderDate from StoredOrder
+        FruitIcon: getFruitIcon(order.productName || (order as any).fruitType), // Use productName or fallback to fruitType
       }));
       setOrders(mappedOrders);
       setIsLoading(false);
-      return; // Don't set up a general listener if initialOrders are provided for customer view
+      return;
     }
 
-    // For Supplier/Manager view or if initialOrders not provided
     setIsLoading(true);
     let ordersQuery;
-    if (isCustomerView && user) { // Should be handled by initialOrders, but as a fallback
+    if (isCustomerView && user) {
         ordersQuery = query(collection(db, "orders"), where("customerId", "==", user.id), orderBy("orderDate", "desc"));
     } else if (user && user.role === 'supplier') {
         ordersQuery = query(collection(db, "orders"), where("supplierId", "==", user.id), orderBy("orderDate", "desc"));
-    }
-     else { // Manager sees all
+    } else if (user && user.role === 'manager') {
         ordersQuery = query(collection(db, "orders"), orderBy("orderDate", "desc"));
+    } else {
+      setIsLoading(false);
+      setOrders([]);
+      return; // No query if user role doesn't match known roles or user is null
     }
-
 
     const unsubscribe = onSnapshot(ordersQuery, (querySnapshot) => {
       const fetchedOrders: Order[] = [];
@@ -91,9 +92,8 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
         fetchedOrders.push({
           ...data,
           id: doc.id,
-          // Ensure field name matches Firestore: 'orderDate'
           date: (data.orderDate as Timestamp).toDate(),
-          FruitIcon: getFruitIcon(data.fruitType),
+          FruitIcon: getFruitIcon(data.productName || (data as any).fruitType), // Use productName or fallback to fruitType
         });
       });
       setOrders(fetchedOrders);
@@ -109,9 +109,12 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
   }, [toast, initialOrders, isCustomerView, user]);
 
   const handleDeleteOrder = async (orderId: string) => {
-    if (user?.role === 'customer') { // Customers should not delete orders directly
+    if (user?.role === 'customer') {
         toast({ title: "Action Not Allowed", description: "Customers cannot delete orders. Please contact support.", variant: "destructive"});
         return;
+    }
+    if (!confirm("Are you sure you want to delete this order? This action cannot be undone.")) {
+      return;
     }
     try {
       await deleteDoc(doc(db, "orders", orderId));
@@ -191,7 +194,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
     }
 
     const ethAmount = orderToPay.totalAmount / currentEthUsdPrice;
-    const ethAmountFixed = parseFloat(ethAmount.toFixed(18)); // Ensure enough precision
+    const ethAmountFixed = parseFloat(ethAmount.toFixed(18)); 
 
     toast({
       title: "Initiating Payment",
@@ -216,7 +219,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
       }
 
       const transactionParameters = {
-        to: orderToPay.supplierId === user?.id ? GANACHE_RECIPIENT_ADDRESS : GANACHE_RECIPIENT_ADDRESS, // For customer paying supplier, this should be supplier's address
+        to: GANACHE_RECIPIENT_ADDRESS,
         from: fromAccount,
         value: '0x' + amountInWei.toString(16),
       };
@@ -240,12 +243,13 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
 
       const orderRef = doc(db, "orders", orderId);
       await updateDoc(orderRef, {
-        status: 'Paid' as OrderStatus
+        status: 'Paid' as OrderStatus,
+        paymentTransactionHash: txHash // Optionally store the transaction hash
       });
 
       toast({
         title: "Payment Confirmed (Simulated)",
-        description: `Order for ${orderToPay.productName} (Amount: ${ethAmountFixed.toFixed(6)} ETH) marked as Paid. Block confirmed on Ganache (simulated).`,
+        description: `Order for ${orderToPay.productName || (orderToPay as any).fruitType} (Amount: ${ethAmountFixed.toFixed(6)} ETH) marked as Paid. Block confirmed on Ganache (simulated).`,
         variant: "default"
       });
 
@@ -292,7 +296,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
                 {order.FruitIcon ? <order.FruitIcon className="h-6 w-6 text-accent" /> : <FruitIcon className="h-6 w-6 text-gray-400" />}
               </TableCell>
               <TableCell>{format(order.date, "MMM d, yyyy")}</TableCell>
-              <TableCell className="font-medium">{order.productName}</TableCell>
+              <TableCell className="font-medium">{order.productName || (order as any).fruitType}</TableCell>
               {!isCustomerView && <TableCell>{order.customerName}</TableCell>}
               {isCustomerView && <TableCell>{order.supplierName}</TableCell>}
               <TableCell className="text-right">{order.currency} {order.totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</TableCell>
@@ -318,12 +322,12 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
                     <span className={payingOrderId === order.id ? "sr-only" : "ml-1"}>Pay</span>
                   </Button>
                 )}
-                {user?.role !== 'customer' && ( // Only non-customers (supplier/manager) can delete
+                {user?.role !== 'customer' && (
                   <Button variant="ghost" size="icon" onClick={() => handleDeleteOrder(order.id)} aria-label="Delete order" className="h-8 w-8">
                     <Trash2 className="h-4 w-4 text-destructive" />
                   </Button>
                 )}
-                 {user?.role === 'customer' && order.status !== 'Awaiting Payment' && ( // Customer can view if not awaiting payment
+                 {user?.role === 'customer' && order.status !== 'Awaiting Payment' && ( 
                     <Button variant="ghost" size="icon" onClick={() => alert(`Viewing order ${order.id} - details would show here.`)} aria-label="View order" className="h-8 w-8">
                         <Eye className="h-4 w-4 text-primary" />
                     </Button>
@@ -336,3 +340,5 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
     </div>
   );
 }
+
+    

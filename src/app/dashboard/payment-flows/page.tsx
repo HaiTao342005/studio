@@ -41,11 +41,11 @@ const StatCard = ({ title, value, Icon, description, color = 'text-primary' }: S
 
 const getStatusBadgeVariant = (status: OrderStatus): "default" | "secondary" | "destructive" | "outline" => {
   switch (status) {
-    case 'Paid': return 'default'; // Green in many themes
+    case 'Paid': return 'default'; 
     case 'Delivered': return 'default';
     case 'Shipped': return 'secondary';
-    case 'Awaiting Payment': return 'outline'; // Yellow/Orange often
-    case 'Pending': return 'outline'; // Blue/Gray often
+    case 'Awaiting Payment': return 'outline'; 
+    case 'Pending': return 'outline'; 
     case 'Cancelled': return 'destructive';
     default: return 'secondary';
   }
@@ -58,14 +58,14 @@ export default function PaymentTrackingPage({ params, searchParams }: PaymentTra
 
   useEffect(() => {
     setIsLoading(true);
-    const q = query(collection(db, "orders"), orderBy("date", "desc"));
+    const q = query(collection(db, "orders"), orderBy("orderDate", "desc")); // order by orderDate
     const unsubscribe = onSnapshot(q, (querySnapshot) => {
       const fetchedOrders: StoredOrder[] = [];
       querySnapshot.forEach((doc) => {
         fetchedOrders.push({
-          ...(doc.data() as Omit<StoredOrder, 'id' | 'date'>),
+          ...(doc.data() as Omit<StoredOrder, 'id' | 'orderDate'>), // Use orderDate here
           id: doc.id,
-          date: doc.data().date as Timestamp, // Keep as Timestamp for now
+          orderDate: doc.data().orderDate as Timestamp, 
         });
       });
       setOrders(fetchedOrders);
@@ -174,7 +174,7 @@ export default function PaymentTrackingPage({ params, searchParams }: PaymentTra
                     <TableRow>
                       <TableHead>Order Date</TableHead>
                       <TableHead>Customer</TableHead>
-                      <TableHead>Fruit Type</TableHead>
+                      <TableHead>Product</TableHead>
                       <TableHead className="text-right">Amount</TableHead>
                       <TableHead>Status</TableHead>
                     </TableRow>
@@ -182,10 +182,10 @@ export default function PaymentTrackingPage({ params, searchParams }: PaymentTra
                   <TableBody>
                     {ordersAwaitingPayment.map((order) => (
                       <TableRow key={order.id}>
-                        <TableCell>{format(order.date.toDate(), "MMM d, yyyy")}</TableCell>
-                        <TableCell>{order.customer}</TableCell>
-                        <TableCell className="font-medium">{order.fruitType}</TableCell>
-                        <TableCell className="text-right">{order.currency} {order.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</TableCell>
+                        <TableCell>{format(order.orderDate.toDate(), "MMM d, yyyy")}</TableCell>
+                        <TableCell>{order.customerName}</TableCell>
+                        <TableCell className="font-medium">{order.productName || (order as any).fruitType}</TableCell>
+                        <TableCell className="text-right">{order.currency} {order.totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</TableCell>
                         <TableCell>
                           <Badge variant={getStatusBadgeVariant(order.status)}>{order.status}</Badge>
                         </TableCell>
