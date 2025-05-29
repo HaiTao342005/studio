@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Header } from '@/components/dashboard/Header';
 import { ArrowRight, CandlestickChart, ShieldCheck, ShoppingCart, History, CreditCard, UserCircle, Truck, PackageSearch, ClipboardList, FileText, UserCheck, Users } from 'lucide-react';
 import { useAuth, type UserRole } from '@/contexts/AuthContext';
+import { AIProjectMonitor } from '@/components/dashboard/AIProjectMonitor'; // Import the new component
 
 const managerFeatures = [
   { title: "User Approvals", description: "Approve supplier & transporter accounts.", link: "/dashboard/user-approvals", icon: UserCheck, color: "text-teal-500" },
@@ -15,7 +16,6 @@ const managerFeatures = [
   { title: "Payment Tracking", description: "Track payment statuses for all orders.", link: "/dashboard/payment-flows", icon: CreditCard, color: "text-green-500" },
   { title: "Market Data", description: "View global fruit market data.", link: "/dashboard/market-data", icon: CandlestickChart, color: "text-primary" },
   { title: "Customer Risk", description: "Assess payment risks for customers.", link: "/dashboard/risk-assessment", icon: ShieldCheck, color: "text-accent" },
-  // { title: "New Order", description: "Create new customer orders if needed.", link: "/dashboard/transactions/new", icon: ShoppingCart, color: "text-blue-500" }, // Manager removed
 ];
 
 const supplierFeatures = [
@@ -38,7 +38,7 @@ const customerFeatures = [
 ];
 
 
-interface FeatureCard {
+interface FeatureCardProps { // Renamed for clarity
   title: string;
   description: string;
   link: string;
@@ -46,7 +46,7 @@ interface FeatureCard {
   color: string;
 }
 
-const getRoleSpecificFeatures = (role: UserRole): FeatureCard[] => {
+const getRoleSpecificFeatures = (role: UserRole): FeatureCardProps[] => {
   switch (role) {
     case 'manager':
       return managerFeatures;
@@ -89,7 +89,7 @@ export default function DashboardOverviewPage({ params, searchParams }: Dashboar
       <main className="flex-1 p-6 space-y-6">
         <Card className="bg-card shadow-lg">
           <CardHeader>
-            <CardTitle className="text-3xl font-bold text-primary">Welcome to FruitFlow, {user.name}!</CardTitle>
+            <CardTitle className="text-3xl font-bold text-primary">Welcome to FruitFlow, {user.name || 'User'}!</CardTitle>
             <CardDescription className="text-lg text-muted-foreground">
               Your dedicated {user.role} portal for managing fruit trade operations.
             </CardDescription>
@@ -98,6 +98,10 @@ export default function DashboardOverviewPage({ params, searchParams }: Dashboar
             <p>Navigate through the sections using the sidebar or the quick links below to get started.</p>
           </CardContent>
         </Card>
+
+        {user.role === 'manager' && (
+          <AIProjectMonitor />
+        )}
 
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
           {featureCards.map((feature) => (
@@ -122,7 +126,7 @@ export default function DashboardOverviewPage({ params, searchParams }: Dashboar
           ))}
         </div>
 
-        {featureCards.length === 0 && (
+        {featureCards.length === 0 && user.role !== 'manager' && ( // Ensure AI monitor doesn't trigger this
           <Card>
             <CardContent className="pt-6">
               <p className="text-muted-foreground">No specific features available for your role at the moment, or your role is not recognized.</p>
@@ -133,4 +137,3 @@ export default function DashboardOverviewPage({ params, searchParams }: Dashboar
     </>
   );
 }
-
