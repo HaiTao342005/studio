@@ -21,7 +21,7 @@ import { useToast } from "@/hooks/use-toast";
 const LOCAL_STORAGE_KEY = 'orders';
 
 // IMPORTANT: Replace this with one of your Ganache account addresses!
-const GANACHE_RECIPIENT_ADDRESS = "YOUR_GANACHE_ACCOUNT_ADDRESS_HERE";
+const GANACHE_RECIPIENT_ADDRESS = "0x83491285C0aC3dd64255A5D68f0C3e919A5Eacf2";
 const SIMULATED_PAYMENT_ETH_AMOUNT = "0.001"; // Simulate paying 0.001 ETH
 
 const getStatusBadgeVariant = (status: OrderStatus): "default" | "secondary" | "destructive" | "outline" => {
@@ -105,7 +105,7 @@ export function TransactionHistoryTable() {
       return;
     }
 
-    if (GANACHE_RECIPIENT_ADDRESS === "YOUR_GANACHE_ACCOUNT_ADDRESS_HERE") {
+    if (GANACHE_RECIPIENT_ADDRESS === "0x83491285C0aC3dd64255A5D68f0C3e919A5Eacf2" && GANACHE_RECIPIENT_ADDRESS.toUpperCase().includes("YOUR_GANACHE_ACCOUNT_ADDRESS_HERE")) { // Defensive check
       toast({
         title: "Configuration Needed",
         description: "Please set your Ganache recipient address in TransactionHistoryTable.tsx.",
@@ -123,7 +123,7 @@ export function TransactionHistoryTable() {
     setPayingOrderId(orderId);
     toast({ 
       title: "Initiating Payment", 
-      description: "Please confirm the transaction in Metamask." 
+      description: "Please confirm the transaction in Metamask to interact with the (simulated) smart contract." 
     });
 
     try {
@@ -143,7 +143,15 @@ export function TransactionHistoryTable() {
         to: GANACHE_RECIPIENT_ADDRESS,
         from: fromAccount,
         value: '0x' + amountInWei.toString(16), // Value in hexadecimal Wei
+        // For a real smart contract interaction, you would also include:
+        // data: '0xYourSmartContractMethodSignatureAndParametersEncoded'
+        // gas: '0xCalculatedGasLimit' (or let Metamask estimate)
       };
+
+      toast({
+        title: "Sending to Smart Contract",
+        description: "Awaiting your confirmation in Metamask..."
+      });
 
       // Send the transaction
       const txHash = await window.ethereum.request({
@@ -152,11 +160,12 @@ export function TransactionHistoryTable() {
       }) as string;
 
       toast({ 
-        title: "Transaction Submitted", 
-        description: `Tx Hash: ${txHash.substring(0,10)}... Waiting for confirmation.`
+        title: "Transaction Submitted to Ganache", 
+        description: `Tx Hash: ${txHash.substring(0,10)}... Simulating block confirmation.`
       });
 
-      // In a real app, you'd wait for transaction confirmation (e.g., by polling with ethers.js getTransactionReceipt)
+      // In a real app, you'd wait for transaction confirmation 
+      // (e.g., by polling with ethers.js provider.waitForTransaction(txHash))
       // For this simulation, we'll proceed after a short delay.
       await new Promise(resolve => setTimeout(resolve, 4000)); // Simulate mining time
 
@@ -171,8 +180,8 @@ export function TransactionHistoryTable() {
       loadOrders(); // Reload orders to reflect the change
       
       toast({ 
-        title: "Payment Confirmed!", 
-        description: `Order for ${orderToPay.fruitType} marked as Paid. (Simulated confirmation)`, 
+        title: "Payment Confirmed (Simulated)", 
+        description: `Order for ${orderToPay.fruitType} marked as Paid. Block confirmed on Ganache (simulated).`, 
         variant: "default" 
       });
 
@@ -254,3 +263,5 @@ export function TransactionHistoryTable() {
     </Table>
   );
 }
+
+    
