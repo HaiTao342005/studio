@@ -25,26 +25,56 @@ import {
   ShoppingCart,
   History,
   CreditCard,
-  Menu,
-  Leaf
+  Truck,
+  Users,
+  Leaf,
+  PackageSearch, // For Transporter: View Shipments
+  ClipboardList, // For Customer: My Orders
+  FileText, // For Customer: Invoices/Docs
 } from 'lucide-react';
+import { useAuth, type UserRole } from '@/contexts/AuthContext';
+import { useRouter } from 'next/navigation';
+import {useEffect} from 'react';
 
-const navItems = [
-  { href: '/dashboard', label: 'Overview', icon: LayoutDashboard },
-  { href: '/dashboard/market-data', label: 'Market Data', icon: CandlestickChart },
-  { href: '/dashboard/risk-assessment', label: 'Customer Risk', icon: ShieldCheck },
-  { href: '/dashboard/transactions/new', label: 'New Order', icon: ShoppingCart },
-  { href: '/dashboard/transactions/history', label: 'Order History', icon: History },
-  { href: '/dashboard/payment-flows', label: 'Payment Tracking', icon: CreditCard },
+
+type NavItem = {
+  href: string;
+  label: string;
+  icon: React.ElementType;
+  roles: UserRole[]; // Roles that can see this item
+};
+
+const allNavItems: NavItem[] = [
+  { href: '/dashboard', label: 'Overview', icon: LayoutDashboard, roles: ['supplier', 'transporter', 'customer'] },
+  // Supplier specific
+  { href: '/dashboard/market-data', label: 'Market Data', icon: CandlestickChart, roles: ['supplier'] },
+  { href: '/dashboard/risk-assessment', label: 'Customer Risk', icon: ShieldCheck, roles: ['supplier'] },
+  { href: '/dashboard/transactions/new', label: 'New Order', icon: ShoppingCart, roles: ['supplier'] }, // Supplier creates orders for customers
+  { href: '/dashboard/transactions/history', label: 'Order History', icon: History, roles: ['supplier'] }, // Supplier sees all orders
+  { href: '/dashboard/payment-flows', label: 'Payment Tracking', icon: CreditCard, roles: ['supplier'] },
+  // Transporter specific
+  { href: '/dashboard/shipments', label: 'Manage Shipments', icon: Truck, roles: ['transporter'] },
+  { href: '/dashboard/delivery-proof', label: 'Proof of Delivery', icon: PackageSearch, roles: ['transporter'] },
+  // Customer specific
+  { href: '/dashboard/my-orders', label: 'My Orders', icon: ClipboardList, roles: ['customer'] },
+  { href: '/dashboard/my-payments', label: 'My Payments', icon: CreditCard, roles: ['customer'] },
+  { href: '/dashboard/my-documents', label: 'My Documents', icon: FileText, roles: ['customer'] },
 ];
 
 function AppSidebarNav() {
   const pathname = usePathname();
   const { open } = useSidebar();
+  const { user } = useAuth();
+
+  const visibleNavItems = allNavItems.filter(item => item.roles.includes(user?.role));
+
+  if (!user) {
+    return null; // Or a loading spinner
+  }
 
   return (
     <SidebarMenu>
-      {navItems.map((item) => (
+      {visibleNavItems.map((item) => (
         <SidebarMenuItem key={item.href}>
           <SidebarMenuButton
             asChild
@@ -65,6 +95,24 @@ function AppSidebarNav() {
 }
 
 export default function DashboardLayout({ children }: { children: ReactNode }) {
+  const { user, isLoading } = useAuth();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (!isLoading && !user) {
+      router.replace('/login');
+    }
+  }, [user, isLoading, router]);
+
+  if (isLoading || !user) {
+    return (
+      <div className="flex min-h-screen w-full items-center justify-center bg-secondary/50">
+        <Leaf className="h-12 w-12 animate-spin text-primary" />
+        <p className="ml-4 text-lg text-muted-foreground">Loading FruitFlow...</p>
+      </div>
+    );
+  }
+  
   return (
     <SidebarProvider defaultOpen={true}>
       <div className="flex min-h-screen w-full">

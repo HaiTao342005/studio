@@ -1,63 +1,85 @@
 
+"use client";
+
 import Link from 'next/link';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Header } from '@/components/dashboard/Header';
-import { ArrowRight, CandlestickChart, ShieldCheck, ShoppingCart, History, CreditCard } from 'lucide-react';
+import { ArrowRight, CandlestickChart, ShieldCheck, ShoppingCart, History, CreditCard, UserCircle, Truck, PackageSearch, ClipboardList, FileText } from 'lucide-react';
+import { useAuth, type UserRole } from '@/contexts/AuthContext';
 
-const featureCards = [
-  {
-    title: "Market Data",
-    description: "View real-time global fruit market data.",
-    link: "/dashboard/market-data",
-    icon: CandlestickChart,
-    color: "text-primary"
-  },
-  {
-    title: "Customer Payment Risk",
-    description: "Assess payment risks for your customers.",
-    link: "/dashboard/risk-assessment",
-    icon: ShieldCheck,
-    color: "text-accent"
-  },
-  {
-    title: "New Order",
-    description: "Enter new customer order details.",
-    link: "/dashboard/transactions/new",
-    icon: ShoppingCart,
-    color: "text-blue-500"
-  },
-  {
-    title: "Order History",
-    description: "Browse historical order records.",
-    link: "/dashboard/transactions/history",
-    icon: History,
-    color: "text-purple-500"
-  },
-  {
-    title: "Payment Tracking",
-    description: "Visualize and track payment statuses.",
-    link: "/dashboard/payment-flows",
-    icon: CreditCard,
-    color: "text-green-500"
-  }
+const supplierFeatures = [
+  { title: "Market Data", description: "View real-time global fruit market data.", link: "/dashboard/market-data", icon: CandlestickChart, color: "text-primary" },
+  { title: "Customer Payment Risk", description: "Assess payment risks for your customers.", link: "/dashboard/risk-assessment", icon: ShieldCheck, color: "text-accent" },
+  { title: "New Order", description: "Enter new customer order details.", link: "/dashboard/transactions/new", icon: ShoppingCart, color: "text-blue-500" },
+  { title: "Order History", description: "Browse historical order records.", link: "/dashboard/transactions/history", icon: History, color: "text-purple-500" },
+  { title: "Payment Tracking", description: "Visualize and track payment statuses.", link: "/dashboard/payment-flows", icon: CreditCard, color: "text-green-500" }
 ];
 
+const transporterFeatures = [
+  { title: "Manage Shipments", description: "View and update active shipments.", link: "/dashboard/shipments", icon: Truck, color: "text-primary" },
+  { title: "Proof of Delivery", description: "Upload and manage delivery proofs.", link: "/dashboard/delivery-proof", icon: PackageSearch, color: "text-orange-500" },
+];
+
+const customerFeatures = [
+  { title: "My Orders", description: "View your order history and status.", link: "/dashboard/my-orders", icon: ClipboardList, color: "text-primary" },
+  { title: "Make a Payment", description: "Access payment options for outstanding orders.", link: "/dashboard/my-payments", icon: CreditCard, color: "text-green-500" },
+  { title: "My Documents", description: "Download invoices and shipping documents.", link: "/dashboard/my-documents", icon: FileText, color: "text-indigo-500" },
+];
+
+
+interface FeatureCard {
+  title: string;
+  description: string;
+  link: string;
+  icon: React.ElementType;
+  color: string;
+}
+
+const getRoleSpecificFeatures = (role: UserRole): FeatureCard[] => {
+  switch (role) {
+    case 'supplier':
+      return supplierFeatures;
+    case 'transporter':
+      return transporterFeatures;
+    case 'customer':
+      return customerFeatures;
+    default:
+      return [];
+  }
+};
+
 interface DashboardOverviewPageProps {
-  params: {}; // Static route
+  params: {}; 
   searchParams: { [key: string]: string | string[] | undefined };
 }
 
 export default function DashboardOverviewPage({ params, searchParams }: DashboardOverviewPageProps) {
+  const { user } = useAuth();
+
+  if (!user || !user.role) {
+    return (
+      <>
+        <Header title="Dashboard Overview" />
+        <main className="flex-1 p-6">
+          <p>Loading user information or role not set...</p>
+        </main>
+      </>
+    );
+  }
+
+  const featureCards = getRoleSpecificFeatures(user.role);
+  const roleName = user.role.charAt(0).toUpperCase() + user.role.slice(1);
+
   return (
     <>
-      <Header title="Dashboard Overview" />
+      <Header title={`${roleName} Dashboard Overview`} />
       <main className="flex-1 p-6 space-y-6">
         <Card className="bg-card shadow-lg">
           <CardHeader>
-            <CardTitle className="text-3xl font-bold text-primary">Welcome to FruitFlow</CardTitle>
+            <CardTitle className="text-3xl font-bold text-primary">Welcome to FruitFlow, {user.name}!</CardTitle>
             <CardDescription className="text-lg text-muted-foreground">
-              Your dedicated portal as a fruit supplier, designed to help you manage customer orders, gain market insights, and track payments.
+              Your dedicated {user.role} portal for managing fruit trade operations.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -87,6 +109,14 @@ export default function DashboardOverviewPage({ params, searchParams }: Dashboar
             </Card>
           ))}
         </div>
+        
+        {featureCards.length === 0 && (
+          <Card>
+            <CardContent className="pt-6">
+              <p className="text-muted-foreground">No specific features available for your role at the moment, or your role is not recognized.</p>
+            </CardContent>
+          </Card>
+        )}
       </main>
     </>
   );

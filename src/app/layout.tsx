@@ -1,15 +1,12 @@
+
 import type {Metadata} from 'next';
-// import { GeistSans } from 'geist/font/sans';
-// import { GeistMono } from 'geist/font/mono';
 import './globals.css';
 import { Toaster } from "@/components/ui/toaster";
-
-// const geistSans = GeistSans;
-// const geistMono = GeistMono;
+import { AuthProvider } from '@/contexts/AuthContext';
 
 export const metadata: Metadata = {
-  title: 'FruitFlow Supplier Portal',
-  description: 'Streamlined order and payment management for fruit suppliers.',
+  title: 'FruitFlow - Unified Trade Platform',
+  description: 'Streamlined management for suppliers, transporters, and customers in the fruit trade.',
 };
 
 export default function RootLayout({
@@ -20,8 +17,10 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className="font-sans antialiased">
-        {children}
-        <Toaster />
+        <AuthProvider>
+          {children}
+          <Toaster />
+        </AuthProvider>
       </body>
     </html>
   );
