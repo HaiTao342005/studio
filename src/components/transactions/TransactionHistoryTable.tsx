@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from '@/components/ui/button';
-import { Trash2, Wallet, Loader2 } from 'lucide-react';
+import { Trash2, Wallet, Loader2, Info } from 'lucide-react'; // Added Info icon
 import type { Order, OrderStatus, StoredOrder } from '@/types/transaction';
 import { AppleIcon, BananaIcon, OrangeIcon, GrapeIcon, MangoIcon, FruitIcon } from '@/components/icons/FruitIcons';
 import { format, parseISO } from 'date-fns';
@@ -20,10 +20,9 @@ import { useToast } from "@/hooks/use-toast";
 
 const LOCAL_STORAGE_KEY = 'orders';
 
-// IMPORTANT: Replace this with one of your Ganache account addresses!
 const GANACHE_RECIPIENT_ADDRESS = "0x83491285C0aC3dd64255A5D68f0C3e919A5Eacf2";
-// Simulate a fixed ETH price for conversion. In a real app, you'd fetch this from an API.
-const SIMULATED_ETH_USD_PRICE = 2000; // e.g., 1 ETH = $2000 USD
+// Fallback simulated ETH price if API fails
+const FALLBACK_SIMULATED_ETH_USD_PRICE = 2000; 
 
 const getStatusBadgeVariant = (status: OrderStatus): "default" | "secondary" | "destructive" | "outline" => {
   switch (status) {
@@ -99,6 +98,39 @@ export function TransactionHistoryTable() {
     }
   };
 
+  const fetchEthPrice = async (): Promise<number> => {
+    toast({
+      title: "Fetching Live ETH Price...",
+      description: "Getting the latest ETH to USD conversion rate from CoinGecko.",
+    });
+    try {
+      const response = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd');
+      if (!response.ok) {
+        throw new Error(`CoinGecko API responded with status: ${response.status}`);
+      }
+      const data = await response.json();
+      const price = data?.ethereum?.usd;
+      if (typeof price !== 'number') {
+        throw new Error("Invalid price format from CoinGecko API.");
+      }
+      toast({
+        title: "Live ETH Price Fetched",
+        description: `1 ETH = $${price.toFixed(2)} USD`,
+      });
+      return price;
+    } catch (error) {
+      console.error("Failed to fetch ETH price from CoinGecko:", error);
+      toast({
+        title: "Live Price Error",
+        description: `Could not fetch live ETH price. Using fallback rate: 1 ETH = $${FALLBACK_SIMULATED_ETH_USD_PRICE.toFixed(2)} USD. Error: ${(error as Error).message}`,
+        variant: "destructive",
+        duration: 7000,
+      });
+      return FALLBACK_SIMULATED_ETH_USD_PRICE;
+    }
+  };
+
+
   const handlePayWithMetamask = async (orderId: string) => {
     const orderToPay = orders.find(o => o.id === orderId);
     if (!orderToPay) {
@@ -111,7 +143,6 @@ export function TransactionHistoryTable() {
       return;
     }
     
-    // In a real app, verify this address carefully or fetch from a secure source
     if (GANACHE_RECIPIENT_ADDRESS === "YOUR_GANACHE_ACCOUNT_ADDRESS_HERE" || GANACHE_RECIPIENT_ADDRESS.toUpperCase().includes("YOUR_GANACHE_ACCOUNT_ADDRESS_HERE")) { 
       toast({
         title: "Configuration Needed",
@@ -129,14 +160,21 @@ export function TransactionHistoryTable() {
 
     setPayingOrderId(orderId);
 
-    // Calculate ETH amount from USD order amount using simulated price
-    // In a real app, fetch live ETH price from a reliable oracle or API (e.g., Chainlink, Coinbase API)
-    const ethAmount = orderToPay.amount / SIMULATED_ETH_USD_PRICE;
-    const ethAmountFixed = parseFloat(ethAmount.toFixed(18)); // Use toFixed for better precision before BigInt conversion
+    let currentEthUsdPrice: number;
+    try {
+      currentEthUsdPrice = await fetchEthPrice();
+    } catch (priceError) {
+      // Error toast is handled within fetchEthPrice, which returns fallback.
+      // We can re-assign here if needed, but it's already done.
+      currentEthUsdPrice = FALLBACK_SIMULATED_ETH_USD_PRICE;
+    }
+    
+    const ethAmount = orderToPay.amount / currentEthUsdPrice;
+    const ethAmountFixed = parseFloat(ethAmount.toFixed(18));
 
     toast({ 
       title: "Initiating Payment", 
-      description: `Preparing to pay ${orderToPay.amount.toFixed(2)} USD (${ethAmountFixed.toFixed(6)} ETH at simulated 1 ETH = ${SIMULATED_ETH_USD_PRICE} USD). Confirm in Metamask.` 
+      description: `Preparing to pay ${orderToPay.amount.toFixed(2)} USD (${ethAmountFixed.toFixed(6)} ETH at 1 ETH = $${currentEthUsdPrice.toFixed(2)} USD). Confirm in Metamask.` 
     });
 
     try {
@@ -148,12 +186,10 @@ export function TransactionHistoryTable() {
       }
       const fromAccount = accounts[0];
 
-      // Convert calculated ETH amount to Wei in hexadecimal
-      // Multiply by 10^18 to convert ETH to Wei. Use BigInt for large numbers.
       const amountInWei = BigInt(Math.floor(ethAmountFixed * 1e18)); 
 
       if (amountInWei <= 0) {
-        toast({ title: "Payment Error", description: "Calculated ETH amount is too small or zero.", variant: "destructive" });
+        toast({ title: "Payment Error", description: "Calculated ETH amount is too small or zero. Try a larger order amount.", variant: "destructive" });
         setPayingOrderId(null);
         return;
       }
@@ -161,10 +197,7 @@ export function TransactionHistoryTable() {
       const transactionParameters = {
         to: GANACHE_RECIPIENT_ADDRESS,
         from: fromAccount,
-        value: '0x' + amountInWei.toString(16), // Value in hexadecimal Wei
-        // For a real smart contract interaction, you would also include:
-        // data: '0xYourSmartContractMethodSignatureAndParametersEncoded'
-        // gas: '0xCalculatedGasLimit' (or let Metamask estimate)
+        value: '0x' + amountInWei.toString(16),
       };
 
       toast({
@@ -172,7 +205,6 @@ export function TransactionHistoryTable() {
         description: `Sending ${ethAmountFixed.toFixed(6)} ETH. Awaiting your confirmation in Metamask...`
       });
 
-      // Send the transaction
       const txHash = await window.ethereum.request({
         method: 'eth_sendTransaction',
         params: [transactionParameters],
@@ -183,12 +215,8 @@ export function TransactionHistoryTable() {
         description: `Tx Hash: ${txHash.substring(0,10)}... Simulating block confirmation.`
       });
 
-      // In a real app, you'd wait for transaction confirmation 
-      // (e.g., by polling with ethers.js provider.waitForTransaction(txHash))
-      // For this simulation, we'll proceed after a short delay.
-      await new Promise(resolve => setTimeout(resolve, 4000)); // Simulate mining time
+      await new Promise(resolve => setTimeout(resolve, 4000)); 
 
-      // Update order status in localStorage
       const storedOrdersRaw = localStorage.getItem(LOCAL_STORAGE_KEY);
       let storedOrders: StoredOrder[] = storedOrdersRaw ? JSON.parse(storedOrdersRaw) : [];
       storedOrders = storedOrders.map(o => 
@@ -196,7 +224,7 @@ export function TransactionHistoryTable() {
       );
       localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(storedOrders));
       
-      loadOrders(); // Reload orders to reflect the change
+      loadOrders(); 
       
       toast({ 
         title: "Payment Confirmed (Simulated)", 
@@ -217,7 +245,7 @@ export function TransactionHistoryTable() {
   };
 
   if (isLoading) {
-    return <p className="text-center py-8">Loading order history...</p>;
+    return <div className="flex justify-center items-center py-8"><Loader2 className="h-8 w-8 animate-spin mr-2" /> Loading order history...</div>;
   }
 
   if (orders.length === 0) {
@@ -225,60 +253,65 @@ export function TransactionHistoryTable() {
   }
 
   return (
-    <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead className="w-[60px]">Icon</TableHead>
-          <TableHead>Date</TableHead>
-          <TableHead>Type</TableHead>
-          <TableHead>Customer</TableHead>
-          <TableHead>Supplier</TableHead>
-          <TableHead className="text-right">Amount</TableHead>
-          <TableHead className="text-right">Quantity</TableHead>
-          <TableHead>Status</TableHead>
-          <TableHead className="w-[120px] text-center">Actions</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {orders.map((order) => (
-          <TableRow key={order.id}>
-            <TableCell>
-              {order.FruitIcon ? <order.FruitIcon className="h-6 w-6 text-accent" /> : <FruitIcon className="h-6 w-6 text-gray-400" />}
-            </TableCell>
-            <TableCell>{format(parseISO(order.date), "MMM d, yyyy")}</TableCell>
-            <TableCell className="font-medium">{order.fruitType}</TableCell>
-            <TableCell>{order.customer}</TableCell>
-            <TableCell>{order.supplier}</TableCell>
-            <TableCell className="text-right">{order.currency} {order.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</TableCell>
-            <TableCell className="text-right">{order.quantity.toLocaleString()} {order.unit}</TableCell>
-            <TableCell>
-              <Badge variant={getStatusBadgeVariant(order.status)}>{order.status}</Badge>
-            </TableCell>
-            <TableCell className="space-x-1 text-center">
-              {order.status === 'Awaiting Payment' && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => handlePayWithMetamask(order.id)}
-                  disabled={payingOrderId === order.id || !!payingOrderId}
-                  className="h-8 px-2"
-                  title="Pay with Metamask"
-                >
-                  {payingOrderId === order.id ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Wallet className="h-4 w-4" />
-                  )}
-                  <span className={payingOrderId === order.id ? "sr-only" : "ml-1"}>Pay</span>
-                </Button>
-              )}
-              <Button variant="ghost" size="icon" onClick={() => handleDeleteOrder(order.id)} aria-label="Delete order" className="h-8 w-8">
-                <Trash2 className="h-4 w-4 text-destructive" />
-              </Button>
-            </TableCell>
+    <div className="overflow-x-auto">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead className="w-[60px]">Icon</TableHead>
+            <TableHead>Date</TableHead>
+            <TableHead>Type</TableHead>
+            <TableHead>Customer</TableHead>
+            <TableHead>Supplier</TableHead>
+            <TableHead className="text-right">Amount</TableHead>
+            <TableHead className="text-right">Quantity</TableHead>
+            <TableHead>Status</TableHead>
+            <TableHead className="w-[120px] text-center">Actions</TableHead>
           </TableRow>
-        ))}
-      </TableBody>
-    </Table>
+        </TableHeader>
+        <TableBody>
+          {orders.map((order) => (
+            <TableRow key={order.id}>
+              <TableCell>
+                {order.FruitIcon ? <order.FruitIcon className="h-6 w-6 text-accent" /> : <FruitIcon className="h-6 w-6 text-gray-400" />}
+              </TableCell>
+              <TableCell>{format(parseISO(order.date), "MMM d, yyyy")}</TableCell>
+              <TableCell className="font-medium">{order.fruitType}</TableCell>
+              <TableCell>{order.customer}</TableCell>
+              <TableCell>{order.supplier}</TableCell>
+              <TableCell className="text-right">{order.currency} {order.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</TableCell>
+              <TableCell className="text-right">{order.quantity.toLocaleString()} {order.unit}</TableCell>
+              <TableCell>
+                <Badge variant={getStatusBadgeVariant(order.status)}>{order.status}</Badge>
+              </TableCell>
+              <TableCell className="space-x-1 text-center">
+                {order.status === 'Awaiting Payment' && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handlePayWithMetamask(order.id)}
+                    disabled={payingOrderId === order.id || !!payingOrderId}
+                    className="h-8 px-2"
+                    title="Pay with Metamask"
+                  >
+                    {payingOrderId === order.id ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Wallet className="h-4 w-4" />
+                    )}
+                    <span className={payingOrderId === order.id ? "sr-only" : "ml-1"}>Pay</span>
+                  </Button>
+                )}
+                <Button variant="ghost" size="icon" onClick={() => handleDeleteOrder(order.id)} aria-label="Delete order" className="h-8 w-8">
+                  <Trash2 className="h-4 w-4 text-destructive" />
+                </Button>
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </div>
   );
 }
+
+
+    
