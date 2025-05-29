@@ -32,10 +32,10 @@ import {
 const navItems = [
   { href: '/dashboard', label: 'Overview', icon: LayoutDashboard },
   { href: '/dashboard/market-data', label: 'Market Data', icon: CandlestickChart },
-  { href: '/dashboard/customer-risk', label: 'Customer Risk', icon: ShieldCheck },
-  { href: '/dashboard/transactions/new', label: 'New Order', icon: ShoppingCart }, // Updated href
-  { href: '/dashboard/transactions/history', label: 'Order History', icon: History }, // Updated href
-  { href: '/dashboard/payment-flows', label: 'Payment Tracking', icon: CreditCard }, // Updated href
+  { href: '/dashboard/risk-assessment', label: 'Customer Risk', icon: ShieldCheck }, // Updated href
+  { href: '/dashboard/transactions/new', label: 'New Order', icon: ShoppingCart },
+  { href: '/dashboard/transactions/history', label: 'Order History', icon: History },
+  { href: '/dashboard/payment-flows', label: 'Payment Tracking', icon: CreditCard },
 ];
 
 function AppSidebarNav() {
@@ -46,7 +46,7 @@ function AppSidebarNav() {
     <SidebarMenu>
       {navItems.map((item) => (
         <SidebarMenuItem key={item.href}>
-          <Link href={item.href} passHref> {/* Removed legacyBehavior */}
+          <Link href={item.href} passHref>
             <SidebarMenuButton
               isActive={pathname === item.href || (pathname.startsWith(item.href) && item.href !== '/dashboard')}
               tooltip={open ? undefined : item.label}
