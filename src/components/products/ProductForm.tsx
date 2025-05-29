@@ -23,6 +23,7 @@ const productSchema = z.object({
   description: z.string().min(10, "Description must be at least 10 characters."),
   price: z.coerce.number().positive("Price must be a positive number."),
   unit: z.enum(productUnits, { required_error: "Unit is required." }),
+  stockQuantity: z.coerce.number().int().min(0, "Stock quantity cannot be negative.").optional(),
   category: z.string().optional(),
   imageUrl: z.string().url("Must be a valid URL for an image.").optional().or(z.literal('')),
 });
@@ -45,6 +46,7 @@ export function ProductForm({ onProductAddSuccess }: ProductFormProps) {
       description: '',
       price: undefined,
       unit: 'item',
+      stockQuantity: undefined,
       category: '',
       imageUrl: '',
     },
@@ -64,6 +66,7 @@ export function ProductForm({ onProductAddSuccess }: ProductFormProps) {
       description: data.description,
       price: data.price,
       unit: data.unit,
+      stockQuantity: data.stockQuantity ?? 0, // Default to 0 if not provided
       category: data.category || '',
       imageUrl: data.imageUrl || `https://placehold.co/300x200.png?text=${encodeURIComponent(data.name)}`, // Default placeholder
       createdAt: serverTimestamp(),
@@ -116,7 +119,7 @@ export function ProductForm({ onProductAddSuccess }: ProductFormProps) {
           )}
         />
 
-        <div className="grid md:grid-cols-2 gap-6">
+        <div className="grid md:grid-cols-3 gap-6">
           <FormField
             control={form.control}
             name="price"
@@ -151,6 +154,26 @@ export function ProductForm({ onProductAddSuccess }: ProductFormProps) {
                     ))}
                   </SelectContent>
                 </Select>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+           <FormField
+            control={form.control}
+            name="stockQuantity"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Initial Stock Qty.</FormLabel>
+                <FormControl>
+                  <Input 
+                    type="number" 
+                    step="1"
+                    placeholder="e.g., 100" 
+                    {...field} 
+                    value={field.value ?? ''}
+                    onChange={event => field.onChange(event.target.value === '' ? undefined : +event.target.value)}
+                  />
+                </FormControl>
                 <FormMessage />
               </FormItem>
             )}

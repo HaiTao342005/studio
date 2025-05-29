@@ -11,7 +11,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { db } from '@/lib/firebase/config';
 import { collection, query, where, onSnapshot, doc, deleteDoc, Timestamp } from 'firebase/firestore';
 import type { Product as ProductType, StoredProduct } from '@/types/product';
-import { PackagePlus, Trash2, Loader2, Info, ImageOff, Edit3 } from 'lucide-react';
+import { PackagePlus, Trash2, Loader2, Info, ImageOff, Edit3, Package } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import Image from 'next/image';
 import { Badge } from '@/components/ui/badge';
@@ -43,6 +43,10 @@ function ProductCard({ product, onDelete }: { product: ProductType, onDelete: (p
       <CardContent className="flex-grow space-y-2">
         <p className="text-2xl font-semibold text-primary">
           ${product.price.toFixed(2)} <span className="text-sm text-muted-foreground">/{product.unit}</span>
+        </p>
+        <p className="text-sm text-muted-foreground flex items-center">
+          <Package className="h-4 w-4 mr-1.5 text-primary/80" />
+          Stock: {product.stockQuantity} {product.unit}{product.stockQuantity !== 1 ? 's' : ''}
         </p>
         <CardDescription className="line-clamp-3">{product.description}</CardDescription>
       </CardContent>

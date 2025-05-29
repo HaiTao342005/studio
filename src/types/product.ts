@@ -11,6 +11,7 @@ export interface StoredProduct {
   description: string;
   price: number;
   unit: ProductUnit;
+  stockQuantity: number; // Added stock quantity
   category?: string;
   imageUrl?: string;
   createdAt: Timestamp;
