@@ -25,7 +25,13 @@ const nextConfig: NextConfig = {
       },
       {
         protocol: 'https',
-        hostname: 'nshopvn.com', // Added new hostname
+        hostname: 'nshopvn.com',
+        port: '',
+        pathname: '/**',
+      },
+      {
+        protocol: 'https',
+        hostname: 'static.wikia.nocookie.net', // Added new hostname
         port: '',
         pathname: '/**',
       },
