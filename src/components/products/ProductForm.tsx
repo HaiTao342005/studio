@@ -1,6 +1,7 @@
 
 "use client";
 
+import { useEffect } from 'react';
 import { useForm, type SubmitHandler } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -11,14 +12,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { useToast } from "@/hooks/use-toast";
 import { db } from '@/lib/firebase/config';
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, addDoc, doc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { useAuth } from '@/contexts/AuthContext';
-import type { ProductUnit } from '@/types/product';
+import type { ProductUnit, Product, ProductFormData } from '@/types/product';
 import { Loader2 } from 'lucide-react';
 
 const productUnits: [ProductUnit, ...ProductUnit[]] = ['kg', 'box', 'pallet', 'item'];
 
 const productSchema = z.object({
+  id: z.string().optional(), // For identifying product to update
   name: z.string().min(3, "Product name must be at least 3 characters."),
   description: z.string().min(10, "Description must be at least 10 characters."),
   price: z.coerce.number().positive("Price must be a positive number."),
@@ -28,65 +30,101 @@ const productSchema = z.object({
   imageUrl: z.string().url("Must be a valid URL for an image.").optional().or(z.literal('')),
 });
 
-type ProductFormData = z.infer<typeof productSchema>;
-
 interface ProductFormProps {
-  onProductAddSuccess?: () => void;
-  // 'product' prop could be added later for editing
+  productToEdit?: Product | null; // Product data for editing
+  onFormSubmitSuccess?: () => void; // Callback for both add and update
 }
 
-export function ProductForm({ onProductAddSuccess }: ProductFormProps) {
+export function ProductForm({ productToEdit, onFormSubmitSuccess }: ProductFormProps) {
   const { toast } = useToast();
   const { user } = useAuth();
 
   const form = useForm<ProductFormData>({
     resolver: zodResolver(productSchema),
     defaultValues: {
-      name: '',
-      description: '',
-      price: undefined,
-      unit: 'item',
-      stockQuantity: undefined,
-      category: '',
-      imageUrl: '',
+      id: productToEdit?.id || undefined,
+      name: productToEdit?.name || '',
+      description: productToEdit?.description || '',
+      price: productToEdit?.price || undefined,
+      unit: productToEdit?.unit || 'item',
+      stockQuantity: productToEdit?.stockQuantity ?? undefined,
+      category: productToEdit?.category || '',
+      imageUrl: productToEdit?.imageUrl || '',
     },
   });
 
-  const { formState: { isSubmitting } } = form;
+  const { formState: { isSubmitting }, reset } = form;
+
+  // Reset form when productToEdit changes (e.g., opening dialog for a new product or different product)
+  useEffect(() => {
+    if (productToEdit) {
+      reset({
+        id: productToEdit.id,
+        name: productToEdit.name,
+        description: productToEdit.description,
+        price: productToEdit.price,
+        unit: productToEdit.unit,
+        stockQuantity: productToEdit.stockQuantity,
+        category: productToEdit.category,
+        imageUrl: productToEdit.imageUrl,
+      });
+    } else {
+      reset({ // Default values for adding a new product
+        id: undefined,
+        name: '',
+        description: '',
+        price: undefined,
+        unit: 'item',
+        stockQuantity: undefined,
+        category: '',
+        imageUrl: '',
+      });
+    }
+  }, [productToEdit, reset]);
 
   const onSubmit: SubmitHandler<ProductFormData> = async (data) => {
     if (!user || !user.id) {
-      toast({ title: "Authentication Error", description: "You must be logged in to add products.", variant: "destructive" });
+      toast({ title: "Authentication Error", description: "You must be logged in.", variant: "destructive" });
       return;
     }
 
-    const productDataToSave = {
+    const productDataForFirestore = {
       supplierId: user.id,
       name: data.name,
       description: data.description,
       price: data.price,
       unit: data.unit,
-      stockQuantity: data.stockQuantity ?? 0, // Default to 0 if not provided
+      stockQuantity: data.stockQuantity ?? 0,
       category: data.category || '',
-      imageUrl: data.imageUrl || `https://placehold.co/300x200.png?text=${encodeURIComponent(data.name)}`, // Default placeholder
-      createdAt: serverTimestamp(),
+      imageUrl: data.imageUrl || `https://placehold.co/300x200.png?text=${encodeURIComponent(data.name)}`,
       updatedAt: serverTimestamp(),
     };
 
     try {
-      await addDoc(collection(db, "products"), productDataToSave);
-      toast({
-        title: "Product Added!",
-        description: `${data.name} has been successfully listed.`,
-        variant: "default",
-      });
-      form.reset();
-      if (onProductAddSuccess) onProductAddSuccess();
+      if (productToEdit && productToEdit.id) { // Editing existing product
+        const productRef = doc(db, "products", productToEdit.id);
+        await updateDoc(productRef, productDataForFirestore);
+        toast({
+          title: "Product Updated!",
+          description: `${data.name} has been successfully updated.`,
+        });
+      } else { // Adding new product
+        await addDoc(collection(db, "products"), {
+          ...productDataForFirestore,
+          createdAt: serverTimestamp(), // Only set createdAt for new products
+        });
+        toast({
+          title: "Product Added!",
+          description: `${data.name} has been successfully listed.`,
+        });
+      }
+      form.reset(); // Reset form after successful submission
+      if (onFormSubmitSuccess) onFormSubmitSuccess();
     } catch (error) {
       console.error("Failed to save product to Firestore:", error);
       toast({
         title: "Firestore Error",
-        description: `Could not add product. Please try again. ${error instanceof Error ? error.message : ''}`,
+        description: `Could not ${productToEdit ? 'update' : 'add'} product. Please try again. ${error instanceof Error ? error.message : ''}`,
         variant: "destructive",
       });
     }
@@ -127,12 +165,12 @@ export function ProductForm({ onProductAddSuccess }: ProductFormProps) {
               <FormItem>
                 <FormLabel>Price (USD) *</FormLabel>
                 <FormControl>
-                  <Input 
-                    type="number" 
-                    step="0.01" 
-                    placeholder="e.g., 25.99" 
-                    {...field} 
-                    value={field.value ?? ''}
+                  <Input
+                    type="number"
+                    step="0.01"
+                    placeholder="e.g., 25.99"
+                    {...field}
+                    value={field.value ?? ''} // Ensure value is always a string or number
                     onChange={event => field.onChange(event.target.value === '' ? undefined : +event.target.value)}
                   />
                 </FormControl>
@@ -146,7 +184,7 @@ export function ProductForm({ onProductAddSuccess }: ProductFormProps) {
             render={({ field }) => (
               <FormItem>
                 <FormLabel>Unit *</FormLabel>
-                <Select onValueChange={field.onChange} defaultValue={field.value}>
+                <Select onValueChange={field.onChange} value={field.value}> {/* Use value prop here */}
                   <FormControl><SelectTrigger><SelectValue placeholder="Select a unit" /></SelectTrigger></FormControl>
                   <SelectContent>
                     {productUnits.map(unit => (
@@ -163,13 +201,13 @@ export function ProductForm({ onProductAddSuccess }: ProductFormProps) {
             name="stockQuantity"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Initial Stock Qty.</FormLabel>
+                <FormLabel>Stock Qty.</FormLabel>
                 <FormControl>
-                  <Input 
-                    type="number" 
+                  <Input
+                    type="number"
                     step="1"
-                    placeholder="e.g., 100" 
-                    {...field} 
+                    placeholder="e.g., 100"
+                    {...field}
                     value={field.value ?? ''}
                     onChange={event => field.onChange(event.target.value === '' ? undefined : +event.target.value)}
                   />
@@ -191,7 +229,7 @@ export function ProductForm({ onProductAddSuccess }: ProductFormProps) {
             </FormItem>
           )}
         />
-        
+
         <FormField
           control={form.control}
           name="imageUrl"
@@ -200,14 +238,14 @@ export function ProductForm({ onProductAddSuccess }: ProductFormProps) {
               <FormLabel>Image URL (Optional)</FormLabel>
               <FormControl><Input placeholder="https://placehold.co/300x200.png" {...field} /></FormControl>
               <FormMessage />
-              <p className="text-xs text-muted-foreground">If left blank, a placeholder will be used.</p>
+              <p className="text-xs text-muted-foreground">If blank, a placeholder will be used.</p>
             </FormItem>
           )}
         />
 
         <Button type="submit" disabled={isSubmitting} className="w-full">
           {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-          Add Product
+          {productToEdit ? 'Update Product' : 'Add Product'}
         </Button>
       </form>
     </Form>

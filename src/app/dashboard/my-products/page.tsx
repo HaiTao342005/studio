@@ -4,7 +4,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogClose } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"; // DialogClose might not be needed if form success closes it
 import { Header } from "@/components/dashboard/Header";
 import { ProductForm } from "@/components/products/ProductForm";
 import { useAuth } from '@/contexts/AuthContext';
@@ -17,17 +17,16 @@ import Image from 'next/image';
 import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
 
-
-function ProductCard({ product, onDelete }: { product: ProductType, onDelete: (productId: string) => void }) {
+function ProductCard({ product, onDelete, onEdit }: { product: ProductType, onDelete: (productId: string) => void, onEdit: (product: ProductType) => void }) {
   return (
     <Card className="flex flex-col shadow-lg hover:shadow-xl transition-shadow duration-300">
       <CardHeader className="pb-2">
         {product.imageUrl ? (
           <div className="relative w-full h-48 rounded-t-md overflow-hidden">
-            <Image 
-              src={product.imageUrl} 
-              alt={product.name} 
-              fill 
+            <Image
+              src={product.imageUrl}
+              alt={product.name}
+              fill
               style={{ objectFit: 'cover' }}
               data-ai-hint="product image"
             />
@@ -54,11 +53,14 @@ function ProductCard({ product, onDelete }: { product: ProductType, onDelete: (p
          <p className="text-xs text-muted-foreground">
             Listed: {format(product.createdAt, "MMM d, yyyy")}
           </p>
-        <Button variant="ghost" size="icon" onClick={() => onDelete(product.id)} aria-label="Delete product">
-          <Trash2 className="h-5 w-5 text-destructive" />
-        </Button>
-        {/* Edit button can be added later */}
-        {/* <Button variant="outline" size="sm"><Edit3 className="h-4 w-4 mr-2" /> Edit</Button> */}
+        <div className="flex gap-1">
+          <Button variant="outline" size="icon" onClick={() => onEdit(product)} aria-label="Edit product">
+            <Edit3 className="h-5 w-5 text-primary" />
+          </Button>
+          <Button variant="ghost" size="icon" onClick={() => onDelete(product.id)} aria-label="Delete product">
+            <Trash2 className="h-5 w-5 text-destructive" />
+          </Button>
+        </div>
       </CardFooter>
     </Card>
   );
@@ -76,6 +78,7 @@ export default function MyProductsPage({ params, searchParams }: MyProductsPageP
   const [products, setProducts] = useState<ProductType[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isFormOpen, setIsFormOpen] = useState(false);
+  const [editingProduct, setEditingProduct] = useState<ProductType | null>(null);
 
   useEffect(() => {
     if (!user || !user.id) {
@@ -85,15 +88,15 @@ export default function MyProductsPage({ params, searchParams }: MyProductsPageP
 
     setIsLoading(true);
     const q = query(collection(db, "products"), where("supplierId", "==", user.id));
-    
+
     const unsubscribe = onSnapshot(q, (querySnapshot) => {
       const fetchedProducts: ProductType[] = [];
       querySnapshot.forEach((doc) => {
-        const data = doc.data() as Omit<StoredProduct, 'id' | 'createdAt' | 'updatedAt'>;
+        const data = doc.data() as Omit<StoredProduct, 'id' | 'createdAt' | 'updatedAt'>; // Ensure data matches StoredProduct
         fetchedProducts.push({
           ...data,
           id: doc.id,
-          createdAt: (doc.data().createdAt as Timestamp)?.toDate() || new Date(),
+          createdAt: (doc.data().createdAt as Timestamp)?.toDate() || new Date(), // Handle potential null Timestamps
           updatedAt: (doc.data().updatedAt as Timestamp)?.toDate() || new Date(),
         });
       });
@@ -113,11 +116,25 @@ export default function MyProductsPage({ params, searchParams }: MyProductsPageP
     try {
       await deleteDoc(doc(db, "products", productId));
       toast({ title: "Product Deleted", description: "The product has been removed." });
-      // Firestore listener will update the list automatically
     } catch (error) {
       console.error("Error deleting product: ", error);
       toast({ title: "Error", description: "Could not delete product.", variant: "destructive" });
     }
+  };
+
+  const handleOpenAddProductForm = () => {
+    setEditingProduct(null); // Ensure we are in "add" mode
+    setIsFormOpen(true);
+  };
+
+  const handleOpenEditProductForm = (product: ProductType) => {
+    setEditingProduct(product);
+    setIsFormOpen(true);
+  };
+
+  const handleFormSubmitSuccess = () => {
+    setIsFormOpen(false);
+    setEditingProduct(null); // Reset editing state
   };
 
   return (
@@ -130,19 +147,9 @@ export default function MyProductsPage({ params, searchParams }: MyProductsPageP
               <CardTitle>Manage Your Products</CardTitle>
               <CardDescription>Add new products you offer or manage existing ones.</CardDescription>
             </div>
-            <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
-              <DialogTrigger asChild>
-                <Button>
-                  <PackagePlus className="mr-2 h-5 w-5" /> Add New Product
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="sm:max-w-2xl">
-                <DialogHeader>
-                  <DialogTitle>Add a New Product</DialogTitle>
-                </DialogHeader>
-                <ProductForm onProductAddSuccess={() => setIsFormOpen(false)} />
-              </DialogContent>
-            </Dialog>
+            <Button onClick={handleOpenAddProductForm}>
+              <PackagePlus className="mr-2 h-5 w-5" /> Add New Product
+            </Button>
           </CardHeader>
           <CardContent>
             {isLoading && (
@@ -161,12 +168,32 @@ export default function MyProductsPage({ params, searchParams }: MyProductsPageP
             {!isLoading && products.length > 0 && (
               <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 {products.map(product => (
-                  <ProductCard key={product.id} product={product} onDelete={handleDeleteProduct} />
+                  <ProductCard
+                    key={product.id}
+                    product={product}
+                    onDelete={handleDeleteProduct}
+                    onEdit={handleOpenEditProductForm}
+                  />
                 ))}
               </div>
             )}
           </CardContent>
         </Card>
+
+        <Dialog open={isFormOpen} onOpenChange={(isOpen) => {
+          setIsFormOpen(isOpen);
+          if (!isOpen) setEditingProduct(null); // Reset editing state when dialog closes
+        }}>
+          <DialogContent className="sm:max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>{editingProduct ? 'Edit Product' : 'Add a New Product'}</DialogTitle>
+            </DialogHeader>
+            <ProductForm
+              productToEdit={editingProduct}
+              onFormSubmitSuccess={handleFormSubmitSuccess}
+            />
+          </DialogContent>
+        </Dialog>
       </main>
     </>
   );
