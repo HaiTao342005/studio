@@ -8,7 +8,7 @@ import { TransactionHistoryTable } from '@/components/transactions/TransactionHi
 import { useAuth } from '@/contexts/AuthContext';
 import { StoredOrder } from '@/types/transaction';
 import { db } from '@/lib/firebase/config';
-import { collection, onSnapshot, query, where, Timestamp, orderBy } from 'firebase/firestore';
+import { collection, onSnapshot, query, where, Timestamp } from 'firebase/firestore'; // Removed orderBy
 import { useState, useEffect } from 'react';
 
 interface MyOrdersPageProps {
@@ -26,20 +26,27 @@ export default function MyOrdersPage({ params, searchParams }: MyOrdersPageProps
       setIsLoadingOrders(true);
       const ordersQuery = query(
         collection(db, "orders"),
-        where("customerId", "==", user.id),
-        orderBy("orderDate", "desc") 
+        where("customerId", "==", user.id)
+        // orderBy("orderDate", "desc") // Temporarily removed to avoid index error
+                                          // Create the index in Firebase console:
+                                          // https://console.firebase.google.com/v1/r/project/newtech-be296/firestore/indexes?create_composite=Ckxwcm9qZWN0cy9uZXd0ZWNoLWJlMjk2L2RhdGFiYXNlcy8oZGVmYXVsdCkvY29sbGVjdGlvbkdyb3Vwcy9vcmRlcnMvaW5kZXhlcy9fEAEaDgoKY3VzdG9tZXJJZBABGg0KCW9yZGVyRGF0ZRACGgwKCF9fbmFtZV9fEAI
       );
 
       const unsubscribe = onSnapshot(ordersQuery, (querySnapshot) => {
         const fetchedOrders: StoredOrder[] = [];
         querySnapshot.forEach((doc) => {
           fetchedOrders.push({
-            ...(doc.data() as Omit<StoredOrder, 'id'>), // No need to map date here
+            ...(doc.data() as Omit<StoredOrder, 'id'>), 
             id: doc.id,
-            // date: (doc.data().orderDate as Timestamp)?.toDate(), // Not needed if StoredOrder is passed directly
           });
         });
-        setCustomerOrders(fetchedOrders); // Firestore query handles sorting
+        // Client-side sorting as a workaround
+        fetchedOrders.sort((a, b) => {
+            const dateA = (a.orderDate as Timestamp)?.toMillis() || 0;
+            const dateB = (b.orderDate as Timestamp)?.toMillis() || 0;
+            return dateB - dateA;
+        });
+        setCustomerOrders(fetchedOrders);
         setIsLoadingOrders(false);
       }, (error) => {
         console.error("Error fetching customer orders:", error);
