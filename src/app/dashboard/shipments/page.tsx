@@ -68,7 +68,7 @@ export default function ManageShipmentsPage({ params, searchParams }: ManageShip
       const fetchedOrders: StoredOrder[] = [];
       querySnapshot.forEach((orderDoc) => {
         const orderData = { id: orderDoc.id, ...orderDoc.data() } as StoredOrder;
-        if (orderData.shipmentStatus !== 'Shipment Cancelled') {
+        if (orderData.shipmentStatus !== 'Shipment Cancelled' || orderData.status !== 'Awaiting Transporter Assignment') {
              fetchedOrders.push(orderData);
         }
       });
@@ -98,14 +98,27 @@ export default function ManageShipmentsPage({ params, searchParams }: ManageShip
     const orderRef = doc(db, "orders", orderId);
     
     try {
-      const updateData: Partial<StoredOrder> = {
+      let updateData: Partial<StoredOrder> = {
         shipmentStatus: newStatus,
       };
-      if (newStatus === 'Delivered') {
+
+      if (newStatus === 'Shipment Cancelled') {
+        updateData = {
+          ...updateData,
+          status: 'Awaiting Transporter Assignment',
+          transporterId: null, // Explicitly set to null
+          transporterName: null, // Explicitly set to null
+        };
+        toast({ title: "Shipment Cancelled", description: `Order ${orderId} is now awaiting re-assignment by the supplier.` });
+      } else if (newStatus === 'Delivered') {
         // Do not change main 'status' here. Customer 'Confirm Receipt' will handle payment & final status.
+        toast({ title: "Success", description: `Shipment status updated to ${newStatus}. Customer will be prompted to confirm receipt.` });
+      } else {
+         toast({ title: "Success", description: `Shipment status updated to ${newStatus}.` });
       }
+      
       await updateDoc(orderRef, updateData);
-      toast({ title: "Success", description: `Shipment status updated to ${newStatus}.` });
+
     } catch (error) {
       console.error("Error updating shipment status:", error);
       toast({ title: "Error", description: "Could not update shipment status.", variant: "destructive" });
@@ -184,6 +197,7 @@ export default function ManageShipmentsPage({ params, searchParams }: ManageShip
                               shipment.shipmentStatus === 'In Transit' ? 'bg-blue-100 text-blue-700 dark:bg-blue-700 dark:text-blue-100' :
                               shipment.shipmentStatus === 'Out for Delivery' ? 'bg-blue-100 text-blue-700 dark:bg-blue-700 dark:text-blue-100' :
                               shipment.shipmentStatus === 'Ready for Pickup' ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-600 dark:text-yellow-100' :
+                              shipment.shipmentStatus === 'Shipment Cancelled' ? 'bg-red-100 text-red-700 dark:bg-red-700 dark:text-red-100' :
                               'bg-muted text-muted-foreground'
                             }`}>
                               {shipment.shipmentStatus || 'Awaiting Action'}
@@ -194,14 +208,16 @@ export default function ManageShipmentsPage({ params, searchParams }: ManageShip
                               <Select
                                 value={shipment.shipmentStatus || ''}
                                 onValueChange={(value) => handleStatusUpdate(shipment.id, value as OrderShipmentStatus)}
-                                disabled={updatingShipmentId === shipment.id || shipment.shipmentStatus === 'Delivered'}
+                                disabled={updatingShipmentId === shipment.id || shipment.shipmentStatus === 'Delivered' || shipment.shipmentStatus === 'Shipment Cancelled'}
                               >
                                 <SelectTrigger className="w-[180px] h-9">
                                   <SelectValue placeholder="Select status" />
                                 </SelectTrigger>
                                 <SelectContent>
                                   {shipmentStatuses.map(status => (
-                                    <SelectItem key={status} value={status} disabled={shipment.shipmentStatus === 'Delivered' && status !== 'Delivered'}>
+                                    <SelectItem key={status} value={status} 
+                                      disabled={(shipment.shipmentStatus === 'Delivered' && status !== 'Delivered') || (shipment.shipmentStatus === 'Shipment Cancelled' && status !== 'Shipment Cancelled')}
+                                    >
                                       {status}
                                     </SelectItem>
                                   ))}
@@ -223,3 +239,6 @@ export default function ManageShipmentsPage({ params, searchParams }: ManageShip
     </>
   );
 }
+
+
+    
