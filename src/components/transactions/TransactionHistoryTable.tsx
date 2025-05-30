@@ -21,7 +21,19 @@ import { AppleIcon, BananaIcon, OrangeIcon, GrapeIcon, MangoIcon, FruitIcon } fr
 import { format } from 'date-fns';
 import { useToast } from "@/hooks/use-toast";
 import { db } from '@/lib/firebase/config';
-import { collection, onSnapshot, query, doc, deleteDoc, updateDoc, Timestamp, where, orderBy } from 'firebase/firestore';
+import {
+  collection,
+  onSnapshot,
+  query,
+  doc,
+  deleteDoc,
+  updateDoc,
+  Timestamp,
+  where,
+  orderBy,
+  getDoc, // Added for product stock update
+  runTransaction // Added for atomic stock update
+} from 'firebase/firestore';
 import { useAuth, type User as AuthUser } from '@/contexts/AuthContext';
 
 const GANACHE_RECIPIENT_ADDRESS = "0x83491285C0aC3dd64255A5D68f0C3e919A5Eacf2";
@@ -30,7 +42,7 @@ const FALLBACK_SIMULATED_ETH_USD_PRICE = 2000;
 const getStatusBadgeVariant = (status: OrderStatus): "default" | "secondary" | "destructive" | "outline" => {
   switch (status) {
     case 'Paid': return 'default';
-    case 'Delivered': return 'default'; // Note: shipmentStatus is also 'Delivered'
+    case 'Delivered': return 'default';
     case 'Receipt Confirmed': return 'default';
     case 'Shipped': return 'secondary';
     case 'Ready for Pickup': return 'secondary';
@@ -44,7 +56,7 @@ const getStatusBadgeVariant = (status: OrderStatus): "default" | "secondary" | "
 };
 
 const getFruitIcon = (fruitTypeInput?: string): ElementType<SVGProps<SVGSVGElement>> => {
-  const fruitType = fruitTypeInput || ""; // Ensure fruitType is a string
+  const fruitType = fruitTypeInput || "";
   const lowerFruitType = fruitType.toLowerCase();
   if (lowerFruitType.includes('apple')) return AppleIcon;
   if (lowerFruitType.includes('banana')) return BananaIcon;
@@ -84,7 +96,6 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
         ...order,
         FruitIcon: getFruitIcon(order.productName || (order as any).fruitType),
       }));
-      // Client-side sorting for customer view IF initialOrders doesn't guarantee sort order
       mappedOrders.sort((a, b) => {
         const dateA = (a.orderDate || (a as any).date) as Timestamp | undefined;
         const dateB = (b.orderDate || (b as any).date) as Timestamp | undefined;
@@ -141,10 +152,11 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
         fetchedOrders.push(orderWithIcon);
         if (currentRole === 'supplier') {
             console.log("[TransactionHistoryTable] Supplier - Raw order data from Firestore:", docSnapshot.id, data);
+            console.log("[TransactionHistoryTable] Supplier - Order for display:", orderWithIcon);
         }
       });
       
-      if (currentRole === 'supplier') { // Client-side sorting if orderBy was removed from query
+      if (currentRole === 'supplier') {
         fetchedOrders.sort((a, b) => {
           const dateA = (a.orderDate || (a as any).date) as Timestamp | undefined;
           const dateB = (b.orderDate || (b as any).date) as Timestamp | undefined;
@@ -313,6 +325,39 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
         description: `Order for ${orderToPay.productName || (orderToPay as any).fruitType} (Amount: ${ethAmountFixed.toFixed(6)} ETH) marked as Paid.`,
         variant: "default"
       });
+
+      // ---- START: Stock Update Logic ----
+      if (orderToPay.productId && orderToPay.quantity > 0) {
+        const productRef = doc(db, "products", orderToPay.productId);
+        try {
+          await runTransaction(db, async (transaction) => {
+            const productDoc = await transaction.get(productRef);
+            if (!productDoc.exists()) {
+              throw new Error("Product not found, cannot update stock.");
+            }
+            const currentStock = productDoc.data().stockQuantity || 0;
+            const newStock = Math.max(0, currentStock - orderToPay.quantity);
+            transaction.update(productRef, { stockQuantity: newStock });
+            console.log(`[TransactionHistoryTable] Stock updated for product ${orderToPay.productId}. New stock: ${newStock}`);
+             toast({
+                title: "Stock Updated",
+                description: `Stock for ${orderToPay.productName || (orderToPay as any).fruitType} reduced by ${orderToPay.quantity}. New stock: ${newStock}.`,
+             });
+          });
+        } catch (stockError: any) {
+          console.error("[TransactionHistoryTable] Error updating product stock:", stockError);
+          toast({
+            title: "Stock Update Failed",
+            description: `Could not update stock for ${orderToPay.productName || (orderToPay as any).fruitType}. Please check manually. Error: ${stockError.message || stockError}`,
+            variant: "destructive",
+            duration: 7000,
+          });
+        }
+      } else {
+        console.warn("[TransactionHistoryTable] Product ID or quantity missing in order, cannot update stock:", orderToPay);
+      }
+      // ---- END: Stock Update Logic ----
+
       return true;
     } catch (error: any) {
       console.error("Metamask payment failed:", error);
@@ -384,8 +429,8 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
     try {
       const orderRef = doc(db, "orders", orderId);
       await updateDoc(orderRef, { status: 'Receipt Confirmed' as OrderStatus });
-      toast({ title: "Receipt Confirmed", description: "Thank you! Please proceed to payment if the order is not yet paid." });
-      // Removed automatic payment attempt from here
+      toast({ title: "Receipt Confirmed", description: "Thank you! If payment is due, please click 'Pay'." });
+      // No automatic payment attempt from here
     } catch (error) {
       toast({ title: "Error", description: "Could not confirm receipt.", variant: "destructive" });
       console.error("Error confirming receipt:", error);
@@ -423,13 +468,14 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
         <TableBody>
           {orders.map((order) => {
             const displayDate = order.orderDate || (order as any).date;
+            const productName = order.productName || (order as any).fruitType;
             return (
             <TableRow key={order.id}>
               <TableCell>
                 {order.FruitIcon ? <order.FruitIcon className="h-6 w-6 text-accent" /> : <FruitIcon className="h-6 w-6 text-gray-400" />}
               </TableCell>
               <TableCell>{displayDate ? format((displayDate as Timestamp).toDate(), "MMM d, yyyy") : 'N/A'}</TableCell>
-              <TableCell className="font-medium">{order.productName || (order as any).fruitType}</TableCell>
+              <TableCell className="font-medium">{productName}</TableCell>
               {!isCustomerView && <TableCell>{order.customerName}</TableCell>}
               {isCustomerView && <TableCell>{order.supplierName}</TableCell>}
               <TableCell className="text-right">{order.currency} {order.totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</TableCell>
@@ -484,7 +530,6 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
                     <Trash2 className="h-4 w-4 text-destructive" />
                   </Button>
                 )}
-                {/* Keeping a generic view button for customers for orders not in an actionable state */}
                 {isCustomerView && order.status !== 'Awaiting Payment' && order.status !== 'Receipt Confirmed' && !(order.shipmentStatus === 'Delivered' && order.status !== 'Paid' && order.status !== 'Receipt Confirmed') && (
                     <Button variant="ghost" size="icon" onClick={() => alert(`Viewing order ${order.id} - details would show here.`)} aria-label="View order" className="h-8 w-8">
                         <Eye className="h-4 w-4 text-primary" />
@@ -507,7 +552,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
       }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Assign Transporter for Order: {currentOrderToAssign.productName}</DialogTitle>
+            <DialogTitle>Assign Transporter for Order: {currentOrderToAssign.productName || (currentOrderToAssign as any).fruitType}</DialogTitle>
             <DialogDescription>
               Customer: {currentOrderToAssign.customerName} <br/>
               Order ID: {currentOrderToAssign.id}
