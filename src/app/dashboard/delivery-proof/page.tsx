@@ -3,7 +3,7 @@
 
 import { Header } from '@/components/dashboard/Header';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { PackageSearch } from 'lucide-react';
+import { PackageSearch, UploadCloud, CheckCircle2 } from 'lucide-react';
 
 interface ProofOfDeliveryPageProps {
   params: {};
@@ -28,9 +28,14 @@ export default function ProofOfDeliveryPage({ params, searchParams }: ProofOfDel
           <CardContent>
             <div className="py-10 text-center">
               <h3 className="text-xl font-semibold text-muted-foreground">Feature Coming Soon!</h3>
-              <p className="text-sm text-muted-foreground">
-                This section will allow you to upload and manage proof of delivery documents.
+              <p className="text-sm text-muted-foreground mb-4">
+                This section will enable you to manage Proof of Delivery (PoD) documents:
               </p>
+              <ul className="text-sm text-muted-foreground list-disc list-inside space-y-1 text-left max-w-md mx-auto">
+                <li>Upload PoD files (signed receipts, photos) for delivered orders (<UploadCloud className="inline h-4 w-4 mr-1 text-primary/70"/>).</li>
+                <li>View a history of your submitted PoDs.</li>
+                <li>See the verification status of your PoDs (<CheckCircle2 className="inline h-4 w-4 mr-1 text-green-500"/>).</li>
+              </ul>
             </div>
           </CardContent>
         </Card>
