@@ -32,19 +32,18 @@ export interface StoredOrder {
   currency: string;
   status: OrderStatus;
   notes?: string;
-  transporterId?: string | null; // Allow null for clearing
-  transporterName?: string | null; // Allow null for clearing
+  transporterId?: string | null;
+  transporterName?: string | null;
   shipmentStatus?: OrderShipmentStatus;
   podSubmitted?: boolean;
   podNotes?: string;
   paymentTransactionHash?: string;
-  pickupAddress?: string; // New: Supplier's address at time of assignment
-  deliveryAddress?: string; // New: Customer's address at time of assignment
+  pickupAddress?: string;
+  deliveryAddress?: string;
+  predictedDeliveryDate?: Timestamp; // New field
 }
 
 export interface Order extends Omit<StoredOrder, 'orderDate'> {
-  date: Date;
+  date: Date; // This might be legacy, ensure orderDate is primary
   FruitIcon?: ElementType<SVGProps<SVGSVGElement>>;
 }
-
-    

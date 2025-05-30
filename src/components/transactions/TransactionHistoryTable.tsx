@@ -16,7 +16,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import { Trash2, Wallet, Loader2, Eye, ThumbsUp, Truck, CheckSquare } from 'lucide-react';
-import type { OrderStatus, StoredOrder } from '@/types/transaction';
+import type { OrderStatus, StoredOrder, OrderShipmentStatus } from '@/types/transaction';
 import { AppleIcon, BananaIcon, OrangeIcon, GrapeIcon, MangoIcon, FruitIcon } from '@/components/icons/FruitIcons';
 import { format } from 'date-fns';
 import { useToast } from "@/hooks/use-toast";
@@ -35,6 +35,8 @@ import {
   runTransaction
 } from 'firebase/firestore';
 import { useAuth, type User as AuthUser } from '@/contexts/AuthContext';
+import { calculateDistance, type CalculateDistanceOutput } from '@/ai/flows/calculate-distance-flow';
+
 
 const GANACHE_RECIPIENT_ADDRESS = "0x83491285C0aC3dd64255A5D68f0C3e919A5Eacf2";
 const FALLBACK_SIMULATED_ETH_USD_PRICE = 2000;
@@ -56,7 +58,7 @@ const getStatusBadgeVariant = (status: OrderStatus): "default" | "secondary" | "
 };
 
 const getFruitIcon = (fruitTypeInput?: string): ElementType<SVGProps<SVGSVGElement>> => {
-  const fruitType = fruitTypeInput || ""; // Default to empty string if undefined
+  const fruitType = fruitTypeInput || "";
   const lowerFruitType = fruitType.toLowerCase();
   if (lowerFruitType.includes('apple')) return AppleIcon;
   if (lowerFruitType.includes('banana')) return BananaIcon;
@@ -88,30 +90,26 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
   const availableTransporters = allUsersList.filter(u => u.role === 'transporter' && u.isApproved);
 
   useEffect(() => {
-    console.log("[TransactionHistoryTable] useEffect triggered. isCustomerView:", isCustomerView, "initialOrders provided:", !!initialOrders, "User ID:", user?.id, "Role:", user?.role);
-
     if (isCustomerView && initialOrders) {
-      console.log("[TransactionHistoryTable] Using initialOrders for customer view.");
       const mappedOrders: StoredOrder[] = initialOrders.map(order => ({
         ...order,
         FruitIcon: getFruitIcon(order.productName || (order as any).fruitType),
       }));
-      // Client-side sorting if initialOrders are passed (customer view)
+      // Client-side sorting for customer view if `orderBy` not used in parent query
+      if (initialOrders.length > 0 && !initialOrders.every(o => o.orderDate)) {
+         console.warn("[TransactionHistoryTable] Some initialOrders missing orderDate, client sorting might be affected.");
+      }
       mappedOrders.sort((a, b) => {
         const dateA = (a.orderDate || (a as any).date) as Timestamp | undefined;
         const dateB = (b.orderDate || (b as any).date) as Timestamp | undefined;
-        if (dateA && dateB) {
-          return dateB.toMillis() - dateA.toMillis();
-        }
-        return 0;
+        return (dateB?.toMillis() || 0) - (dateA?.toMillis() || 0);
       });
       setOrders(mappedOrders);
       setIsLoading(false);
-      return; // No Firestore listener needed if initialOrders are provided
+      return;
     }
 
     if (!user || !user.id) {
-      console.log("[TransactionHistoryTable] No user or user.id, clearing orders and not fetching.");
       setOrders([]);
       setIsLoading(false);
       return;
@@ -124,20 +122,14 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
     console.log(`[TransactionHistoryTable] Setting up listener for role: ${currentRole}, User ID: ${user.id}`);
 
     if (currentRole === 'supplier') {
-      console.log(`[TransactionHistoryTable] User is SUPPLIER. Fetching orders for supplierId: ${user.id}`);
-      // Query for supplier's orders, ordered by date (requires Firestore index)
-      // Link to create index: https://console.firebase.google.com/v1/r/project/newtech-be296/firestore/indexes?create_composite=Ckxwcm9qZWN0cy9uZXd0ZWNoLWJlMjk2L2RhdGFiYXNlcy8oZGVmYXVsdCkvY29sbGVjdGlvbkdyb3Vwcy9vcmRlcnMvaW5kZXhlcy9fEAEaDgoKc3VwcGxpZXJJZBABGg0KCW9yZGVyRGF0ZRACGgwKCF9fbmFtZV9fEAI
       ordersQuery = query(
         collection(db, "orders"),
-        where("supplierId", "==", user.id)
-        // Temporarily remove orderBy for supplier if index is an issue
-        // orderBy("orderDate", "desc")
+        where("supplierId", "==", user.id),
+        // orderBy("orderDate", "desc") // Ensure Firestore index is created for this
       );
     } else if (currentRole === 'manager') {
-      console.log(`[TransactionHistoryTable] User is MANAGER. Fetching all orders, ordered by date.`);
       ordersQuery = query(collection(db, "orders"), orderBy("orderDate", "desc"));
     } else {
-      console.warn(`[TransactionHistoryTable] User role is '${currentRole}', not fetching orders directly in this component without initialOrders.`);
       setOrders([]);
       setIsLoading(false);
       return;
@@ -145,35 +137,27 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
 
     const unsubscribe = onSnapshot(ordersQuery, (querySnapshot) => {
       const fetchedOrders: StoredOrder[] = [];
-      console.log(`[TransactionHistoryTable] Snapshot received for role ${currentRole}. Found ${querySnapshot.docs.length} documents.`);
       querySnapshot.forEach((docSnapshot) => {
         const data = docSnapshot.data() as Omit<StoredOrder, 'id'>;
-        const orderWithIcon = {
+        fetchedOrders.push({
           ...data,
           id: docSnapshot.id,
           FruitIcon: getFruitIcon(data.productName || (data as any).fruitType),
-        };
-        fetchedOrders.push(orderWithIcon);
-        if (currentRole === 'supplier') {
-            console.log("[TransactionHistoryTable] Supplier - Raw order data from Firestore:", docSnapshot.id, data);
-        }
+        });
       });
-
-      // Client-side sorting for supplier if orderBy was removed from query
+      
+      // Client-side sorting for supplier if index is not used/available
       if (currentRole === 'supplier') {
         fetchedOrders.sort((a, b) => {
-          const dateA = (a.orderDate || (a as any).date) as Timestamp | undefined;
-          const dateB = (b.orderDate || (b as any).date) as Timestamp | undefined;
-          if (dateA && dateB) {
-            return dateB.toMillis() - dateA.toMillis();
-          }
-          return 0;
+            const dateA = (a.orderDate || (a as any).date) as Timestamp | undefined;
+            const dateB = (b.orderDate || (b as any).date) as Timestamp | undefined;
+            return (dateB?.toMillis() || 0) - (dateA?.toMillis() || 0);
         });
+        console.log("[TransactionHistoryTable] Supplier - Raw orders from Firestore for supplier", user.id, ":", fetchedOrders);
       }
-      
+
       setOrders(fetchedOrders);
       setIsLoading(false);
-      console.log(`[TransactionHistoryTable] Orders updated for role ${currentRole}. Total orders displayed: ${fetchedOrders.length}`);
     }, (error) => {
       console.error(`[TransactionHistoryTable] Error fetching orders from Firestore for role ${currentRole}:`, error);
       toast({
@@ -187,30 +171,24 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
     });
 
     return () => {
-      console.log(`[TransactionHistoryTable] Detaching Firestore listener for role: ${currentRole}`);
       unsubscribe();
     };
   }, [user, isCustomerView, initialOrders, toast]);
 
 
   const handleDeleteOrder = async (orderId: string) => {
-    console.log("[TransactionHistoryTable] handleDeleteOrder called for orderId:", orderId);
     if (user?.role === 'customer') {
         toast({ title: "Action Not Allowed", description: "Customers cannot delete orders. Please contact support.", variant: "destructive"});
         return;
     }
     if (!confirm("Are you sure you want to delete this order? This action cannot be undone.")) {
-      console.log("[TransactionHistoryTable] Deletion cancelled by user for orderId:", orderId);
       return;
     }
-    console.log("[TransactionHistoryTable] User confirmed deletion for orderId:", orderId);
     try {
-      console.log("[TransactionHistoryTable] Attempting to delete order from Firestore:", orderId);
       await deleteDoc(doc(db, "orders", orderId));
-      console.log("[TransactionHistoryTable] Order successfully deleted from Firestore:", orderId);
       toast({ title: "Order Deleted", description: "The order has been removed from Firestore." });
     } catch (error) {
-      console.error("[TransactionHistoryTable] Error deleting order from Firestore:", error);
+      console.error("Error deleting order from Firestore:", error);
       toast({ title: "Error Deleting Order", description: (error as Error).message, variant: "destructive" });
     }
   };
@@ -406,43 +384,59 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
       return;
     }
 
-    // Fetch supplier and customer addresses
     let supplierAddress = 'N/A';
     let customerAddress = 'N/A';
+    let predictedDeliveryTimestamp: Timestamp | null = null;
 
     try {
         const supplierDocRef = doc(db, "users", currentOrderToAssign.supplierId);
         const supplierDocSnap = await getDoc(supplierDocRef);
         if (supplierDocSnap.exists() && supplierDocSnap.data().address) {
             supplierAddress = supplierDocSnap.data().address;
-        } else {
-            console.warn(`Supplier address not found for supplierId: ${currentOrderToAssign.supplierId}`);
         }
 
         const customerDocRef = doc(db, "users", currentOrderToAssign.customerId);
         const customerDocSnap = await getDoc(customerDocRef);
         if (customerDocSnap.exists() && customerDocSnap.data().address) {
             customerAddress = customerDocSnap.data().address;
+        }
+
+        if (supplierAddress !== 'N/A' && customerAddress !== 'N/A') {
+            console.log(`[AssignTransporter] Calculating distance from ${supplierAddress} to ${customerAddress}`);
+            const distanceInfo = await calculateDistance({originAddress: supplierAddress, destinationAddress: customerAddress});
+            if (distanceInfo.predictedDeliveryIsoDate) {
+                const parsedDate = new Date(distanceInfo.predictedDeliveryIsoDate);
+                if (!isNaN(parsedDate.getTime())) {
+                    predictedDeliveryTimestamp = Timestamp.fromDate(parsedDate);
+                    toast({ title: "Delivery Date Estimated", description: `AI predicts delivery on ${format(parsedDate, "MMM d, yyyy")}. Note: ${distanceInfo.note || ''}`});
+                } else {
+                    toast({ title: "Date Parsing Error", description: "Could not parse AI's predicted delivery date.", variant: "outline" });
+                }
+            }
         } else {
-            console.warn(`Customer address not found for customerId: ${currentOrderToAssign.customerId}`);
+            toast({ title: "Address Missing", description: "Supplier or customer address missing, cannot estimate delivery date.", variant: "outline"});
         }
 
     } catch (addrError) {
-        console.error("Error fetching addresses for order:", addrError);
-        toast({title: "Address Fetch Error", description: "Could not fetch supplier/customer address. Using N/A.", variant: "outline", duration: 6000});
+        console.error("Error fetching addresses or calculating distance for order:", addrError);
+        toast({title: "Address/Distance Error", description: "Could not fetch addresses or estimate delivery. Using N/A for addresses.", variant: "outline", duration: 6000});
     }
-
 
     try {
       const orderRef = doc(db, "orders", currentOrderToAssign.id);
-      await updateDoc(orderRef, {
+      const updateData: Partial<StoredOrder> = {
         transporterId: selectedTransporter,
         transporterName: transporterUser.name,
         status: 'Ready for Pickup' as OrderStatus,
         shipmentStatus: 'Ready for Pickup' as OrderShipmentStatus,
         pickupAddress: supplierAddress,
         deliveryAddress: customerAddress,
-      });
+      };
+      if (predictedDeliveryTimestamp) {
+        updateData.predictedDeliveryDate = predictedDeliveryTimestamp;
+      }
+
+      await updateDoc(orderRef, updateData);
       toast({ title: "Transporter Assigned", description: `${transporterUser.name} assigned. Order ready for pickup.` });
       setIsAssignTransporterDialogOpen(false);
       setCurrentOrderToAssign(null);
@@ -460,6 +454,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
       const orderRef = doc(db, "orders", orderId);
       await updateDoc(orderRef, { status: 'Receipt Confirmed' as OrderStatus });
       toast({ title: "Receipt Confirmed", description: "Thank you! Please proceed with payment if outstanding." });
+      // No automatic payment trigger here anymore, customer needs to click pay.
     } catch (error) {
       toast({ title: "Error", description: "Could not confirm receipt.", variant: "destructive" });
       console.error("Error confirming receipt:", error);
@@ -483,7 +478,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
         <TableHeader>
           <TableRow>
             <TableHead className="w-[60px]">Icon</TableHead>
-            <TableHead>Date</TableHead>
+            <TableHead>Order Date</TableHead>
             <TableHead>Product</TableHead>
             {!isCustomerView && <TableHead>Customer</TableHead>}
             {isCustomerView && <TableHead>Supplier</TableHead>}
@@ -491,6 +486,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
             <TableHead className="text-right">Quantity</TableHead>
             <TableHead>Status</TableHead>
             <TableHead>Shipment Status</TableHead>
+            <TableHead>Predicted Delivery</TableHead> {/* New Column */}
             <TableHead className="w-[200px] text-center">Actions</TableHead>
           </TableRow>
         </TableHeader>
@@ -513,7 +509,10 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
                 <Badge variant={getStatusBadgeVariant(order.status)}>{order.status}</Badge>
               </TableCell>
               <TableCell>
-                {order.shipmentStatus ? <Badge variant={order.shipmentStatus === 'Delivered' ? 'default' : 'secondary'}>{order.shipmentStatus}</Badge> : <span className="text-xs text-muted-foreground">N/A</span>}
+                {order.shipmentStatus ? <Badge variant={getStatusBadgeVariant(order.shipmentStatus)}>{order.shipmentStatus}</Badge> : <span className="text-xs text-muted-foreground">N/A</span>}
+              </TableCell>
+              <TableCell> {/* New Cell for Predicted Delivery */}
+                {order.predictedDeliveryDate ? format((order.predictedDeliveryDate as Timestamp).toDate(), "MMM d, yyyy") : <span className="text-xs text-muted-foreground">N/A</span>}
               </TableCell>
               <TableCell className="space-x-1 text-center">
                 {isCustomerView && (order.status === 'Awaiting Payment' || order.status === 'Receipt Confirmed') && order.status !== 'Paid' && (
@@ -613,7 +612,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
               onClick={handleAssignTransporter}
               disabled={!selectedTransporter || assigningTransporterOrderId === currentOrderToAssign.id || !!assigningTransporterOrderId}
             >
-              {assigningTransporterOrderId === currentOrderToAssign.id && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {(assigningTransporterOrderId === currentOrderToAssign.id && assigningTransporterOrderId) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Assign
             </Button>
           </DialogFooter>
@@ -623,5 +622,3 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
     </>
   );
 }
-
-    

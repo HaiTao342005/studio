@@ -12,10 +12,10 @@ import { db } from '@/lib/firebase/config';
 import { collection, onSnapshot, query, where, doc, updateDoc, Timestamp } from 'firebase/firestore';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
-import { Truck, MapPin, Loader2, Info, PackageCheck, RouteIcon } from 'lucide-react'; // Added RouteIcon
+import { Truck, Loader2, Info } from 'lucide-react';
 import { format } from 'date-fns';
 import { Badge } from '@/components/ui/badge';
-import { calculateDistance, type CalculateDistanceOutput } from '@/ai/flows/calculate-distance-flow'; // Import the flow
+import { calculateDistance, type CalculateDistanceOutput } from '@/ai/flows/calculate-distance-flow';
 
 
 const shipmentStatuses: OrderShipmentStatus[] = ['Ready for Pickup', 'In Transit', 'Out for Delivery', 'Delivered', 'Delivery Failed', 'Shipment Cancelled'];
@@ -76,10 +76,10 @@ export default function ManageShipmentsPage({ params, searchParams }: ManageShip
     const q = query(
       collection(db, "orders"),
       where("transporterId", "==", user.id),
-      where("status", "in", ['Ready for Pickup', 'Shipped', 'Delivered'])
-      // Firestore index needed for this query if also ordering by orderDate:
-      // transporterId ASC, status ASC, orderDate DESC
-      // Link: https://console.firebase.google.com/v1/r/project/newtech-be296/firestore/indexes?create_composite=Ckxwcm9qZWN0cy9uZXd0ZWNoLWJlMjk2L2RhdGFiYXNlcy8oZGVmYXVsdCkvY29sbGVjdGlvbkdyb3Vwcy9vcmRlcnMvaW5kZXhlcy9fEAEaEQoNdHJhbnNwb3J0ZXJJZBABGgoKBnN0YXR1cxABGg0KCW9yZGVyRGF0ZRACGgwKCF9fbmFtZV9fEAI
+      // Transporter should see orders they are actively managing or have completed.
+      // No longer filtering by main status, as shipmentStatus is more relevant for transporter.
+      // orderBy("orderDate", "desc") // Requires Firestore index: transporterId ASC, orderDate DESC
+      // Link: https://console.firebase.google.com/v1/r/project/newtech-be296/firestore/indexes?create_composite=Ckxwcm9qZWN0cy9uZXd0ZWNoLWJlMjk2L2RhdGFiYXNlcy8oZGVmYXVsdCkvY29sbGVjdGlvbkdyb3Vwcy9vcmRlcnMvaW5kZXhlcy9fEAEaEQoNdHJhbnNwb3J0ZXJJZBABGg0KCW9yZGVyRGF0ZRACGgwKCF9fbmFtZV9fEAI
     );
 
     const unsubscribe = onSnapshot(q, async (querySnapshot) => {
@@ -88,13 +88,13 @@ export default function ManageShipmentsPage({ params, searchParams }: ManageShip
         fetchedOrdersData.push({ id: orderDoc.id, ...orderDoc.data() } as StoredOrder);
       });
       
+      // Client-side sorting as orderBy in query might require an index
       fetchedOrdersData.sort((a, b) => {
         const dateA = (a.orderDate || (a as any).date) as Timestamp | undefined;
         const dateB = (b.orderDate || (b as any).date) as Timestamp | undefined;
         return (dateB?.toMillis() || 0) - (dateA?.toMillis() || 0);
       });
       
-      // Fetch distances for all shipments
       const shipmentsWithDistancePromises = fetchedOrdersData.map(order => 
         fetchDistanceForShipment(order)
       );
@@ -122,16 +122,17 @@ export default function ManageShipmentsPage({ params, searchParams }: ManageShip
       if (newStatus === 'Shipment Cancelled') {
         updateData = {
           ...updateData,
-          status: 'Awaiting Transporter Assignment',
+          status: 'Awaiting Transporter Assignment', // Main order status reverts
           transporterId: null,
           transporterName: null,
+          // podSubmitted and podNotes could be cleared if needed
         };
         toast({ title: "Shipment Cancelled", description: `Order ${orderId} is now awaiting re-assignment by the supplier.` });
       } else if (newStatus === 'Delivered') {
-        updateData.status = 'Delivered'; // Main status update for customer to confirm
+        updateData.status = 'Delivered'; // Main order status reflects delivery
         toast({ title: "Success", description: `Shipment status updated to ${newStatus}. Customer will be prompted to confirm receipt.` });
       } else if (newStatus === 'In Transit' || newStatus === 'Out for Delivery' || newStatus === 'Ready for Pickup') {
-        updateData.status = 'Shipped'; // Main order status
+        updateData.status = 'Shipped'; // Main order status reflects it's on its way
         toast({ title: "Success", description: `Shipment status updated to ${newStatus}.` });
       } else {
          toast({ title: "Success", description: `Shipment status updated to ${newStatus}.` });
@@ -179,7 +180,7 @@ export default function ManageShipmentsPage({ params, searchParams }: ManageShip
                 <Info className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
                 <h3 className="text-xl font-semibold text-muted-foreground">No Active Shipments</h3>
                 <p className="text-sm text-muted-foreground">
-                  There are currently no shipments assigned to you or requiring your attention.
+                  There are currently no shipments assigned to you.
                 </p>
               </div>
             ) : (
@@ -193,6 +194,7 @@ export default function ManageShipmentsPage({ params, searchParams }: ManageShip
                       <TableHead>Pickup Address</TableHead>
                       <TableHead>Delivery Address</TableHead>
                       <TableHead>Est. Distance/Time</TableHead>
+                      <TableHead>Predicted Delivery</TableHead> {/* New Column */}
                       <TableHead>Shipment Status</TableHead>
                       <TableHead className="w-[200px]">Update Status</TableHead>
                     </TableRow>
@@ -218,12 +220,15 @@ export default function ManageShipmentsPage({ params, searchParams }: ManageShip
                                 <div>
                                     <p>{shipment.distanceInfo.distanceText}</p>
                                     <p>{shipment.distanceInfo.durationText}</p>
-                                    {shipment.distanceInfo.note && <p className="text-muted-foreground italic">({shipment.distanceInfo.note.includes("AI estimation") ? "AI Est." : shipment.distanceInfo.note})</p>}
+                                    {shipment.distanceInfo.note && <p className="text-muted-foreground italic text-xs">({shipment.distanceInfo.note.includes("AI estimation") ? "AI Est." : shipment.distanceInfo.note})</p>}
                                 </div>
                              ) : (
                                 <span className="text-muted-foreground">N/A</span>
                              )
                             }
+                          </TableCell>
+                          <TableCell> {/* New Cell for Predicted Delivery */}
+                            {shipment.predictedDeliveryDate ? format((shipment.predictedDeliveryDate as Timestamp).toDate(), "MMM d, yyyy") : <span className="text-xs text-muted-foreground">N/A</span>}
                           </TableCell>
                           <TableCell>
                             <Badge variant={getStatusBadgeVariant(shipment.shipmentStatus || shipment.status)} className="whitespace-nowrap">
@@ -266,5 +271,3 @@ export default function ManageShipmentsPage({ params, searchParams }: ManageShip
     </>
   );
 }
-
-    
