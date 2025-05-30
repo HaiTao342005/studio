@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'; // Added Alert imports
 import { useToast } from '@/hooks/use-toast';
 import { useAuth, type User as AuthUser } from '@/contexts/AuthContext';
 import type { Product as ProductType, StoredProduct } from '@/types/product';
@@ -150,7 +151,8 @@ function NegotiationPageContent({ productId, supplierId }: NegotiationPageConten
         unit: product.unit,
         status: 'Awaiting Supplier Confirmation' as OrderStatus,
         orderDate: serverTimestamp(),
-        podSubmitted: false,
+        // shipmentStatus will be set later
+        podSubmitted: false, // Initialize podSubmitted
       };
       console.log("[NegotiatePage] OrderData to be sent to Firestore:", orderData);
       console.log("[NegotiatePage] Saving order with supplierId:", orderData.supplierId, "and customerId:", orderData.customerId);
@@ -373,3 +375,4 @@ const generateAiHint = (name: string, category?: string): string => {
   const nameWords = name.split(' ').map(word => word.toLowerCase().replace(/[^a-z0-9]/gi, '')).filter(Boolean);
   return nameWords.slice(0, 2).join(' ');
 };
+
