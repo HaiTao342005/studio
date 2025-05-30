@@ -15,7 +15,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
-import { Trash2, Wallet, Loader2, Eye, ThumbsUp, Truck, Edit, CheckSquare, PackageCheck } from 'lucide-react';
+import { Trash2, Wallet, Loader2, Eye, ThumbsUp, Truck, CheckSquare } from 'lucide-react';
 import type { OrderStatus, StoredOrder } from '@/types/transaction';
 import { AppleIcon, BananaIcon, OrangeIcon, GrapeIcon, MangoIcon, FruitIcon } from '@/components/icons/FruitIcons';
 import { format } from 'date-fns';
@@ -24,8 +24,8 @@ import { db } from '@/lib/firebase/config';
 import { collection, onSnapshot, query, orderBy, doc, deleteDoc, updateDoc, Timestamp, where } from 'firebase/firestore';
 import { useAuth, type User as AuthUser } from '@/contexts/AuthContext';
 
-const GANACHE_RECIPIENT_ADDRESS = "0x83491285C0aC3dd64255A5D68f0C3e919A5Eacf2";
-const FALLBACK_SIMULATED_ETH_USD_PRICE = 2000;
+const GANACHE_RECIPIENT_ADDRESS = "0x83491285C0aC3dd64255A5D68f0C3e919A5Eacf2"; // Replace with your Ganache account
+const FALLBACK_SIMULATED_ETH_USD_PRICE = 2000; // Fallback price if CoinGecko fails
 
 const getStatusBadgeVariant = (status: OrderStatus): "default" | "secondary" | "destructive" | "outline" => {
   switch (status) {
@@ -44,7 +44,7 @@ const getStatusBadgeVariant = (status: OrderStatus): "default" | "secondary" | "
 };
 
 const getFruitIcon = (fruitTypeInput?: string): ElementType<SVGProps<SVGSVGElement>> => {
-  const fruitType = fruitTypeInput || "";
+  const fruitType = fruitTypeInput || ""; // Default to empty string if undefined
   const lowerFruitType = fruitType.toLowerCase();
   if (lowerFruitType.includes('apple')) return AppleIcon;
   if (lowerFruitType.includes('banana')) return BananaIcon;
@@ -76,8 +76,10 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
   const availableTransporters = allUsersList.filter(u => u.role === 'transporter' && u.isApproved);
 
   useEffect(() => {
-    // If initialOrders are provided (typically for customer view), use them directly.
-    if (initialOrders && isCustomerView) {
+    console.log("[TransactionHistoryTable] useEffect triggered. isCustomerView:", isCustomerView, "initialOrders provided:", !!initialOrders, "User:", user?.id, user?.role);
+
+    if (isCustomerView && initialOrders) {
+      console.log("[TransactionHistoryTable] Using initialOrders for customer view.");
       const mappedOrders: StoredOrder[] = initialOrders.map(order => ({
         ...order,
         FruitIcon: getFruitIcon(order.productName || (order as any).fruitType),
@@ -91,11 +93,11 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
       });
       setOrders(mappedOrders);
       setIsLoading(false);
-      return () => {}; // No Firestore listener to unsubscribe from in this case
+      return () => {};
     }
 
-    // If no user, don't attempt to fetch.
     if (!user || !user.id) {
+      console.log("[TransactionHistoryTable] No user or user.id, clearing orders and not fetching.");
       setIsLoading(false);
       setOrders([]);
       return () => {};
@@ -103,29 +105,33 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
 
     setIsLoading(true);
     let ordersQuery;
+    const currentRole = user.role;
 
-    if (isCustomerView) { // Should be handled by initialOrders, but as a fallback
-      ordersQuery = query(collection(db, "orders"), where("customerId", "==", user.id), orderBy("orderDate", "desc"));
-    } else if (user.role === 'supplier') {
-      console.log(`Supplier ${user.id} fetching orders...`);
-      // IMPORTANT: This query requires a composite index in Firestore:
-      // Collection: orders, Fields: supplierId (ASC), orderDate (DESC)
-      ordersQuery = query(collection(db, "orders"), where("supplierId", "==", user.id), orderBy("orderDate", "desc"));
-    } else if (user.role === 'manager') {
+    if (currentRole === 'supplier') {
+      console.log(`[TransactionHistoryTable] User is SUPPLIER. Fetching orders for supplierId: ${user.id}`);
+      ordersQuery = query(
+        collection(db, "orders"),
+        where("supplierId", "==", user.id),
+        orderBy("orderDate", "desc")
+      );
+    } else if (currentRole === 'manager') {
+      console.log(`[TransactionHistoryTable] User is MANAGER. Fetching all orders.`);
       ordersQuery = query(collection(db, "orders"), orderBy("orderDate", "desc"));
     } else {
-      console.warn("TransactionHistoryTable: User role not recognized for fetching orders or user not fully loaded.");
+      console.warn(`[TransactionHistoryTable] User role is '${currentRole}', which is not configured for direct data fetching in this component without initialOrders. Displaying no orders.`);
       setIsLoading(false);
       setOrders([]);
       return () => {};
     }
 
+    console.log(`[TransactionHistoryTable] Attaching Firestore listener for role: ${currentRole}`);
     const unsubscribe = onSnapshot(ordersQuery, (querySnapshot) => {
       const fetchedOrders: StoredOrder[] = [];
+      console.log(`[TransactionHistoryTable] Snapshot received for role ${currentRole}. Found ${querySnapshot.docs.length} documents.`);
       querySnapshot.forEach((docSnapshot) => {
         const data = docSnapshot.data() as Omit<StoredOrder, 'id'>;
-        if (user.role === 'supplier') {
-            console.log("Supplier received order data:", docSnapshot.id, data);
+        if (currentRole === 'supplier') {
+            console.log("[TransactionHistoryTable] Supplier - Raw order data from Firestore:", docSnapshot.id, data);
         }
         fetchedOrders.push({
           ...data,
@@ -133,17 +139,27 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
           FruitIcon: getFruitIcon(data.productName || (data as any).fruitType),
         });
       });
-      setOrders(fetchedOrders); // Firestore query already handles sorting for supplier/manager
+      setOrders(fetchedOrders);
       setIsLoading(false);
+      console.log(`[TransactionHistoryTable] Orders updated for role ${currentRole}. Total orders displayed: ${fetchedOrders.length}`);
     }, (error) => {
-      console.error("Error fetching orders from Firestore:", error);
-      toast({ title: "Error Loading Orders", description: (error as Error).message, variant: "destructive" });
+      console.error(`[TransactionHistoryTable] Error fetching orders from Firestore for role ${currentRole}:`, error);
+      toast({
+        title: "Firestore Query Error",
+        description: `Failed to fetch orders: ${error.message}. If this is an index error, please create the required composite index in your Firebase console.`,
+        variant: "destructive",
+        duration: 15000,
+      });
       setIsLoading(false);
       setOrders([]);
     });
 
-    return () => unsubscribe();
-  }, [user, isCustomerView, initialOrders, toast]); // `user` is the key dependency for role-based fetching
+    return () => {
+      console.log(`[TransactionHistoryTable] Detaching Firestore listener for role: ${currentRole}`);
+      unsubscribe();
+    };
+  }, [user, isCustomerView, initialOrders, toast]);
+
 
   const handleDeleteOrder = async (orderId: string) => {
     if (user?.role === 'customer') {
@@ -223,14 +239,14 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
     try {
       currentEthUsdPrice = await fetchEthPrice();
     } catch (priceError) {
-      currentEthUsdPrice = FALLBACK_SIMULATED_ETH_USD_PRICE; // Fallback if fetchEthPrice itself errors out
+      currentEthUsdPrice = FALLBACK_SIMULATED_ETH_USD_PRICE;
     }
     const ethAmount = orderToPay.totalAmount / currentEthUsdPrice;
-    const ethAmountFixed = parseFloat(ethAmount.toFixed(18));
+    const ethAmountFixed = parseFloat(ethAmount.toFixed(18)); // Ensure it's a number with reasonable precision
 
     toast({
       title: "Initiating Payment",
-      description: `Preparing to pay ${orderToPay.totalAmount.toFixed(2)} USD (${ethAmountFixed.toFixed(6)} ETH at 1 ETH = $${currentEthUsdPrice.toFixed(2)} USD). Confirm in Metamask.`
+      description: `Order Total: ${orderToPay.totalAmount.toFixed(2)} USD. ETH to send: ${ethAmountFixed.toFixed(6)} ETH (at 1 ETH = $${currentEthUsdPrice.toFixed(2)} USD). Confirm in Metamask.`
     });
 
     try {
@@ -241,9 +257,9 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
         return false;
       }
       const fromAccount = accounts[0];
-      const amountInWei = BigInt(Math.floor(ethAmountFixed * 1e18));
+      const amountInWei = BigInt(Math.floor(ethAmountFixed * 1e18)); // Convert ETH to Wei as BigInt
       if (amountInWei <= 0) {
-        toast({ title: "Payment Error", description: "Calculated ETH amount is too small or zero. Try a larger order amount.", variant: "destructive" });
+        toast({ title: "Payment Error", description: "Calculated ETH amount is too small or zero. Please check order total and ETH price.", variant: "destructive" });
         setPayingOrderId(null);
         return false;
       }
@@ -264,7 +280,8 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
         title: "Transaction Submitted to Ganache",
         description: `Tx Hash: ${txHash.substring(0,10)}... Simulating block confirmation.`
       });
-      await new Promise(resolve => setTimeout(resolve, 4000));
+      // Simulate block confirmation delay
+      await new Promise(resolve => setTimeout(resolve, 4000)); // 4 seconds delay
       const orderRef = doc(db, "orders", orderId);
       await updateDoc(orderRef, {
         status: 'Paid' as OrderStatus,
@@ -287,7 +304,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
     } finally {
       setPayingOrderId(null);
     }
-  }, [orders, toast]);
+  }, [orders, toast]); // orders dependency is important here if orderToPay is derived from it
 
   const handleSupplierConfirmOrder = async (orderId: string) => {
     setConfirmingOrderId(orderId);
@@ -305,7 +322,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
 
   const handleOpenAssignTransporterDialog = (order: StoredOrder) => {
     setCurrentOrderToAssign(order);
-    setSelectedTransporter(null);
+    setSelectedTransporter(null); // Reset selection
     setIsAssignTransporterDialogOpen(true);
   };
 
@@ -327,8 +344,8 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
       await updateDoc(orderRef, {
         transporterId: selectedTransporter,
         transporterName: transporterUser.name,
-        status: 'Ready for Pickup' as OrderStatus,
-        shipmentStatus: 'Ready for Pickup' as OrderStatus
+        status: 'Ready for Pickup' as OrderStatus, // Main order status
+        shipmentStatus: 'Ready for Pickup' as OrderStatus // Specific shipment status
       });
       toast({ title: "Transporter Assigned", description: `${transporterUser.name} assigned. Order ready for pickup.` });
       setIsAssignTransporterDialogOpen(false);
@@ -348,10 +365,15 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
       await updateDoc(orderRef, { status: 'Receipt Confirmed' as OrderStatus });
       toast({ title: "Receipt Confirmed", description: "Thank you! Attempting to process payment." });
 
-      const paymentSuccessful = await handlePayWithMetamask(orderId);
+      // Attempt automatic payment after receipt confirmation
+      const paymentSuccessful = await handlePayWithMetamask(orderId); // Call the payment function
       if (!paymentSuccessful) {
+        // If payment wasn't successful (e.g., user rejected, Metamask error),
+        // the status remains 'Receipt Confirmed'. The user might need to retry payment.
+        // A toast for failed payment is handled within handlePayWithMetamask.
         toast({ title: "Payment Notice", description: "Automatic payment could not be completed. Please check your Metamask or try paying manually if available.", variant: "destructive", duration: 7000 });
       }
+      // If payment was successful, handlePayWithMetamask already updated status to 'Paid'.
     } catch (error) {
       toast({ title: "Error", description: "Could not confirm receipt.", variant: "destructive" });
       console.error("Error confirming receipt:", error);
@@ -364,7 +386,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
     return <div className="flex justify-center items-center py-8"><Loader2 className="h-8 w-8 animate-spin mr-2" /> Loading order history...</div>;
   }
 
-  if (orders.length === 0) {
+  if (orders.length === 0 && !isLoading) { // Added !isLoading to prevent showing "No orders" while loading
     return <p className="text-center text-muted-foreground py-8">No orders recorded yet.</p>;
   }
 
@@ -512,5 +534,3 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
     </>
   );
 }
-
-    

@@ -84,22 +84,20 @@ function NegotiationPageContent({ productId, supplierId }: NegotiationPageConten
       }
     };
 
-    // Ensure both fetchProduct and findSupplier (dependent on allUsersList) are handled
-    if (allUsersList.length > 0 || isLoadingAuth) { // Proceed if users are loaded or still loading (to avoid race condition)
+    if (allUsersList.length > 0 || isLoadingAuth) {
         console.log("[NegotiatePage] Fetching product and finding supplier...");
         Promise.all([fetchProduct(), findSupplier()]).finally(() => {
             setIsLoadingData(false);
             console.log("[NegotiatePage] Finished fetching product and finding supplier.");
         });
     } else if (!isLoadingAuth && allUsersList.length === 0 && supplierId) {
-        // Handle case where users list is definitively empty but we need a supplier
         setError("Supplier list not available. Cannot find supplier.");
         setIsLoadingData(false);
         console.error("[NegotiatePage] Supplier list not available, cannot find supplier.");
     }
 
 
-  }, [productId, supplierId, allUsersList, isLoadingAuth]); // Added isLoadingAuth
+  }, [productId, supplierId, allUsersList, isLoadingAuth]);
 
   useEffect(() => {
     if (product && desiredQuantity > 0) {
@@ -146,15 +144,15 @@ function NegotiationPageContent({ productId, supplierId }: NegotiationPageConten
         quantity: desiredQuantity,
         pricePerUnit: product.price,
         totalAmount: totalPrice,
-        currency: 'USD', // Assuming USD, make dynamic if needed
+        currency: 'USD',
         unit: product.unit,
         status: 'Awaiting Supplier Confirmation' as OrderStatus,
         orderDate: serverTimestamp(),
-        // shipmentStatus: undefined, // This field should be set later in the workflow
-        podSubmitted: false, // Default PoD status
+        podSubmitted: false,
       };
       console.log("[NegotiatePage] OrderData to be sent to Firestore:", orderData);
-
+      // Specifically log supplierId from orderData
+      console.log("[NegotiatePage] Saving order with supplierId:", orderData.supplierId, "and customerId:", orderData.customerId);
       const docRef = await addDoc(collection(db, "orders"), orderData);
       console.log("[NegotiatePage] Order placed successfully in Firestore, doc ID:", docRef.id);
 
@@ -341,4 +339,3 @@ const generateAiHint = (name: string, category?: string): string => {
   const nameWords = name.split(' ').map(word => word.toLowerCase().replace(/[^a-z0-9]/gi, '')).filter(Boolean);
   return nameWords.slice(0, 2).join(' ');
 };
-
