@@ -39,13 +39,16 @@ function NegotiationPageContent({ productId, supplierId }: NegotiationPageConten
   const { allUsersList } = useAuth();
 
   useEffect(() => {
+    console.log("[NegotiatePage] useEffect triggered. productId:", productId, "supplierId:", supplierId);
     if (!productId || !supplierId) {
       setError("Missing product or supplier information.");
       setIsLoadingData(false);
+      console.error("[NegotiatePage] Missing productId or supplierId in useEffect.");
       return;
     }
 
     const fetchProduct = async () => {
+      console.log("[NegotiatePage] fetchProduct called for productId:", productId);
       try {
         const productRef = doc(db, "products", productId);
         const productSnap = await getDoc(productRef);
@@ -57,31 +60,42 @@ function NegotiationPageContent({ productId, supplierId }: NegotiationPageConten
             createdAt: (data.createdAt as Timestamp)?.toDate() || new Date(),
             updatedAt: (data.updatedAt as Timestamp)?.toDate() || new Date(),
           });
+          console.log("[NegotiatePage] Product fetched successfully:", data.name);
         } else {
           setError("Product not found.");
+          console.error("[NegotiatePage] Product not found in Firestore with id:", productId);
         }
       } catch (err) {
-        console.error("Error fetching product:", err);
+        console.error("[NegotiatePage] Error fetching product:", err);
         setError("Failed to load product details.");
       }
     };
 
     const findSupplier = () => {
+      console.log("[NegotiatePage] findSupplier called for supplierId:", supplierId);
+      console.log("[NegotiatePage] allUsersList available for finding supplier:", allUsersList.length > 0);
       const foundSupplier = allUsersList.find(u => u.id === supplierId && u.role === 'supplier');
       if (foundSupplier) {
         setSupplier(foundSupplier);
+        console.log("[NegotiatePage] Supplier found:", foundSupplier.name);
       } else {
         setError("Supplier not found.");
+        console.error("[NegotiatePage] Supplier not found in allUsersList with id:", supplierId);
       }
     };
 
     // Ensure both fetchProduct and findSupplier (dependent on allUsersList) are handled
     if (allUsersList.length > 0 || isLoadingAuth) { // Proceed if users are loaded or still loading (to avoid race condition)
-        Promise.all([fetchProduct(), findSupplier()]).finally(() => setIsLoadingData(false));
+        console.log("[NegotiatePage] Fetching product and finding supplier...");
+        Promise.all([fetchProduct(), findSupplier()]).finally(() => {
+            setIsLoadingData(false);
+            console.log("[NegotiatePage] Finished fetching product and finding supplier.");
+        });
     } else if (!isLoadingAuth && allUsersList.length === 0 && supplierId) {
         // Handle case where users list is definitively empty but we need a supplier
         setError("Supplier list not available. Cannot find supplier.");
         setIsLoadingData(false);
+        console.error("[NegotiatePage] Supplier list not available, cannot find supplier.");
     }
 
 
@@ -132,12 +146,12 @@ function NegotiationPageContent({ productId, supplierId }: NegotiationPageConten
         quantity: desiredQuantity,
         pricePerUnit: product.price,
         totalAmount: totalPrice,
-        currency: 'USD',
+        currency: 'USD', // Assuming USD, make dynamic if needed
         unit: product.unit,
         status: 'Awaiting Supplier Confirmation' as OrderStatus,
         orderDate: serverTimestamp(),
-        shipmentStatus: undefined,
-        podSubmitted: false,
+        // shipmentStatus: undefined, // This field should be set later in the workflow
+        podSubmitted: false, // Default PoD status
       };
       console.log("[NegotiatePage] OrderData to be sent to Firestore:", orderData);
 
