@@ -9,18 +9,22 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
+import { cn } from "@/lib/utils";
+import { format } from "date-fns";
+import { CalendarIcon, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { db } from '@/lib/firebase/config';
-import { collection, addDoc, doc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, addDoc, doc, updateDoc, serverTimestamp, Timestamp } from 'firebase/firestore';
 import { useAuth } from '@/contexts/AuthContext';
 import type { ProductUnit, Product, ProductFormData } from '@/types/product';
-import { Loader2 } from 'lucide-react';
 
 const productUnits: [ProductUnit, ...ProductUnit[]] = ['kg', 'box', 'pallet', 'item'];
 
 const productSchema = z.object({
-  id: z.string().optional(), // For identifying product to update
+  id: z.string().optional(),
   name: z.string().min(3, "Product name must be at least 3 characters."),
   description: z.string().min(10, "Description must be at least 10 characters."),
   price: z.coerce.number().positive("Price must be a positive number."),
@@ -28,11 +32,14 @@ const productSchema = z.object({
   stockQuantity: z.coerce.number().int().min(0, "Stock quantity cannot be negative.").optional(),
   category: z.string().optional(),
   imageUrl: z.string().url("Must be a valid URL for an image.").optional().or(z.literal('')),
+  producedDate: z.date({ required_error: "Produced date is required." }),
+  producedArea: z.string().min(2, "Produced area is required (e.g., farm name, region)."),
+  producedByOrganization: z.string().min(2, "Organization name is required."),
 });
 
 interface ProductFormProps {
-  productToEdit?: Product | null; // Product data for editing
-  onFormSubmitSuccess?: () => void; // Callback for both add and update
+  productToEdit?: Product | null;
+  onFormSubmitSuccess?: () => void;
 }
 
 export function ProductForm({ productToEdit, onFormSubmitSuccess }: ProductFormProps) {
@@ -50,12 +57,14 @@ export function ProductForm({ productToEdit, onFormSubmitSuccess }: ProductFormP
       stockQuantity: productToEdit?.stockQuantity ?? undefined,
       category: productToEdit?.category || '',
       imageUrl: productToEdit?.imageUrl || '',
+      producedDate: productToEdit?.producedDate || new Date(),
+      producedArea: productToEdit?.producedArea || '',
+      producedByOrganization: productToEdit?.producedByOrganization || '',
     },
   });
 
   const { formState: { isSubmitting }, reset } = form;
 
-  // Reset form when productToEdit changes (e.g., opening dialog for a new product or different product)
   useEffect(() => {
     if (productToEdit) {
       reset({
@@ -67,9 +76,12 @@ export function ProductForm({ productToEdit, onFormSubmitSuccess }: ProductFormP
         stockQuantity: productToEdit.stockQuantity,
         category: productToEdit.category,
         imageUrl: productToEdit.imageUrl,
+        producedDate: productToEdit.producedDate ? new Date(productToEdit.producedDate) : new Date(),
+        producedArea: productToEdit.producedArea,
+        producedByOrganization: productToEdit.producedByOrganization,
       });
     } else {
-      reset({ // Default values for adding a new product
+      reset({
         id: undefined,
         name: '',
         description: '',
@@ -78,6 +90,9 @@ export function ProductForm({ productToEdit, onFormSubmitSuccess }: ProductFormP
         stockQuantity: undefined,
         category: '',
         imageUrl: '',
+        producedDate: new Date(),
+        producedArea: '',
+        producedByOrganization: '',
       });
     }
   }, [productToEdit, reset]);
@@ -97,28 +112,31 @@ export function ProductForm({ productToEdit, onFormSubmitSuccess }: ProductFormP
       stockQuantity: data.stockQuantity ?? 0,
       category: data.category || '',
       imageUrl: data.imageUrl || `https://placehold.co/300x200.png?text=${encodeURIComponent(data.name)}`,
+      producedDate: Timestamp.fromDate(data.producedDate),
+      producedArea: data.producedArea,
+      producedByOrganization: data.producedByOrganization,
       updatedAt: serverTimestamp(),
     };
 
     try {
-      if (productToEdit && productToEdit.id) { // Editing existing product
+      if (productToEdit && productToEdit.id) {
         const productRef = doc(db, "products", productToEdit.id);
         await updateDoc(productRef, productDataForFirestore);
         toast({
           title: "Product Updated!",
           description: `${data.name} has been successfully updated.`,
         });
-      } else { // Adding new product
+      } else {
         await addDoc(collection(db, "products"), {
           ...productDataForFirestore,
-          createdAt: serverTimestamp(), // Only set createdAt for new products
+          createdAt: serverTimestamp(),
         });
         toast({
           title: "Product Added!",
           description: `${data.name} has been successfully listed.`,
         });
       }
-      form.reset(); // Reset form after successful submission
+      form.reset();
       if (onFormSubmitSuccess) onFormSubmitSuccess();
     } catch (error) {
       console.error("Failed to save product to Firestore:", error);
@@ -132,7 +150,7 @@ export function ProductForm({ productToEdit, onFormSubmitSuccess }: ProductFormP
 
   return (
     <Form {...form}>
-      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 md:space-y-6">
         <FormField
           control={form.control}
           name="name"
@@ -151,13 +169,13 @@ export function ProductForm({ productToEdit, onFormSubmitSuccess }: ProductFormP
           render={({ field }) => (
             <FormItem>
               <FormLabel>Description *</FormLabel>
-              <FormControl><Textarea placeholder="Describe your product..." {...field} rows={4} /></FormControl>
+              <FormControl><Textarea placeholder="Describe your product..." {...field} rows={3} /></FormControl>
               <FormMessage />
             </FormItem>
           )}
         />
 
-        <div className="grid md:grid-cols-3 gap-6">
+        <div className="grid md:grid-cols-3 gap-4">
           <FormField
             control={form.control}
             name="price"
@@ -170,7 +188,7 @@ export function ProductForm({ productToEdit, onFormSubmitSuccess }: ProductFormP
                     step="0.01"
                     placeholder="e.g., 25.99"
                     {...field}
-                    value={field.value ?? ''} // Ensure value is always a string or number
+                    value={field.value ?? ''}
                     onChange={event => field.onChange(event.target.value === '' ? undefined : +event.target.value)}
                   />
                 </FormControl>
@@ -184,7 +202,7 @@ export function ProductForm({ productToEdit, onFormSubmitSuccess }: ProductFormP
             render={({ field }) => (
               <FormItem>
                 <FormLabel>Unit *</FormLabel>
-                <Select onValueChange={field.onChange} value={field.value}> {/* Use value prop here */}
+                <Select onValueChange={field.onChange} value={field.value}>
                   <FormControl><SelectTrigger><SelectValue placeholder="Select a unit" /></SelectTrigger></FormControl>
                   <SelectContent>
                     {productUnits.map(unit => (
@@ -218,13 +236,79 @@ export function ProductForm({ productToEdit, onFormSubmitSuccess }: ProductFormP
           />
         </div>
 
+        <div className="grid md:grid-cols-2 gap-4">
+           <FormField
+            control={form.control}
+            name="producedDate"
+            render={({ field }) => (
+              <FormItem className="flex flex-col">
+                <FormLabel>Produced Date *</FormLabel>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <FormControl>
+                      <Button
+                        variant={"outline"}
+                        className={cn(
+                          "w-full pl-3 text-left font-normal",
+                          !field.value && "text-muted-foreground"
+                        )}
+                      >
+                        {field.value ? (
+                          format(field.value, "PPP")
+                        ) : (
+                          <span>Pick a date</span>
+                        )}
+                        <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                      </Button>
+                    </FormControl>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                      mode="single"
+                      selected={field.value}
+                      onSelect={field.onChange}
+                      disabled={(date) =>
+                        date > new Date() || date < new Date("1900-01-01")
+                      }
+                      initialFocus
+                    />
+                  </PopoverContent>
+                </Popover>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name="category"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Category (Optional)</FormLabel>
+                <FormControl><Input placeholder="e.g., Fresh Fruits, Apples" {...field} value={field.value ?? ''} /></FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        </div>
+        
         <FormField
           control={form.control}
-          name="category"
+          name="producedArea"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Category (Optional)</FormLabel>
-              <FormControl><Input placeholder="e.g., Fresh Fruits, Apples" {...field} /></FormControl>
+              <FormLabel>Produced Area/Farm *</FormLabel>
+              <FormControl><Input placeholder="e.g., Sunny Valley Orchard, CA" {...field} /></FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+        <FormField
+          control={form.control}
+          name="producedByOrganization"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Produced By (Organization) *</FormLabel>
+              <FormControl><Input placeholder="e.g., Your Company Name / Farm Cooperative" {...field} /></FormControl>
               <FormMessage />
             </FormItem>
           )}
@@ -236,9 +320,9 @@ export function ProductForm({ productToEdit, onFormSubmitSuccess }: ProductFormP
           render={({ field }) => (
             <FormItem>
               <FormLabel>Image URL (Optional)</FormLabel>
-              <FormControl><Input placeholder="https://placehold.co/300x200.png" {...field} /></FormControl>
+              <FormControl><Input placeholder="https://placehold.co/300x200.png" {...field} value={field.value ?? ''} /></FormControl>
+              <FormDescription>If blank, a placeholder will be used.</FormDescription>
               <FormMessage />
-              <p className="text-xs text-muted-foreground">If blank, a placeholder will be used.</p>
             </FormItem>
           )}
         />

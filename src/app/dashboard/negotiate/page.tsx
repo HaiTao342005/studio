@@ -12,11 +12,12 @@ import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth, type User as AuthUser } from '@/contexts/AuthContext';
 import type { Product as ProductType, StoredProduct } from '@/types/product';
-import { OrderStatus } from '@/types/transaction'; // Import OrderStatus
+import { OrderStatus } from '@/types/transaction'; 
 import { db } from '@/lib/firebase/config';
 import { doc, getDoc, addDoc, collection, serverTimestamp, Timestamp } from 'firebase/firestore';
-import { Loader2, Info, ShoppingBag, UserCircle, ArrowLeft, CheckCircle, XCircle } from 'lucide-react';
+import { Loader2, Info, ShoppingBag, UserCircle, ArrowLeft, CheckCircle, XCircle, CalendarDays, Home, Landmark } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { format } from 'date-fns';
 
 interface NegotiationPageContentProps {
   productId: string;
@@ -53,10 +54,11 @@ function NegotiationPageContent({ productId, supplierId }: NegotiationPageConten
         const productRef = doc(db, "products", productId);
         const productSnap = await getDoc(productRef);
         if (productSnap.exists()) {
-          const data = productSnap.data() as Omit<StoredProduct, 'id' | 'createdAt' | 'updatedAt'>;
+          const data = productSnap.data() as Omit<StoredProduct, 'id' | 'createdAt' | 'updatedAt' | 'producedDate'>;
           setProduct({
             ...data,
             id: productSnap.id,
+            producedDate: (data.producedDate as Timestamp)?.toDate(),
             createdAt: (data.createdAt as Timestamp)?.toDate() || new Date(),
             updatedAt: (data.updatedAt as Timestamp)?.toDate() || new Date(),
           });
@@ -144,14 +146,14 @@ function NegotiationPageContent({ productId, supplierId }: NegotiationPageConten
         quantity: desiredQuantity,
         pricePerUnit: product.price,
         totalAmount: totalPrice,
-        currency: 'USD',
+        currency: 'USD', // Assuming USD for now
         unit: product.unit,
         status: 'Awaiting Supplier Confirmation' as OrderStatus,
         orderDate: serverTimestamp(),
+        // shipmentStatus field will be omitted initially
         podSubmitted: false,
       };
       console.log("[NegotiatePage] OrderData to be sent to Firestore:", orderData);
-      // Specifically log supplierId from orderData
       console.log("[NegotiatePage] Saving order with supplierId:", orderData.supplierId, "and customerId:", orderData.customerId);
       const docRef = await addDoc(collection(db, "orders"), orderData);
       console.log("[NegotiatePage] Order placed successfully in Firestore, doc ID:", docRef.id);
@@ -230,6 +232,24 @@ function NegotiationPageContent({ productId, supplierId }: NegotiationPageConten
               <p className="text-sm text-muted-foreground">
                 Available Stock: {product.stockQuantity ?? 0} {product.unit}{(product.stockQuantity ?? 0) !== 1 ? 's' : ''}
               </p>
+              {product.producedDate && (
+                <p className="text-sm text-muted-foreground flex items-center">
+                  <CalendarDays className="h-4 w-4 mr-1.5 text-primary/70" />
+                  Produced: {format(product.producedDate, "PPP")}
+                </p>
+              )}
+              {product.producedArea && (
+                <p className="text-sm text-muted-foreground flex items-center">
+                  <Home className="h-4 w-4 mr-1.5 text-primary/70" />
+                  Area/Farm: {product.producedArea}
+                </p>
+              )}
+              {product.producedByOrganization && (
+                <p className="text-sm text-muted-foreground flex items-center">
+                  <Landmark className="h-4 w-4 mr-1.5 text-primary/70" />
+                  Produced By: {product.producedByOrganization}
+                </p>
+              )}
             </div>
           </CardContent>
         </Card>

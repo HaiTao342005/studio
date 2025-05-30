@@ -14,21 +14,21 @@ export interface StoredProduct {
   stockQuantity: number;
   category?: string;
   imageUrl?: string;
+  producedDate?: Timestamp;
+  producedArea?: string;
+  producedByOrganization?: string;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
 
 // Data structure for products used in components (with JS Date)
-// Making all fields except 'id' optional for the form, as partial updates might be a future feature,
-// and for easier type handling in the form component.
-// For editing, we expect a full Product object.
-export interface Product extends Omit<StoredProduct, 'createdAt' | 'updatedAt'> {
+export interface Product extends Omit<StoredProduct, 'createdAt' | 'updatedAt' | 'producedDate'> {
+  producedDate?: Date;
   createdAt: Date;
   updatedAt: Date;
 }
 
 // For form data, all fields that can be edited should be potentially present.
-// id is crucial for updates.
 export interface ProductFormData {
   id?: string; // Present when editing
   name: string;
@@ -38,4 +38,7 @@ export interface ProductFormData {
   stockQuantity?: number;
   category?: string;
   imageUrl?: string;
+  producedDate: Date; // Required in form
+  producedArea: string; // Required in form
+  producedByOrganization: string; // Required in form
 }

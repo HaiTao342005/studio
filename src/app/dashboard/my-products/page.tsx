@@ -11,7 +11,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { db } from '@/lib/firebase/config';
 import { collection, query, where, onSnapshot, doc, deleteDoc, Timestamp } from 'firebase/firestore';
 import type { Product as ProductType, StoredProduct } from '@/types/product';
-import { PackagePlus, Trash2, Loader2, Info, ImageOff, Edit3, Package } from 'lucide-react';
+import { PackagePlus, Trash2, Loader2, Info, ImageOff, Edit3, Package, CalendarDays, Home, Landmark } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import Image from 'next/image';
 import { Badge } from '@/components/ui/badge';
@@ -49,17 +49,36 @@ function ProductCard({ product, onDelete, onEdit }: { product: ProductType, onDe
         <CardTitle className="mt-4 text-xl">{product.name}</CardTitle>
         {product.category && <Badge variant="outline" className="w-fit">{product.category}</Badge>}
       </CardHeader>
-      <CardContent className="flex-grow space-y-2">
+      <CardContent className="flex-grow space-y-2 text-sm">
         <p className="text-2xl font-semibold text-primary">
           ${product.price.toFixed(2)} <span className="text-sm text-muted-foreground">/{product.unit}</span>
         </p>
-        <p className="text-sm text-muted-foreground flex items-center">
+        <p className="text-muted-foreground flex items-center">
           <Package className="h-4 w-4 mr-1.5 text-primary/80" />
           Stock: {product.stockQuantity} {product.unit}{product.stockQuantity !== 1 ? 's' : ''}
         </p>
-        <CardDescription className="line-clamp-3">{product.description}</CardDescription>
+        <CardDescription className="line-clamp-2 mb-2">{product.description}</CardDescription>
+        
+        {product.producedDate && (
+          <p className="text-xs text-muted-foreground flex items-center">
+            <CalendarDays className="h-3 w-3 mr-1.5 text-primary/70" />
+            Produced: {format(product.producedDate, "MMM d, yyyy")}
+          </p>
+        )}
+        {product.producedArea && (
+          <p className="text-xs text-muted-foreground flex items-center">
+            <Home className="h-3 w-3 mr-1.5 text-primary/70" />
+            Area: {product.producedArea}
+          </p>
+        )}
+        {product.producedByOrganization && (
+          <p className="text-xs text-muted-foreground flex items-center">
+            <Landmark className="h-3 w-3 mr-1.5 text-primary/70" />
+            By: {product.producedByOrganization}
+          </p>
+        )}
       </CardContent>
-      <CardFooter className="flex justify-between items-center pt-4 border-t">
+      <CardFooter className="flex justify-between items-center pt-4 border-t mt-auto">
          <p className="text-xs text-muted-foreground">
             Listed: {product.createdAt ? format(product.createdAt, "MMM d, yyyy") : 'N/A'}
           </p>
@@ -102,10 +121,11 @@ export default function MyProductsPage({ params, searchParams }: MyProductsPageP
     const unsubscribe = onSnapshot(q, (querySnapshot) => {
       const fetchedProducts: ProductType[] = [];
       querySnapshot.forEach((doc) => {
-        const data = doc.data() as Omit<StoredProduct, 'id' | 'createdAt' | 'updatedAt'>;
+        const data = doc.data() as Omit<StoredProduct, 'id' | 'createdAt' | 'updatedAt' | 'producedDate'>;
         fetchedProducts.push({
           ...data,
           id: doc.id,
+          producedDate: (doc.data().producedDate as Timestamp)?.toDate(),
           createdAt: (doc.data().createdAt as Timestamp)?.toDate() || new Date(),
           updatedAt: (doc.data().updatedAt as Timestamp)?.toDate() || new Date(),
         });

@@ -10,11 +10,12 @@ import { useAuth, type User as AuthUser } from '@/contexts/AuthContext';
 import type { Product as ProductType, StoredProduct } from '@/types/product';
 import { db } from '@/lib/firebase/config';
 import { collection, getDocs, query, Timestamp } from 'firebase/firestore';
-import { Loader2, Search, Package, ShoppingBag, Info, ImageOff, MessageSquare } from 'lucide-react';
+import { Loader2, Search, Package, ShoppingBag, Info, ImageOff, MessageSquare, CalendarDays, Home, Landmark } from 'lucide-react';
 import Image from 'next/image';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { useRouter } from 'next/navigation';
+import { format } from 'date-fns';
 
 interface SupplierWithProducts {
   supplier: AuthUser;
@@ -37,7 +38,7 @@ const generateAiHint = (name: string, category?: string): string => {
 
 export default function FindProductsPage({ params, searchParams }: FindProductsPageProps) {
   const [searchTerm, setSearchTerm] = useState('');
-  const [isLoading, setIsLoading] = useState(true); // Start true for initial load
+  const [isLoading, setIsLoading] = useState(true);
   const [results, setResults] = useState<SupplierWithProducts[]>([]);
   const { allUsersList, isLoadingUsers } = useAuth();
   const { toast } = useToast();
@@ -52,10 +53,11 @@ export default function FindProductsPage({ params, searchParams }: FindProductsP
       const productsSnapshot = await getDocs(productsQuery);
       const fetchedProducts: ProductType[] = [];
       productsSnapshot.forEach(doc => {
-        const data = doc.data() as Omit<StoredProduct, 'id' | 'createdAt' | 'updatedAt'>;
+        const data = doc.data() as Omit<StoredProduct, 'id' | 'createdAt' | 'updatedAt' | 'producedDate'>;
         fetchedProducts.push({
           ...data,
           id: doc.id,
+          producedDate: (doc.data().producedDate as Timestamp)?.toDate(),
           createdAt: (doc.data().createdAt as Timestamp)?.toDate() || new Date(),
           updatedAt: (doc.data().updatedAt as Timestamp)?.toDate() || new Date(),
         });
@@ -82,12 +84,10 @@ export default function FindProductsPage({ params, searchParams }: FindProductsP
         }
       });
       
-      // Sort products within each supplier group by name for consistency
       suppliersMap.forEach(supplierWithProducts => {
         supplierWithProducts.products.sort((a, b) => a.name.localeCompare(b.name));
       });
 
-      // Sort suppliers by name for consistency
       const sortedResults = Array.from(suppliersMap.values()).sort((a,b) => a.supplier.name.localeCompare(b.supplier.name));
       setResults(sortedResults);
 
@@ -99,19 +99,14 @@ export default function FindProductsPage({ params, searchParams }: FindProductsP
     }
   }, [allUsersList, toast]);
 
-  // Initial load of all products or perform search when users are loaded/reloaded
   useEffect(() => {
     if (!isLoadingUsers) {
-      performSearch(searchTerm); // Perform search with current term (empty on initial if searchTerm is empty)
+      performSearch(searchTerm); 
     }
-  }, [isLoadingUsers, performSearch, searchTerm]); // Added searchTerm here to re-filter if it changes externally
+  }, [isLoadingUsers, performSearch, searchTerm]); 
 
   const handleSearchFormSubmit = (e: FormEvent) => {
     e.preventDefault();
-    // performSearch is already called by useEffect when searchTerm changes,
-    // but this can be kept if explicit submit action is desired beyond live filtering.
-    // For now, rely on useEffect triggered by searchTerm state change.
-    // If search should only happen on submit, move performSearch(searchTerm) call here and remove searchTerm from useEffect deps.
   };
   
   const handleContactSupplier = (productId: string, supplierId: string) => {
@@ -133,7 +128,7 @@ export default function FindProductsPage({ params, searchParams }: FindProductsP
                 type="search"
                 placeholder="e.g., Organic Apples, Fuji, Fresh Fruits"
                 value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)} // This will trigger useEffect
+                onChange={(e) => setSearchTerm(e.target.value)}
                 className="flex-grow"
               />
               <Button type="submit" disabled={isLoading || isLoadingUsers}>
@@ -213,8 +208,26 @@ export default function FindProductsPage({ params, searchParams }: FindProductsP
                               Stock: {product.stockQuantity} {product.unit}{product.stockQuantity !== 1 ? 's' : ''}
                             </p>
                             <p className="text-xs text-muted-foreground line-clamp-2">{product.description}</p>
+                            {product.producedDate && (
+                              <p className="text-xs text-muted-foreground flex items-center">
+                                <CalendarDays className="h-3 w-3 mr-1 text-primary/70" />
+                                Produced: {format(product.producedDate, "MMM d, yyyy")}
+                              </p>
+                            )}
+                            {product.producedArea && (
+                              <p className="text-xs text-muted-foreground flex items-center">
+                                <Home className="h-3 w-3 mr-1 text-primary/70" />
+                                Area: {product.producedArea}
+                              </p>
+                            )}
+                            {product.producedByOrganization && (
+                              <p className="text-xs text-muted-foreground flex items-center">
+                                <Landmark className="h-3 w-3 mr-1 text-primary/70" />
+                                By: {product.producedByOrganization}
+                              </p>
+                            )}
                           </CardContent>
-                           <CardFooter className="pt-3 border-t">
+                           <CardFooter className="pt-3 border-t mt-auto">
                             <Button
                               variant="outline"
                               size="sm"
@@ -238,4 +251,3 @@ export default function FindProductsPage({ params, searchParams }: FindProductsP
     </>
   );
 }
-
