@@ -35,6 +35,7 @@ import {
   PackagePlus,
   Search,
   UserCircle, // Added for user profile consistency
+  Route, // Added for Distance Calculator
 } from 'lucide-react';
 import { useAuth, type UserRole } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
@@ -62,6 +63,7 @@ const allNavItems: NavItem[] = [
   // Transporter specific
   { href: '/dashboard/shipments', label: 'Manage Shipments', icon: Truck, roles: ['transporter'] },
   { href: '/dashboard/delivery-proof', label: 'Proof of Delivery', icon: PackageSearch, roles: ['transporter'] },
+  { href: '/dashboard/distance-calculator', label: 'Distance Calculator', icon: Route, roles: ['transporter'] }, // New item
   // Customer specific
   { href: '/dashboard/find-products', label: 'Find Products', icon: Search, roles: ['customer'] },
   { href: '/dashboard/my-orders', label: 'My Orders', icon: ClipboardList, roles: ['customer'] },

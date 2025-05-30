@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Header } from '@/components/dashboard/Header';
-import { ArrowRight, CandlestickChart, ShieldCheck, ShoppingCart, History, CreditCard, UserCircle, Truck, PackageSearch, ClipboardList, FileText, UserCheck, Users, PackagePlus, Activity, Search, MessageSquare } from 'lucide-react';
+import { ArrowRight, CandlestickChart, ShieldCheck, ShoppingCart, History, CreditCard, UserCircle, Truck, PackageSearch, ClipboardList, FileText, UserCheck, Users, PackagePlus, Activity, Search, MessageSquare, Route } from 'lucide-react';
 import { useAuth, type UserRole } from '@/contexts/AuthContext';
 import { AIProjectMonitor } from '@/components/dashboard/AIProjectMonitor';
 
@@ -30,6 +30,7 @@ const supplierFeatures = [
 const transporterFeatures = [
   { title: "Manage Shipments", description: "View and update active shipments.", link: "/dashboard/shipments", icon: Truck, color: "text-primary" },
   { title: "Proof of Delivery", description: "Upload and manage delivery proofs.", link: "/dashboard/delivery-proof", icon: PackageSearch, color: "text-orange-500" },
+  { title: "Distance Calculator", description: "Estimate travel distances for shipments.", link: "/dashboard/distance-calculator", icon: Route, color: "text-blue-500" }, // New feature
 ];
 
 const customerFeatures = [
