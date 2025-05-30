@@ -38,8 +38,9 @@ function NegotiationPageContent({ productId, supplierId }: NegotiationPageConten
   const [isLoadingData, setIsLoadingData] = useState(true);
   const [isSubmittingOrder, setIsSubmittingOrder] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [shippingDistance, setShippingDistance] = useState<CalculateDistanceOutput | null>(null);
+  const [shippingDistanceResult, setShippingDistanceResult] = useState<CalculateDistanceOutput | null>(null);
   const [isLoadingDistance, setIsLoadingDistance] = useState(false);
+  const [distanceError, setDistanceError] = useState<string | null>(null);
 
   const { allUsersList } = useAuth();
 
@@ -54,6 +55,10 @@ function NegotiationPageContent({ productId, supplierId }: NegotiationPageConten
 
     const fetchProductAndSupplier = async () => {
       setIsLoadingData(true);
+      setError(null);
+      setDistanceError(null);
+      setShippingDistanceResult(null);
+
       try {
         const productRef = doc(db, "products", productId);
         const productSnap = await getDoc(productRef);
@@ -80,26 +85,30 @@ function NegotiationPageContent({ productId, supplierId }: NegotiationPageConten
           setSupplier(foundSupplier);
           console.log("[NegotiatePage] Supplier found:", foundSupplier.name);
         } else if (allUsersList.length > 0) { // Only set error if users are loaded but supplier not found
-          setError("Supplier not found.");
+          setError(prevError => prevError ? `${prevError} Supplier not found.` : "Supplier not found.");
           console.error("[NegotiatePage] Supplier not found in allUsersList with id:", supplierId);
         }
         
+        // Fetch distance only if product and customer address (placeholder for now) are available
         if (fetchedProduct && fetchedProduct.producedArea) {
           setIsLoadingDistance(true);
+          setDistanceError(null);
           // TODO: In a real app, get customer's actual address.
-          const placeholderDestination = "New York, NY, USA"; 
+          const placeholderDestination = customer?.name ? `${customer.name}'s Location (e.g. New York, NY, USA)` : "New York, NY, USA"; 
           try {
             const distanceResult = await calculateDistance({ 
               originAddress: fetchedProduct.producedArea, 
-              destinationAddress: placeholderDestination 
+              destinationAddress: placeholderDestination // Use placeholder
             });
-            setShippingDistance(distanceResult);
-            if (distanceResult.note) {
-              toast({ title: "Shipping Info", description: distanceResult.note, duration: 7000 });
+            setShippingDistanceResult(distanceResult);
+            if (distanceResult.note && (distanceResult.note.includes('Simulated') || distanceResult.note.includes('Could not geocode') || distanceResult.note.includes('failed'))) {
+              toast({ title: "Shipping Info", description: distanceResult.note, duration: 7000, variant: distanceResult.distanceText.includes('Error') ? 'destructive' : 'default' });
             }
           } catch (distError) {
+            const msg = distError instanceof Error ? distError.message : "Could not estimate shipping distance.";
             console.error("[NegotiatePage] Error calculating distance:", distError);
-            toast({ title: "Distance Error", description: "Could not estimate shipping distance.", variant: "destructive" });
+            setDistanceError(msg);
+            toast({ title: "Distance Calculation Error", description: msg, variant: "destructive" });
           } finally {
             setIsLoadingDistance(false);
           }
@@ -113,15 +122,16 @@ function NegotiationPageContent({ productId, supplierId }: NegotiationPageConten
       }
     };
     
+    // Ensure allUsersList has been populated before trying to find the supplier
+    // And that customer object is available for the placeholder destination address
     if ((allUsersList.length > 0 || isLoadingAuth) && productId && supplierId) {
       fetchProductAndSupplier();
-    } else if (!isLoadingAuth && allUsersList.length === 0 && supplierId) {
+    } else if (!isLoadingAuth && (allUsersList.length === 0 && supplierId)) {
       setError("Supplier list not available. Cannot find supplier.");
       setIsLoadingData(false);
     }
 
-
-  }, [productId, supplierId, allUsersList, isLoadingAuth, toast]);
+  }, [productId, supplierId, allUsersList, isLoadingAuth, toast, customer]);
 
   useEffect(() => {
     if (product && desiredQuantity > 0) {
@@ -171,8 +181,8 @@ function NegotiationPageContent({ productId, supplierId }: NegotiationPageConten
         unit: product.unit,
         status: 'Awaiting Supplier Confirmation' as OrderStatus,
         orderDate: serverTimestamp(),
+        // shipmentStatus is intentionally omitted, will be set later
         podSubmitted: false, 
-        // shipmentStatus is intentionally omitted, will be set by supplier/transporter
       };
       console.log("[NegotiatePage] OrderData to be sent to Firestore:", orderData);
       console.log("[NegotiatePage] Saving order with supplierId:", orderData.supplierId, "and customerId:", orderData.customerId);
@@ -298,17 +308,24 @@ function NegotiationPageContent({ productId, supplierId }: NegotiationPageConten
             </CardHeader>
             <CardContent>
                 {isLoadingDistance && <div className="flex items-center"><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Fetching distance...</div>}
-                {shippingDistance && !isLoadingDistance && (
+                {!isLoadingDistance && distanceError && (
+                    <Alert variant="destructive">
+                        <AlertCircle className="h-4 w-4" />
+                        <AlertTitle>Distance Calculation Error</AlertTitle>
+                        <AlertDescription>{distanceError}</AlertDescription>
+                    </Alert>
+                )}
+                {!isLoadingDistance && !distanceError && shippingDistanceResult && (
                     <div className="text-sm space-y-1">
                         <p>From: <span className="font-medium">{product.producedArea}</span></p>
-                        <p>To: <span className="font-medium">New York, NY, USA (Placeholder Customer Address)</span></p>
-                        <p>Distance: <span className="font-semibold text-primary">{shippingDistance.distanceText}</span></p>
-                        <p>Est. Duration: <span className="font-semibold text-primary">{shippingDistance.durationText}</span></p>
-                        {shippingDistance.note && <p className="text-xs text-muted-foreground mt-2">{shippingDistance.note}</p>}
+                        <p>To: <span className="font-medium">{customer.name}'s Location (e.g. New York, NY, USA)</span></p> {/* Placeholder for customer address */}
+                        <p>Distance: <span className="font-semibold text-primary">{shippingDistanceResult.distanceText}</span></p>
+                        <p>Est. Duration: <span className="font-semibold text-primary">{shippingDistanceResult.durationText}</span></p>
+                        {shippingDistanceResult.note && <p className="text-xs text-muted-foreground mt-2 italic">{shippingDistanceResult.note}</p>}
                     </div>
                 )}
-                {!isLoadingDistance && !shippingDistance && (
-                    <p className="text-sm text-muted-foreground">Could not estimate shipping distance at this time.</p>
+                {!isLoadingDistance && !distanceError && !shippingDistanceResult && !isLoadingData && (
+                    <p className="text-sm text-muted-foreground">Could not estimate shipping distance at this time or no origin address provided.</p>
                 )}
             </CardContent>
         </Card>
@@ -324,7 +341,7 @@ function NegotiationPageContent({ productId, supplierId }: NegotiationPageConten
                 <Alert variant="destructive" className="mb-4">
                     <AlertCircle className="h-4 w-4" />
                     <AlertTitle>Out of Stock</AlertTitle>
-                    <CardDescription>This product is currently out of stock and cannot be ordered.</CardDescription>
+                    <AlertDescription>This product is currently out of stock and cannot be ordered.</AlertDescription>
                 </Alert>
             )}
             <div>
