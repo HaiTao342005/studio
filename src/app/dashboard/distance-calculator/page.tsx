@@ -41,13 +41,12 @@ export default function DistanceCalculatorPage({ params, searchParams }: Distanc
       const input: CalculateDistanceInput = { originAddress, destinationAddress };
       const distanceResult = await calculateDistance(input);
       setResult(distanceResult);
-      if (distanceResult.note && (distanceResult.note.toLowerCase().includes('simulated') || distanceResult.note.toLowerCase().includes('error') || distanceResult.note.toLowerCase().includes('failed'))) {
-        // Display notes about simulation or specific API errors prominently as a toast
+      if (distanceResult.note && (distanceResult.note.toLowerCase().includes('error') || distanceResult.note.toLowerCase().includes('failed'))) {
         toast({
-          title: distanceResult.note.toLowerCase().includes('error') || distanceResult.note.toLowerCase().includes('failed') ? "Calculation Error" : "Calculation Note",
+          title: "Calculation Info",
           description: distanceResult.note,
           duration: 8000,
-          variant: distanceResult.note.toLowerCase().includes('error') || distanceResult.note.toLowerCase().includes('failed') ? "destructive" : "default",
+          variant: "destructive",
         });
       }
     } catch (err) {
@@ -60,10 +59,6 @@ export default function DistanceCalculatorPage({ params, searchParams }: Distanc
     }
   };
 
-  const isSimulated = result?.note?.toLowerCase().includes('simulated') || 
-                      result?.distanceText?.toLowerCase().includes('(simulated)') || 
-                      result?.durationText?.toLowerCase().includes('(simulated)');
-
   return (
     <>
       <Header title="Distance Calculator" />
@@ -72,11 +67,10 @@ export default function DistanceCalculatorPage({ params, searchParams }: Distanc
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Route className="h-6 w-6 text-primary" />
-              Calculate Trip Distance
+              Estimate Trip Distance
             </CardTitle>
             <CardDescription>
-              Enter pickup and customer addresses to estimate travel distance and duration.
-              <span className="font-semibold text-primary"> For real-time calculations, ensure your Google Maps API key is correctly configured in the application's environment variables and that the necessary Google Cloud APIs (Geocoding & Distance Matrix) are enabled with billing active.</span> Otherwise, a simulation will be used.
+              Enter pickup and customer addresses to get an AI-powered estimation of travel distance and duration.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -103,7 +97,7 @@ export default function DistanceCalculatorPage({ params, searchParams }: Distanc
               </div>
               <Button type="submit" disabled={isLoading} className="w-full">
                 {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                Calculate Distance
+                Estimate Distance
               </Button>
             </form>
           </CardContent>
@@ -115,13 +109,9 @@ export default function DistanceCalculatorPage({ params, searchParams }: Distanc
               <CardTitle className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <MapPin className="h-5 w-5 text-primary" />
-                  Calculation Result
+                  AI Estimation Result
                 </div>
-                {isSimulated ? (
-                  <Badge variant="outline" className="text-orange-600 border-orange-400">Simulated Data</Badge>
-                ) : (
-                  <Badge variant="default" className="bg-green-500 hover:bg-green-600 text-white">Real Data</Badge>
-                )}
+                 <Badge variant="outline" className="text-blue-600 border-blue-400">AI Estimated</Badge>
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-2 text-sm">
@@ -138,9 +128,9 @@ export default function DistanceCalculatorPage({ params, searchParams }: Distanc
                 <strong>Est. Duration:</strong> <span className="font-semibold text-primary">{result.durationText}</span>
               </p>
               {result.note && (
-                <Alert className={`mt-4 ${result.note.toLowerCase().includes('error') || result.note.toLowerCase().includes('failed') ? 'border-destructive text-destructive dark:text-destructive-foreground' : 'border-orange-400 text-orange-700 dark:text-orange-300'}`}>
+                <Alert className={`mt-4 ${result.note.toLowerCase().includes('failed') ? 'border-destructive text-destructive dark:text-destructive-foreground' : 'border-blue-400 text-blue-700 dark:text-blue-300'}`}>
                   <Info className="h-4 w-4" />
-                  <AlertTitle>{result.note.toLowerCase().includes('error') || result.note.toLowerCase().includes('failed') ? 'Error Note' : 'Calculation Info'}</AlertTitle>
+                  <AlertTitle>{result.note.toLowerCase().includes('failed') ? 'Estimation Error' : 'Estimation Info'}</AlertTitle>
                   <AlertDescription>{result.note}</AlertDescription>
                 </Alert>
               )}

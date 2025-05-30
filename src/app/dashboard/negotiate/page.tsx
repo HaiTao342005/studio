@@ -84,25 +84,23 @@ function NegotiationPageContent({ productId, supplierId }: NegotiationPageConten
         if (foundSupplier) {
           setSupplier(foundSupplier);
           console.log("[NegotiatePage] Supplier found:", foundSupplier.name);
-        } else if (allUsersList.length > 0) { // Only set error if users are loaded but supplier not found
+        } else if (allUsersList.length > 0) { 
           setError(prevError => prevError ? `${prevError} Supplier not found.` : "Supplier not found.");
           console.error("[NegotiatePage] Supplier not found in allUsersList with id:", supplierId);
         }
         
-        // Fetch distance only if product and customer address (placeholder for now) are available
-        if (fetchedProduct && fetchedProduct.producedArea) {
+        if (fetchedProduct && fetchedProduct.producedArea && customer?.name) {
           setIsLoadingDistance(true);
           setDistanceError(null);
-          // TODO: In a real app, get customer's actual address.
-          const placeholderDestination = customer?.name ? `${customer.name}'s Location (e.g. New York, NY, USA)` : "New York, NY, USA"; 
+          const placeholderDestination = `${customer.name}'s General Area (for AI estimation)`; 
           try {
             const distanceResult = await calculateDistance({ 
               originAddress: fetchedProduct.producedArea, 
-              destinationAddress: placeholderDestination // Use placeholder
+              destinationAddress: placeholderDestination
             });
             setShippingDistanceResult(distanceResult);
-            if (distanceResult.note && (distanceResult.note.includes('Simulated') || distanceResult.note.includes('Could not geocode') || distanceResult.note.includes('failed'))) {
-              toast({ title: "Shipping Info", description: distanceResult.note, duration: 7000, variant: distanceResult.distanceText.includes('Error') ? 'destructive' : 'default' });
+            if (distanceResult.note && distanceResult.note.toLowerCase().includes('failed')) {
+              toast({ title: "Shipping Info", description: distanceResult.note, duration: 7000, variant: 'destructive'});
             }
           } catch (distError) {
             const msg = distError instanceof Error ? distError.message : "Could not estimate shipping distance.";
@@ -122,8 +120,6 @@ function NegotiationPageContent({ productId, supplierId }: NegotiationPageConten
       }
     };
     
-    // Ensure allUsersList has been populated before trying to find the supplier
-    // And that customer object is available for the placeholder destination address
     if ((allUsersList.length > 0 || isLoadingAuth) && productId && supplierId) {
       fetchProductAndSupplier();
     } else if (!isLoadingAuth && (allUsersList.length === 0 && supplierId)) {
@@ -181,7 +177,6 @@ function NegotiationPageContent({ productId, supplierId }: NegotiationPageConten
         unit: product.unit,
         status: 'Awaiting Supplier Confirmation' as OrderStatus,
         orderDate: serverTimestamp(),
-        // shipmentStatus is intentionally omitted, will be set later
         podSubmitted: false, 
       };
       console.log("[NegotiatePage] OrderData to be sent to Firestore:", orderData);
@@ -303,7 +298,7 @@ function NegotiationPageContent({ productId, supplierId }: NegotiationPageConten
         <Card className="shadow-md">
             <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-xl">
-                    <Pin className="h-5 w-5 text-primary" /> Estimated Shipping Information
+                    <Pin className="h-5 w-5 text-primary" /> AI Estimated Shipping Information
                 </CardTitle>
             </CardHeader>
             <CardContent>
@@ -311,15 +306,15 @@ function NegotiationPageContent({ productId, supplierId }: NegotiationPageConten
                 {!isLoadingDistance && distanceError && (
                     <Alert variant="destructive">
                         <AlertCircle className="h-4 w-4" />
-                        <AlertTitle>Distance Calculation Error</AlertTitle>
+                        <AlertTitle>Distance Estimation Error</AlertTitle>
                         <AlertDescription>{distanceError}</AlertDescription>
                     </Alert>
                 )}
                 {!isLoadingDistance && !distanceError && shippingDistanceResult && (
                     <div className="text-sm space-y-1">
                         <p>From: <span className="font-medium">{product.producedArea}</span></p>
-                        <p>To: <span className="font-medium">{customer.name}'s Location (e.g. New York, NY, USA)</span></p> {/* Placeholder for customer address */}
-                        <p>Distance: <span className="font-semibold text-primary">{shippingDistanceResult.distanceText}</span></p>
+                        <p>To: <span className="font-medium">{customer.name}'s General Area (for AI estimation)</span></p>
+                        <p>Est. Distance: <span className="font-semibold text-primary">{shippingDistanceResult.distanceText}</span></p>
                         <p>Est. Duration: <span className="font-semibold text-primary">{shippingDistanceResult.durationText}</span></p>
                         {shippingDistanceResult.note && <p className="text-xs text-muted-foreground mt-2 italic">{shippingDistanceResult.note}</p>}
                     </div>
@@ -436,4 +431,3 @@ const generateAiHint = (name: string, category?: string): string => {
   const nameWords = name.split(' ').map(word => word.toLowerCase().replace(/[^a-z0-9]/gi, '')).filter(Boolean);
   return nameWords.slice(0, 2).join(' ');
 };
-
