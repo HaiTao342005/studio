@@ -13,7 +13,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from '@/components/ui/button';
 import { Trash2, Wallet, Loader2, Eye } from 'lucide-react';
-import type { Order, OrderStatus, StoredOrder } from '@/types/transaction';
+import type { OrderStatus, StoredOrder } from '@/types/transaction';
 import { AppleIcon, BananaIcon, OrangeIcon, GrapeIcon, MangoIcon, FruitIcon } from '@/components/icons/FruitIcons';
 import { format } from 'date-fns';
 import { useToast } from "@/hooks/use-toast";
@@ -53,7 +53,7 @@ interface TransactionHistoryTableProps {
 }
 
 export function TransactionHistoryTable({ initialOrders, isCustomerView = false }: TransactionHistoryTableProps) {
-  const [orders, setOrders] = useState<Order[]>([]);
+  const [orders, setOrders] = useState<StoredOrder[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [payingOrderId, setPayingOrderId] = useState<string | null>(null);
   const { toast } = useToast();
@@ -61,12 +61,12 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
 
   useEffect(() => {
     if (isCustomerView && initialOrders) {
-      const mappedOrders: Order[] = initialOrders.map(order => ({
+      const mappedOrders: StoredOrder[] = initialOrders.map(order => ({
         ...order,
-        date: (order.orderDate as Timestamp).toDate(), // Ensure we use orderDate from StoredOrder
-        FruitIcon: getFruitIcon(order.productName || (order as any).fruitType), // Use productName or fallback to fruitType
+        // date: (order.orderDate as Timestamp).toDate(), // No longer needed directly as we keep StoredOrder
+        FruitIcon: getFruitIcon(order.productName || (order as any).fruitType),
       }));
-      setOrders(mappedOrders);
+      setOrders(mappedOrders.sort((a, b) => (b.orderDate as Timestamp).toMillis() - (a.orderDate as Timestamp).toMillis()));
       setIsLoading(false);
       return;
     }
@@ -76,26 +76,36 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
     if (isCustomerView && user) {
         ordersQuery = query(collection(db, "orders"), where("customerId", "==", user.id), orderBy("orderDate", "desc"));
     } else if (user && user.role === 'supplier') {
-        ordersQuery = query(collection(db, "orders"), where("supplierId", "==", user.id), orderBy("orderDate", "desc"));
+        // Removed orderBy("orderDate", "desc") to avoid composite index error for now
+        // Sorting will be done client-side
+        ordersQuery = query(collection(db, "orders"), where("supplierId", "==", user.id));
     } else if (user && user.role === 'manager') {
         ordersQuery = query(collection(db, "orders"), orderBy("orderDate", "desc"));
     } else {
       setIsLoading(false);
       setOrders([]);
-      return; // No query if user role doesn't match known roles or user is null
+      return; 
     }
 
     const unsubscribe = onSnapshot(ordersQuery, (querySnapshot) => {
-      const fetchedOrders: Order[] = [];
-      querySnapshot.forEach((doc) => {
-        const data = doc.data() as Omit<StoredOrder, 'id'>;
+      const fetchedOrders: StoredOrder[] = [];
+      querySnapshot.forEach((docSnapshot) => { // Renamed doc to docSnapshot to avoid conflict
+        const data = docSnapshot.data() as Omit<StoredOrder, 'id'>;
         fetchedOrders.push({
           ...data,
-          id: doc.id,
-          date: (data.orderDate as Timestamp).toDate(),
-          FruitIcon: getFruitIcon(data.productName || (data as any).fruitType), // Use productName or fallback to fruitType
+          id: docSnapshot.id,
+          // date: (data.orderDate as Timestamp).toDate(), // No longer needed directly
+          FruitIcon: getFruitIcon(data.productName || (data as any).fruitType), 
         });
       });
+
+      // Client-side sorting for supplier if orderby was removed
+      if (user && user.role === 'supplier') {
+        fetchedOrders.sort((a, b) => (b.orderDate as Timestamp).toMillis() - (a.orderDate as Timestamp).toMillis());
+      }
+      // Customer view already sorts if initialOrders provided, otherwise Firestore sorts
+      // Manager view is sorted by Firestore
+
       setOrders(fetchedOrders);
       setIsLoading(false);
     }, (error) => {
@@ -239,12 +249,13 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
         description: `Tx Hash: ${txHash.substring(0,10)}... Simulating block confirmation.`
       });
 
-      await new Promise(resolve => setTimeout(resolve, 4000));
+      // Simulate block confirmation delay
+      await new Promise(resolve => setTimeout(resolve, 4000)); // 4 seconds delay
 
       const orderRef = doc(db, "orders", orderId);
       await updateDoc(orderRef, {
         status: 'Paid' as OrderStatus,
-        paymentTransactionHash: txHash // Optionally store the transaction hash
+        paymentTransactionHash: txHash 
       });
 
       toast({
@@ -295,7 +306,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
               <TableCell>
                 {order.FruitIcon ? <order.FruitIcon className="h-6 w-6 text-accent" /> : <FruitIcon className="h-6 w-6 text-gray-400" />}
               </TableCell>
-              <TableCell>{format(order.date, "MMM d, yyyy")}</TableCell>
+              <TableCell>{format((order.orderDate as Timestamp).toDate(), "MMM d, yyyy")}</TableCell>
               <TableCell className="font-medium">{order.productName || (order as any).fruitType}</TableCell>
               {!isCustomerView && <TableCell>{order.customerName}</TableCell>}
               {isCustomerView && <TableCell>{order.supplierName}</TableCell>}
@@ -340,5 +351,3 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
     </div>
   );
 }
-
-    
