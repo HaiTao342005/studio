@@ -3,6 +3,7 @@ import type { ElementType, SVGProps } from 'react';
 import type { Timestamp } from 'firebase/firestore';
 
 export type OrderStatus = 'Pending' | 'Awaiting Payment' | 'Paid' | 'Shipped' | 'Delivered' | 'Cancelled';
+export type OrderShipmentStatus = 'Ready for Pickup' | 'In Transit' | 'Out for Delivery' | 'Delivered' | 'Delivery Failed' | 'Shipment Cancelled';
 
 // This interface will be used for data stored in Firestore
 export interface StoredOrder {
@@ -21,6 +22,12 @@ export interface StoredOrder {
   currency: string;
   status: OrderStatus;
   notes?: string;
+  // Transporter specific fields
+  transporterId?: string;
+  transporterName?: string; // Denormalized for easier display
+  shipmentStatus?: OrderShipmentStatus;
+  podSubmitted?: boolean;
+  podNotes?: string;
   // Any other fields that are directly stored
 }
 
