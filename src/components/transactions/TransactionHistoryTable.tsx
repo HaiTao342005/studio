@@ -30,7 +30,7 @@ const FALLBACK_SIMULATED_ETH_USD_PRICE = 2000;
 const getStatusBadgeVariant = (status: OrderStatus): "default" | "secondary" | "destructive" | "outline" => {
   switch (status) {
     case 'Paid': return 'default';
-    case 'Delivered': return 'default';
+    case 'Delivered': return 'default'; // Note: shipmentStatus is also 'Delivered'
     case 'Receipt Confirmed': return 'default';
     case 'Shipped': return 'secondary';
     case 'Ready for Pickup': return 'secondary';
@@ -44,7 +44,7 @@ const getStatusBadgeVariant = (status: OrderStatus): "default" | "secondary" | "
 };
 
 const getFruitIcon = (fruitTypeInput?: string): ElementType<SVGProps<SVGSVGElement>> => {
-  const fruitType = fruitTypeInput || "";
+  const fruitType = fruitTypeInput || ""; // Ensure fruitType is a string
   const lowerFruitType = fruitType.toLowerCase();
   if (lowerFruitType.includes('apple')) return AppleIcon;
   if (lowerFruitType.includes('banana')) return BananaIcon;
@@ -76,14 +76,16 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
   const availableTransporters = allUsersList.filter(u => u.role === 'transporter' && u.isApproved);
 
   useEffect(() => {
-    console.log("[TransactionHistoryTable] useEffect triggered. isCustomerView:", isCustomerView, "initialOrders provided:", !!initialOrders, "User:", user?.id, user?.role);
+    console.log("[TransactionHistoryTable] useEffect triggered. isCustomerView:", isCustomerView, "initialOrders provided:", !!initialOrders, "User ID:", user?.id, "Role:", user?.role);
 
     if (isCustomerView && initialOrders) {
       console.log("[TransactionHistoryTable] Using initialOrders for customer view.");
       const mappedOrders: StoredOrder[] = initialOrders.map(order => ({
         ...order,
         FruitIcon: getFruitIcon(order.productName || (order as any).fruitType),
-      })).sort((a, b) => { // Client-side sorting for customer view
+      }));
+      // Client-side sorting for customer view IF initialOrders doesn't guarantee sort order
+      mappedOrders.sort((a, b) => {
         const dateA = (a.orderDate || (a as any).date) as Timestamp | undefined;
         const dateB = (b.orderDate || (b as any).date) as Timestamp | undefined;
         if (dateA && dateB) {
@@ -93,7 +95,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
       });
       setOrders(mappedOrders);
       setIsLoading(false);
-      return () => {}; // No listener to unsubscribe from
+      return () => {};
     }
 
     if (!user || !user.id) {
@@ -111,17 +113,16 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
 
     if (currentRole === 'supplier') {
       console.log(`[TransactionHistoryTable] User is SUPPLIER. Fetching orders for supplierId: ${user.id}`);
-      // TEMPORARY WORKAROUND: Removed orderBy("orderDate", "desc") due to missing index error.
-      // User MUST create the composite index in Firestore for optimal performance.
       ordersQuery = query(
         collection(db, "orders"),
         where("supplierId", "==", user.id)
+        // orderBy("orderDate", "desc") // Temporarily removed to avoid index error; ensure index is created in Firestore
       );
     } else if (currentRole === 'manager') {
       console.log(`[TransactionHistoryTable] User is MANAGER. Fetching all orders, ordered by date.`);
       ordersQuery = query(collection(db, "orders"), orderBy("orderDate", "desc"));
     } else {
-      console.warn(`[TransactionHistoryTable] User role is '${currentRole}', not fetching orders directly in this component without initialOrders.`);
+      console.warn(`[TransactionHistoryTable] User role is '${currentRole}', not fetching orders directly in this component without initialOrders. This case should not occur if initialOrders are passed for customers.`);
       setOrders([]);
       setIsLoading(false);
       return () => {};
@@ -143,8 +144,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
         }
       });
       
-      // Client-side sorting for supplier if orderBy was removed from query
-      if (currentRole === 'supplier') {
+      if (currentRole === 'supplier') { // Client-side sorting if orderBy was removed from query
         fetchedOrders.sort((a, b) => {
           const dateA = (a.orderDate || (a as any).date) as Timestamp | undefined;
           const dateB = (b.orderDate || (b as any).date) as Timestamp | undefined;
@@ -384,12 +384,8 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
     try {
       const orderRef = doc(db, "orders", orderId);
       await updateDoc(orderRef, { status: 'Receipt Confirmed' as OrderStatus });
-      toast({ title: "Receipt Confirmed", description: "Thank you! Attempting to process payment." });
-
-      const paymentSuccessful = await handlePayWithMetamask(orderId); 
-      if (!paymentSuccessful) {
-        toast({ title: "Payment Notice", description: "Automatic payment could not be completed. Please check your Metamask or try paying manually if available.", variant: "destructive", duration: 7000 });
-      }
+      toast({ title: "Receipt Confirmed", description: "Thank you! Please proceed to payment if the order is not yet paid." });
+      // Removed automatic payment attempt from here
     } catch (error) {
       toast({ title: "Error", description: "Could not confirm receipt.", variant: "destructive" });
       console.error("Error confirming receipt:", error);
@@ -445,7 +441,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
                 {order.shipmentStatus ? <Badge variant={order.shipmentStatus === 'Delivered' ? 'default' : 'secondary'}>{order.shipmentStatus}</Badge> : <span className="text-xs text-muted-foreground">N/A</span>}
               </TableCell>
               <TableCell className="space-x-1 text-center">
-                {isCustomerView && order.status === 'Awaiting Payment' && (
+                {isCustomerView && (order.status === 'Awaiting Payment' || order.status === 'Receipt Confirmed') && order.status !== 'Paid' && (
                   <Button
                     variant="outline" size="sm" onClick={() => handlePayWithMetamask(order.id)}
                     disabled={payingOrderId === order.id || !!payingOrderId} className="h-8 px-2" title="Pay with Metamask"
@@ -488,7 +484,8 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
                     <Trash2 className="h-4 w-4 text-destructive" />
                   </Button>
                 )}
-                {isCustomerView && order.status !== 'Awaiting Payment' && !(order.shipmentStatus === 'Delivered' && order.status !== 'Paid' && order.status !== 'Receipt Confirmed') && (
+                {/* Keeping a generic view button for customers for orders not in an actionable state */}
+                {isCustomerView && order.status !== 'Awaiting Payment' && order.status !== 'Receipt Confirmed' && !(order.shipmentStatus === 'Delivered' && order.status !== 'Paid' && order.status !== 'Receipt Confirmed') && (
                     <Button variant="ghost" size="icon" onClick={() => alert(`Viewing order ${order.id} - details would show here.`)} aria-label="View order" className="h-8 w-8">
                         <Eye className="h-4 w-4 text-primary" />
                     </Button>
