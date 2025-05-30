@@ -10,7 +10,7 @@ import { useAuth, type User as AuthUser } from '@/contexts/AuthContext';
 import type { Product as ProductType, StoredProduct } from '@/types/product';
 import { db } from '@/lib/firebase/config';
 import { collection, getDocs, query, Timestamp } from 'firebase/firestore';
-import { Loader2, Search, Package, ShoppingBag, Info, ImageOff, MessageSquare, CalendarDays, Home, Landmark } from 'lucide-react';
+import { Loader2, Search, Package, ShoppingBag, Info, ImageOff, MessageSquare, CalendarDays, Home, Landmark, AlertCircle } from 'lucide-react';
 import Image from 'next/image';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
@@ -178,8 +178,9 @@ export default function FindProductsPage({ params, searchParams }: FindProductsP
                   <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                     {products.map(product => {
                        const aiHint = generateAiHint(product.name, product.category);
+                       const isOutOfStock = product.stockQuantity !== undefined && product.stockQuantity <= 0;
                        return (
-                        <Card key={product.id} className="flex flex-col">
+                        <Card key={product.id} className={`flex flex-col ${isOutOfStock ? 'opacity-60' : ''}`}>
                           <CardHeader className="pb-2">
                              {product.imageUrl ? (
                               <div className="relative w-full h-40 rounded-t-md overflow-hidden">
@@ -198,6 +199,11 @@ export default function FindProductsPage({ params, searchParams }: FindProductsP
                             )}
                             <CardTitle className="mt-3 text-lg">{product.name}</CardTitle>
                             {product.category && <Badge variant="outline" className="w-fit text-xs mt-1">{product.category}</Badge>}
+                             {isOutOfStock && (
+                              <Badge variant="destructive" className="w-fit text-xs mt-1">
+                                <AlertCircle className="mr-1 h-3 w-3" /> Out of Stock
+                              </Badge>
+                            )}
                           </CardHeader>
                           <CardContent className="flex-grow space-y-1 text-sm">
                             <p className="text-lg font-semibold text-primary">
@@ -233,9 +239,10 @@ export default function FindProductsPage({ params, searchParams }: FindProductsP
                               size="sm"
                               className="w-full"
                               onClick={() => handleContactSupplier(product.id, supplier.id)}
+                              disabled={isOutOfStock}
                             >
                               <MessageSquare className="mr-2 h-4 w-4"/>
-                              Contact Supplier
+                              {isOutOfStock ? 'Out of Stock' : 'Contact Supplier'}
                             </Button>
                           </CardFooter>
                         </Card>

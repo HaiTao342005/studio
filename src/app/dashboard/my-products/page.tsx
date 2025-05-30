@@ -11,7 +11,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { db } from '@/lib/firebase/config';
 import { collection, query, where, onSnapshot, doc, deleteDoc, Timestamp, getDoc } from 'firebase/firestore'; // Added getDoc
 import type { Product as ProductType, StoredProduct } from '@/types/product';
-import { PackagePlus, Trash2, Loader2, Info, ImageOff, Edit3, Package, CalendarDays, Home, Landmark } from 'lucide-react';
+import { PackagePlus, Trash2, Loader2, Info, ImageOff, Edit3, Package, CalendarDays, Home, Landmark, AlertCircle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import Image from 'next/image';
 import { Badge } from '@/components/ui/badge';
@@ -28,8 +28,10 @@ const generateAiHint = (name: string, category?: string): string => {
 
 function ProductCard({ product, onDelete, onEdit }: { product: ProductType, onDelete: (productId: string, productName: string) => void, onEdit: (product: ProductType) => void }) {
   const aiHint = generateAiHint(product.name, product.category);
+  const isOutOfStock = product.stockQuantity !== undefined && product.stockQuantity <= 0;
+
   return (
-    <Card className="flex flex-col shadow-lg hover:shadow-xl transition-shadow duration-300">
+    <Card className={`flex flex-col shadow-lg hover:shadow-xl transition-shadow duration-300 ${isOutOfStock ? 'opacity-70' : ''}`}>
       <CardHeader className="pb-2">
         {product.imageUrl ? (
           <div className="relative w-full h-48 rounded-t-md overflow-hidden">
@@ -47,7 +49,12 @@ function ProductCard({ product, onDelete, onEdit }: { product: ProductType, onDe
           </div>
         )}
         <CardTitle className="mt-4 text-xl">{product.name}</CardTitle>
-        {product.category && <Badge variant="outline" className="w-fit">{product.category}</Badge>}
+        {product.category && <Badge variant="outline" className="w-fit mt-1">{product.category}</Badge>}
+        {isOutOfStock && (
+          <Badge variant="destructive" className="w-fit mt-1">
+            <AlertCircle className="mr-1 h-3 w-3" /> Out of Stock
+          </Badge>
+        )}
       </CardHeader>
       <CardContent className="flex-grow space-y-2 text-sm">
         <p className="text-2xl font-semibold text-primary">
@@ -259,4 +266,3 @@ export default function MyProductsPage({ params, searchParams }: MyProductsPageP
     </>
   );
 }
-

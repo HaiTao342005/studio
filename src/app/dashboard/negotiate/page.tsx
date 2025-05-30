@@ -15,7 +15,7 @@ import type { Product as ProductType, StoredProduct } from '@/types/product';
 import { OrderStatus } from '@/types/transaction'; 
 import { db } from '@/lib/firebase/config';
 import { doc, getDoc, addDoc, collection, serverTimestamp, Timestamp } from 'firebase/firestore';
-import { Loader2, Info, ShoppingBag, UserCircle, ArrowLeft, CheckCircle, XCircle, CalendarDays, Home, Landmark } from 'lucide-react';
+import { Loader2, Info, ShoppingBag, UserCircle, ArrowLeft, CheckCircle, XCircle, CalendarDays, Home, Landmark, AlertCircle } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
 
@@ -150,7 +150,6 @@ function NegotiationPageContent({ productId, supplierId }: NegotiationPageConten
         unit: product.unit,
         status: 'Awaiting Supplier Confirmation' as OrderStatus,
         orderDate: serverTimestamp(),
-        // shipmentStatus field will be omitted initially
         podSubmitted: false,
       };
       console.log("[NegotiatePage] OrderData to be sent to Firestore:", orderData);
@@ -168,6 +167,8 @@ function NegotiationPageContent({ productId, supplierId }: NegotiationPageConten
       console.log("[NegotiatePage] handleMakeOrder finished.");
     }
   };
+
+  const isOutOfStock = product?.stockQuantity !== undefined && product.stockQuantity <= 0;
 
   if (isLoadingData || isLoadingAuth) {
     return (
@@ -225,6 +226,11 @@ function NegotiationPageContent({ productId, supplierId }: NegotiationPageConten
             <div className="space-y-3">
               <h2 className="text-3xl font-bold">{product.name}</h2>
               {product.category && <Badge variant="outline">{product.category}</Badge>}
+              {isOutOfStock && (
+                <Badge variant="destructive" className="mt-2">
+                  <AlertCircle className="mr-1 h-4 w-4" /> Out of Stock
+                </Badge>
+              )}
               <p className="text-muted-foreground">{product.description}</p>
               <p className="text-2xl font-semibold text-primary">
                 ${product.price.toFixed(2)} <span className="text-sm text-muted-foreground">/{product.unit}</span>
@@ -268,6 +274,13 @@ function NegotiationPageContent({ productId, supplierId }: NegotiationPageConten
             <CardDescription>Specify the quantity you wish to purchase.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            {isOutOfStock && (
+                <Alert variant="destructive" className="mb-4">
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertTitle>Out of Stock</AlertTitle>
+                    <CardDescription>This product is currently out of stock and cannot be ordered.</CardDescription>
+                </Alert>
+            )}
             <div>
               <Label htmlFor="desiredQuantity" className="text-base">Desired Quantity ({product.unit}{product.unit !== 'item' ? 's' : ''})</Label>
               <Input
@@ -278,12 +291,13 @@ function NegotiationPageContent({ productId, supplierId }: NegotiationPageConten
                 value={desiredQuantity}
                 onChange={(e) => setDesiredQuantity(Math.max(1, parseInt(e.target.value, 10) || 1))}
                 className="mt-1 text-lg p-2"
+                disabled={isOutOfStock}
               />
-              {desiredQuantity > (product.stockQuantity ?? 0) && (
+              {!isOutOfStock && desiredQuantity > (product.stockQuantity ?? 0) && (
                 <p className="text-sm text-destructive mt-1">Requested quantity exceeds available stock ({product.stockQuantity ?? 0}).</p>
               )}
             </div>
-            {desiredQuantity > 0 && (
+            {!isOutOfStock && desiredQuantity > 0 && (
               <div className="p-4 bg-secondary/50 rounded-md border">
                 <p className="text-sm text-muted-foreground">Calculated Total:</p>
                 <p className="text-3xl font-bold text-primary">${totalPrice.toFixed(2)}</p>
@@ -299,7 +313,7 @@ function NegotiationPageContent({ productId, supplierId }: NegotiationPageConten
             </Button>
             <Button
               onClick={handleMakeOrder}
-              disabled={isSubmittingOrder || desiredQuantity <= 0 || desiredQuantity > (product.stockQuantity ?? 0)}
+              disabled={isSubmittingOrder || desiredQuantity <= 0 || desiredQuantity > (product.stockQuantity ?? 0) || isOutOfStock}
               className="w-full sm:w-auto"
             >
               {isSubmittingOrder ? (
@@ -307,7 +321,7 @@ function NegotiationPageContent({ productId, supplierId }: NegotiationPageConten
               ) : (
                 <CheckCircle className="mr-2 h-4 w-4" />
               )}
-              Make Order
+              {isOutOfStock ? 'Out of Stock' : 'Make Order'}
             </Button>
           </CardFooter>
         </Card>
