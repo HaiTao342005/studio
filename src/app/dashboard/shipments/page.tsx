@@ -9,12 +9,12 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { StoredOrder, OrderShipmentStatus, OrderStatus } from '@/types/transaction';
 import { db } from '@/lib/firebase/config';
-import { collection, onSnapshot, query, where, doc, updateDoc, Timestamp, orderBy } from 'firebase/firestore';
+import { collection, onSnapshot, query, where, doc, updateDoc, Timestamp } from 'firebase/firestore'; // Removed orderBy
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { Truck, ListFilter, MapPin, Loader2, Info, PackageCheck } from 'lucide-react';
 import { format } from 'date-fns';
-import { Badge } from '@/components/ui/badge'; // Added import for Badge
+import { Badge } from '@/components/ui/badge';
 
 const shipmentStatuses: OrderShipmentStatus[] = ['Ready for Pickup', 'In Transit', 'Out for Delivery', 'Delivered', 'Delivery Failed', 'Shipment Cancelled'];
 
@@ -60,24 +60,32 @@ export default function ManageShipmentsPage({ params, searchParams }: ManageShip
     const q = query(
       collection(db, "orders"),
       where("transporterId", "==", user.id),
-      where("status", "in", ['Ready for Pickup', 'Shipped', 'Delivered']), // Core statuses transporter acts on
-      orderBy("orderDate", "desc")
+      where("status", "in", ['Ready for Pickup', 'Shipped', 'Delivered'])
+      // Removed orderBy("orderDate", "desc") due to missing index. Client-side sorting will be applied.
     );
 
     const unsubscribe = onSnapshot(q, (querySnapshot) => {
       const fetchedOrders: StoredOrder[] = [];
       querySnapshot.forEach((orderDoc) => {
         const orderData = { id: orderDoc.id, ...orderDoc.data() } as StoredOrder;
-        // Further client-side filtering if needed, e.g., not 'Delivered' AND podSubmitted
-        if (orderData.shipmentStatus !== 'Shipment Cancelled') { // Exclude cancelled shipments
+        if (orderData.shipmentStatus !== 'Shipment Cancelled') {
              fetchedOrders.push(orderData);
         }
+      });
+      // Client-side sorting
+      fetchedOrders.sort((a, b) => {
+        const dateA = (a.orderDate || (a as any).date) as Timestamp | undefined;
+        const dateB = (b.orderDate || (b as any).date) as Timestamp | undefined;
+        if (dateA && dateB) {
+          return dateB.toMillis() - dateA.toMillis();
+        }
+        return 0;
       });
       setAssignedShipments(fetchedOrders);
       setIsLoading(false);
     }, (error) => {
       console.error("Error fetching shipments:", error);
-      toast({ title: "Error", description: "Could not fetch shipments.", variant: "destructive" });
+      toast({ title: "Error", description: "Could not fetch shipments. If this is an index error, please create the index in Firebase.", variant: "destructive", duration: 10000 });
       setIsLoading(false);
     });
 
@@ -93,13 +101,8 @@ export default function ManageShipmentsPage({ params, searchParams }: ManageShip
       const updateData: Partial<StoredOrder> = {
         shipmentStatus: newStatus,
       };
-      // If marked as Delivered, also update the main order status if it's not already reflecting a final customer state
       if (newStatus === 'Delivered') {
-        const currentOrder = assignedShipments.find(s => s.id === orderId);
-        if (currentOrder && !['Paid', 'Receipt Confirmed', 'Cancelled'].includes(currentOrder.status)) {
-            // This status update mainly signals to customer they can confirm receipt.
-            // The main 'status' field will be updated by customer confirmation or payment.
-        }
+        // Do not change main 'status' here. Customer 'Confirm Receipt' will handle payment & final status.
       }
       await updateDoc(orderRef, updateData);
       toast({ title: "Success", description: `Shipment status updated to ${newStatus}.` });
@@ -177,10 +180,10 @@ export default function ManageShipmentsPage({ params, searchParams }: ManageShip
                           </TableCell>
                           <TableCell>
                             <span className={`px-2 py-1 text-xs rounded-full ${
-                              shipment.shipmentStatus === 'Delivered' ? 'bg-green-100 text-green-700' :
-                              shipment.shipmentStatus === 'In Transit' ? 'bg-blue-100 text-blue-700' :
-                              shipment.shipmentStatus === 'Out for Delivery' ? 'bg-blue-100 text-blue-700' :
-                              shipment.shipmentStatus === 'Ready for Pickup' ? 'bg-yellow-100 text-yellow-700' :
+                              shipment.shipmentStatus === 'Delivered' ? 'bg-green-100 text-green-700 dark:bg-green-700 dark:text-green-100' :
+                              shipment.shipmentStatus === 'In Transit' ? 'bg-blue-100 text-blue-700 dark:bg-blue-700 dark:text-blue-100' :
+                              shipment.shipmentStatus === 'Out for Delivery' ? 'bg-blue-100 text-blue-700 dark:bg-blue-700 dark:text-blue-100' :
+                              shipment.shipmentStatus === 'Ready for Pickup' ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-600 dark:text-yellow-100' :
                               'bg-muted text-muted-foreground'
                             }`}>
                               {shipment.shipmentStatus || 'Awaiting Action'}
@@ -189,7 +192,7 @@ export default function ManageShipmentsPage({ params, searchParams }: ManageShip
                           <TableCell>
                             <div className="flex items-center gap-2">
                               <Select
-                                defaultValue={shipment.shipmentStatus}
+                                value={shipment.shipmentStatus || ''}
                                 onValueChange={(value) => handleStatusUpdate(shipment.id, value as OrderShipmentStatus)}
                                 disabled={updatingShipmentId === shipment.id || shipment.shipmentStatus === 'Delivered'}
                               >
