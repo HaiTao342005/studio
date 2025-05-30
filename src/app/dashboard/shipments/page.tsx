@@ -14,6 +14,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { Truck, ListFilter, MapPin, Loader2, Info, PackageCheck } from 'lucide-react';
 import { format } from 'date-fns';
+import { Badge } from '@/components/ui/badge'; // Added import for Badge
 
 const shipmentStatuses: OrderShipmentStatus[] = ['Ready for Pickup', 'In Transit', 'Out for Delivery', 'Delivered', 'Delivery Failed', 'Shipment Cancelled'];
 
@@ -21,6 +22,24 @@ interface ManageShipmentsPageProps {
   params: {};
   searchParams: { [key: string]: string | string[] | undefined };
 }
+
+// Helper function to determine badge variant based on status
+const getStatusBadgeVariant = (status: OrderStatus): "default" | "secondary" | "destructive" | "outline" => {
+  switch (status) {
+    case 'Paid': return 'default';
+    case 'Delivered': return 'default';
+    case 'Receipt Confirmed': return 'default';
+    case 'Shipped': return 'secondary';
+    case 'Ready for Pickup': return 'secondary';
+    case 'Awaiting Supplier Confirmation': return 'outline';
+    case 'Awaiting Transporter Assignment': return 'outline';
+    case 'Awaiting Payment': return 'outline';
+    case 'Pending': return 'outline';
+    case 'Cancelled': return 'destructive';
+    default: return 'secondary';
+  }
+};
+
 
 export default function ManageShipmentsPage({ params, searchParams }: ManageShipmentsPageProps) {
   const { user, allUsersList } = useAuth();
