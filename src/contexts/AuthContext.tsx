@@ -4,14 +4,14 @@
 import type { ReactNode} from 'react';
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { useToast } from '@/hooks/use-toast';
-import { db } from '@/lib/firebase/config'; // Import Firestore instance
-import { 
-  collection, 
-  doc, 
-  addDoc, 
-  getDocs, 
-  query, 
-  where, 
+import { db } from '@/lib/firebase/config';
+import {
+  collection,
+  doc,
+  addDoc,
+  getDocs,
+  query,
+  where,
   updateDoc,
   onSnapshot,
   setDoc,
@@ -25,11 +25,13 @@ export interface User {
   name: string;
   role: UserRole;
   isApproved: boolean;
+  address?: string; // New field for address
 }
 
 // StoredUser now represents the structure in Firestore
-export interface StoredUser extends Omit<User, 'id'> { // id will be the doc id
-  mockPassword?: string; // For mock auth; in real app, use Firebase Auth
+export interface StoredUser extends Omit<User, 'id'> {
+  mockPassword?: string;
+  address?: string; // New field for address
 }
 
 interface AuthContextType {
@@ -38,11 +40,10 @@ interface AuthContextType {
   signup: (username: string, mockPasswordNew: string, role: UserRole) => void;
   logout: () => void;
   isLoading: boolean;
-  getAllUsers: () => StoredUser[]; // This might become async or rely on a listener
   approveUser: (userId: string) => void;
-  addManager: (newManagerUsername: string, newManagerPassword: string) => Promise<boolean>; 
-  // User list for real-time updates
-  allUsersList: User[]; 
+  addManager: (newManagerUsername: string, newManagerPassword: string) => Promise<boolean>;
+  updateUserAddress: (userId: string, address: string) => Promise<boolean>; // New function
+  allUsersList: User[];
   isLoadingUsers: boolean;
 }
 
@@ -61,83 +62,87 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const seedDefaultManager = useCallback(async () => {
     const usersRef = collection(db, "users");
-    const qManager = query(usersRef, where("role", "==", "manager"));
+    const qManager = query(usersRef, where("name", "==", DEFAULT_MANAGER_USERNAME));
     const managerSnap = await getDocs(qManager);
 
-    let defaultManagerExists = false;
-    managerSnap.forEach(doc => {
-      if (doc.data().name === DEFAULT_MANAGER_USERNAME) {
-        defaultManagerExists = true;
-        // Ensure password is correct if manager exists (for mock system)
-        if (doc.data().mockPassword !== DEFAULT_MANAGER_PASSWORD) {
-          updateDoc(doc.ref, { mockPassword: DEFAULT_MANAGER_PASSWORD });
-        }
+    if (managerSnap.empty) {
+      const defaultManagerData: StoredUser = {
+        name: DEFAULT_MANAGER_USERNAME,
+        mockPassword: DEFAULT_MANAGER_PASSWORD,
+        role: 'manager',
+        isApproved: true,
+        address: '1 Management Plaza, Admin City, AC 10001' // Example address
+      };
+      const managerDocRef = doc(db, "users", DEFAULT_MANAGER_USERNAME.toLowerCase());
+      await setDoc(managerDocRef, defaultManagerData);
+      console.log("Default manager seeded in Firestore.");
+    } else {
+      const managerDoc = managerSnap.docs[0];
+      const managerData = managerDoc.data() as StoredUser;
+      let updates: Partial<StoredUser> = {};
+      if (managerData.mockPassword !== DEFAULT_MANAGER_PASSWORD) {
+        updates.mockPassword = DEFAULT_MANAGER_PASSWORD;
       }
-    });
-
-    if (!defaultManagerExists) {
-      // Check if a user with "Nhom1" already exists (maybe as non-manager)
-      const qSpecificUser = query(usersRef, where("name", "==", DEFAULT_MANAGER_USERNAME));
-      const specificUserSnap = await getDocs(qSpecificUser);
-
-      if (specificUserSnap.empty) {
-        const defaultManagerData: StoredUser = {
-          name: DEFAULT_MANAGER_USERNAME,
-          mockPassword: DEFAULT_MANAGER_PASSWORD,
-          role: 'manager',
-          isApproved: true,
-        };
-        // Use username as doc ID for predictable default manager ID
-        const managerDocRef = doc(db, "users", DEFAULT_MANAGER_USERNAME.toLowerCase());
-        await setDoc(managerDocRef, defaultManagerData);
-        console.log("Default manager seeded in Firestore.");
-      } else {
-         // If user Nhom1 exists but isn't manager, or password wrong, update it.
-         const existingDoc = specificUserSnap.docs[0];
-         await updateDoc(existingDoc.ref, {
-           role: 'manager',
-           isApproved: true,
-           mockPassword: DEFAULT_MANAGER_PASSWORD,
-         });
-         console.log("Updated existing Nhom1 user to be default manager.");
+      if (!managerData.address) {
+        updates.address = '1 Management Plaza, Admin City, AC 10001';
+      }
+      if (Object.keys(updates).length > 0) {
+        await updateDoc(managerDoc.ref, updates);
+        console.log("Default manager details updated in Firestore.");
       }
     }
   }, []);
 
-  // Initial load: Check localStorage for current user, seed manager, setup Firestore listener for all users
   useEffect(() => {
     setIsLoading(true);
+    let storedUser: User | null = null;
     try {
-      const storedCurrentUser = localStorage.getItem(CURRENT_USER_STORAGE_KEY);
-      if (storedCurrentUser) {
-        setUser(JSON.parse(storedCurrentUser));
+      const storedCurrentUserJson = localStorage.getItem(CURRENT_USER_STORAGE_KEY);
+      if (storedCurrentUserJson) {
+        storedUser = JSON.parse(storedCurrentUserJson);
       }
     } catch (error) {
       console.error("Failed to parse current user from localStorage", error);
       localStorage.removeItem(CURRENT_USER_STORAGE_KEY);
     }
-    
-    seedDefaultManager().then(() => {
-      setIsLoading(false); // Manager seeding complete
-    });
 
-    // Real-time listener for all users
+    seedDefaultManager(); // Seed or update manager
+
     const usersQuery = query(collection(db, "users"));
-    const unsubscribe = onSnapshot(usersQuery, (querySnapshot) => {
+    const unsubscribeUsers = onSnapshot(usersQuery, (querySnapshot) => {
       const users: User[] = [];
       querySnapshot.forEach((doc) => {
         users.push({ id: doc.id, ...(doc.data() as Omit<StoredUser, 'id'>) });
       });
       setAllUsersList(users);
       setIsLoadingUsers(false);
+
+      // If there was a stored user, check if their details (like address) have updated in allUsersList
+      // and update the local user state and localStorage if necessary.
+      if (storedUser) {
+        const latestUserData = users.find(u => u.id === storedUser!.id);
+        if (latestUserData && JSON.stringify(latestUserData) !== JSON.stringify(storedUser)) {
+          setUser(latestUserData);
+          localStorage.setItem(CURRENT_USER_STORAGE_KEY, JSON.stringify(latestUserData));
+        } else if (latestUserData) {
+            setUser(latestUserData); // ensure user state is set if matches
+        } else { // Stored user no longer exists in DB
+            logout();
+        }
+      } else {
+        setUser(null); // No stored user
+      }
+      setIsLoading(false); // Overall loading false after users list and potential stored user sync
     }, (error) => {
       console.error("Error fetching users from Firestore:", error);
       toast({ title: "Error Loading Users", description: error.message, variant: "destructive"});
       setIsLoadingUsers(false);
+      setIsLoading(false);
     });
 
-    return () => unsubscribe(); // Cleanup listener
-
+    return () => {
+      unsubscribeUsers();
+    };
   }, [seedDefaultManager, toast]);
 
 
@@ -147,7 +152,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
     if (role === 'manager') {
-        toast({ title: "Sign Up Error", description: "Manager accounts are pre-configured. Please sign in or contact an admin.", variant: "destructive" });
+        toast({ title: "Sign Up Error", description: "Manager accounts are pre-configured or created by existing managers.", variant: "destructive" });
         return;
     }
 
@@ -162,21 +167,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    const isSupplierOrTransporter = role === 'supplier' || role === 'transporter';
     const isCustomer = role === 'customer';
-    
+    const isSupplierOrTransporter = role === 'supplier' || role === 'transporter';
+
     const newUserFirestoreData: StoredUser = {
       name: username,
       role,
-      mockPassword: mockPasswordNew, // Storing mock password for this demo
-      isApproved: isCustomer, // Customers auto-approved, S/T need approval
+      mockPassword: mockPasswordNew,
+      isApproved: isCustomer, // Customers auto-approved
+      address: '', // Initialize with empty address
     };
 
     try {
       const docRef = await addDoc(usersRef, newUserFirestoreData);
       const newUser: User = { id: docRef.id, ...newUserFirestoreData };
-      
-      if (isCustomer) { // Auto-login customer
+
+      if (isCustomer) {
         setUser(newUser);
         localStorage.setItem(CURRENT_USER_STORAGE_KEY, JSON.stringify(newUser));
         toast({ title: "Sign Up Successful!", description: `Welcome, ${username}! Your ${role} account is active and you are now logged in.` });
@@ -198,11 +204,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     setIsLoading(true);
     const usersRef = collection(db, "users");
-    // Firestore queries are case-sensitive. For case-insensitive, you'd store a normalized field (e.g., lowercase username)
-    // For this mock, we'll assume exact match or handle it by fetching and filtering client-side (less ideal for large datasets)
-    // Here, let's query by exact username for simplicity.
     const q = query(usersRef, where("name", "==", username));
-    
+
     try {
       const querySnapshot = await getDocs(q);
       if (querySnapshot.empty) {
@@ -211,15 +214,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      const userDoc = querySnapshot.docs[0]; // Assuming username is unique
+      const userDoc = querySnapshot.docs[0];
       const userData = userDoc.data() as StoredUser;
 
       if (userData.mockPassword === mockPasswordAttempt) {
-        const loggedInUser: User = { id: userDoc.id, name: userData.name, role: userData.role, isApproved: userData.isApproved };
-        
+        const loggedInUser: User = { id: userDoc.id, name: userData.name, role: userData.role, isApproved: userData.isApproved, address: userData.address || '' };
+
         if ((loggedInUser.role === 'supplier' || loggedInUser.role === 'transporter') && !loggedInUser.isApproved) {
-          toast({ title: "Login Blocked", description: "Your account as a " + loggedInUser.role + " is awaiting manager approval.", variant: "destructive" });
-          setUser(null); 
+          toast({ title: "Login Blocked", description: "Your account as a " + loggedInUser.role + " is awaiting manager approval.", variant: "destructive", duration: 7000 });
+          setUser(null);
           localStorage.removeItem(CURRENT_USER_STORAGE_KEY);
         } else {
           setUser(loggedInUser);
@@ -243,11 +246,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     toast({ title: "Logged Out", description: "You have been successfully logged out." });
   }, [toast]);
 
-  // This is now fulfilled by allUsersList and isLoadingUsers from the onSnapshot listener
-  const getAllUsers = useCallback((): User[] => {
-    return allUsersList;
-  }, [allUsersList]);
-
   const approveUser = useCallback(async (userId: string) => {
     if (user?.role !== 'manager') {
       toast({ title: "Permission Denied", description: "Only managers can approve users.", variant: "destructive" });
@@ -256,7 +254,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const userDocRef = doc(db, "users", userId);
     try {
       await updateDoc(userDocRef, { isApproved: true });
-      // The real-time listener will update allUsersList, triggering UI refresh.
       toast({ title: "User Approved", description: `User has been approved.` });
     } catch (error) {
       console.error("Error approving user: ", error);
@@ -287,14 +284,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       name: newManagerUsername,
       mockPassword: newManagerPassword,
       role: 'manager',
-      isApproved: true, // Managers are auto-approved
+      isApproved: true,
+      address: '1 Admin Way, Suite M, Management City', // Default address for new managers
     };
     try {
-      // Use username as doc ID for new managers created by existing manager for predictability, if desired
-      // Or let Firestore auto-generate ID with addDoc
       const managerDocRef = doc(db, "users", newManagerUsername.toLowerCase());
       await setDoc(managerDocRef, newManagerData);
-      // Real-time listener will update allUsersList
       toast({ title: "Manager Created", description: `Manager account for ${newManagerUsername} created successfully.` });
       return true;
     } catch (error) {
@@ -304,19 +299,47 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [user, toast]);
 
+  const updateUserAddress = useCallback(async (userId: string, address: string): Promise<boolean> => {
+    if (!user || user.id !== userId) {
+        toast({ title: "Permission Denied", description: "You can only update your own address.", variant: "destructive" });
+        return false;
+    }
+    const userDocRef = doc(db, "users", userId);
+    try {
+        await updateDoc(userDocRef, { address: address });
+        // Update local user state as well so UI reflects change immediately
+        setUser(prevUser => prevUser ? { ...prevUser, address: address } : null);
+        // Update localStorage
+        const storedUser = localStorage.getItem(CURRENT_USER_STORAGE_KEY);
+        if (storedUser) {
+            const parsedUser: User = JSON.parse(storedUser);
+            if (parsedUser.id === userId) {
+                parsedUser.address = address;
+                localStorage.setItem(CURRENT_USER_STORAGE_KEY, JSON.stringify(parsedUser));
+            }
+        }
+        toast({ title: "Address Updated", description: "Your address has been successfully updated." });
+        return true;
+    } catch (error) {
+        console.error("Error updating user address:", error);
+        toast({ title: "Update Error", description: "Could not update your address.", variant: "destructive"});
+        return false;
+    }
+  }, [user, toast]);
+
 
   return (
-    <AuthContext.Provider value={{ 
-      user, 
-      login, 
-      signup, 
-      logout, 
-      isLoading, 
-      getAllUsers, // Kept for components that might call it, though allUsersList is preferred for real-time
-      approveUser, 
+    <AuthContext.Provider value={{
+      user,
+      login,
+      signup,
+      logout,
+      isLoading,
+      approveUser,
       addManager,
-      allUsersList, // Provide the real-time list
-      isLoadingUsers // And its loading state
+      updateUserAddress, // Add new function
+      allUsersList,
+      isLoadingUsers
     }}>
       {children}
     </AuthContext.Provider>

@@ -34,8 +34,8 @@ import {
   UserCheck,
   PackagePlus,
   Search,
-  UserCircle, // Added for user profile consistency
-  Route, // Added for Distance Calculator
+  UserCircle, 
+  Route,
 } from 'lucide-react';
 import { useAuth, type UserRole } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
@@ -51,6 +51,7 @@ type NavItem = {
 
 const allNavItems: NavItem[] = [
   { href: '/dashboard', label: 'Overview', icon: LayoutDashboard, roles: ['supplier', 'transporter', 'customer', 'manager'] },
+  { href: '/dashboard/profile', label: 'My Profile', icon: UserCircle, roles: ['supplier', 'customer'] }, // New Profile Link
   // Manager specific
   { href: '/dashboard/user-approvals', label: 'User Approvals', icon: UserCheck, roles: ['manager'] },
   { href: '/dashboard/manage-users', label: 'Manage Users', icon: Users, roles: ['manager'] },
@@ -63,7 +64,7 @@ const allNavItems: NavItem[] = [
   // Transporter specific
   { href: '/dashboard/shipments', label: 'Manage Shipments', icon: Truck, roles: ['transporter'] },
   { href: '/dashboard/delivery-proof', label: 'Proof of Delivery', icon: PackageSearch, roles: ['transporter'] },
-  { href: '/dashboard/distance-calculator', label: 'Distance Calculator', icon: Route, roles: ['transporter'] }, // New item
+  { href: '/dashboard/distance-calculator', label: 'Distance Calculator', icon: Route, roles: ['transporter'] },
   // Customer specific
   { href: '/dashboard/find-products', label: 'Find Products', icon: Search, roles: ['customer'] },
   { href: '/dashboard/my-orders', label: 'My Orders', icon: ClipboardList, roles: ['customer'] },
@@ -159,3 +160,5 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
     </SidebarProvider>
   );
 }
+
+    

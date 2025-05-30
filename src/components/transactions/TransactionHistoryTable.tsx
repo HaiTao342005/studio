@@ -31,8 +31,8 @@ import {
   Timestamp,
   where,
   orderBy,
-  getDoc, // Added for product stock update
-  runTransaction // Added for atomic stock update
+  getDoc,
+  runTransaction
 } from 'firebase/firestore';
 import { useAuth, type User as AuthUser } from '@/contexts/AuthContext';
 
@@ -56,7 +56,7 @@ const getStatusBadgeVariant = (status: OrderStatus): "default" | "secondary" | "
 };
 
 const getFruitIcon = (fruitTypeInput?: string): ElementType<SVGProps<SVGSVGElement>> => {
-  const fruitType = fruitTypeInput || "";
+  const fruitType = fruitTypeInput || ""; // Default to empty string if undefined
   const lowerFruitType = fruitType.toLowerCase();
   if (lowerFruitType.includes('apple')) return AppleIcon;
   if (lowerFruitType.includes('banana')) return BananaIcon;
@@ -96,6 +96,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
         ...order,
         FruitIcon: getFruitIcon(order.productName || (order as any).fruitType),
       }));
+      // Client-side sorting if initialOrders are passed (customer view)
       mappedOrders.sort((a, b) => {
         const dateA = (a.orderDate || (a as any).date) as Timestamp | undefined;
         const dateB = (b.orderDate || (b as any).date) as Timestamp | undefined;
@@ -106,14 +107,14 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
       });
       setOrders(mappedOrders);
       setIsLoading(false);
-      return () => {};
+      return; // No Firestore listener needed if initialOrders are provided
     }
 
     if (!user || !user.id) {
       console.log("[TransactionHistoryTable] No user or user.id, clearing orders and not fetching.");
       setOrders([]);
       setIsLoading(false);
-      return () => {};
+      return;
     }
 
     setIsLoading(true);
@@ -124,19 +125,22 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
 
     if (currentRole === 'supplier') {
       console.log(`[TransactionHistoryTable] User is SUPPLIER. Fetching orders for supplierId: ${user.id}`);
+      // Query for supplier's orders, ordered by date (requires Firestore index)
+      // Link to create index: https://console.firebase.google.com/v1/r/project/newtech-be296/firestore/indexes?create_composite=Ckxwcm9qZWN0cy9uZXd0ZWNoLWJlMjk2L2RhdGFiYXNlcy8oZGVmYXVsdCkvY29sbGVjdGlvbkdyb3Vwcy9vcmRlcnMvaW5kZXhlcy9fEAEaDgoKc3VwcGxpZXJJZBABGg0KCW9yZGVyRGF0ZRACGgwKCF9fbmFtZV9fEAI
       ordersQuery = query(
         collection(db, "orders"),
         where("supplierId", "==", user.id)
-        // orderBy("orderDate", "desc") // Temporarily removed to avoid index error; ensure index is created in Firestore
+        // Temporarily remove orderBy for supplier if index is an issue
+        // orderBy("orderDate", "desc")
       );
     } else if (currentRole === 'manager') {
       console.log(`[TransactionHistoryTable] User is MANAGER. Fetching all orders, ordered by date.`);
       ordersQuery = query(collection(db, "orders"), orderBy("orderDate", "desc"));
     } else {
-      console.warn(`[TransactionHistoryTable] User role is '${currentRole}', not fetching orders directly in this component without initialOrders. This case should not occur if initialOrders are passed for customers.`);
+      console.warn(`[TransactionHistoryTable] User role is '${currentRole}', not fetching orders directly in this component without initialOrders.`);
       setOrders([]);
       setIsLoading(false);
-      return () => {};
+      return;
     }
 
     const unsubscribe = onSnapshot(ordersQuery, (querySnapshot) => {
@@ -152,10 +156,10 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
         fetchedOrders.push(orderWithIcon);
         if (currentRole === 'supplier') {
             console.log("[TransactionHistoryTable] Supplier - Raw order data from Firestore:", docSnapshot.id, data);
-            console.log("[TransactionHistoryTable] Supplier - Order for display:", orderWithIcon);
         }
       });
-      
+
+      // Client-side sorting for supplier if orderBy was removed from query
       if (currentRole === 'supplier') {
         fetchedOrders.sort((a, b) => {
           const dateA = (a.orderDate || (a as any).date) as Timestamp | undefined;
@@ -166,7 +170,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
           return 0;
         });
       }
-
+      
       setOrders(fetchedOrders);
       setIsLoading(false);
       console.log(`[TransactionHistoryTable] Orders updated for role ${currentRole}. Total orders displayed: ${fetchedOrders.length}`);
@@ -275,7 +279,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
       currentEthUsdPrice = FALLBACK_SIMULATED_ETH_USD_PRICE;
     }
     const ethAmount = orderToPay.totalAmount / currentEthUsdPrice;
-    const ethAmountFixed = parseFloat(ethAmount.toFixed(18)); 
+    const ethAmountFixed = parseFloat(ethAmount.toFixed(18));
 
     toast({
       title: "Initiating Payment",
@@ -290,7 +294,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
         return false;
       }
       const fromAccount = accounts[0];
-      const amountInWei = BigInt(Math.floor(ethAmountFixed * 1e18)); 
+      const amountInWei = BigInt(Math.floor(ethAmountFixed * 1e18));
       if (amountInWei <= 0) {
         toast({ title: "Payment Error", description: "Calculated ETH amount is too small or zero. Please check order total and ETH price.", variant: "destructive" });
         setPayingOrderId(null);
@@ -313,8 +317,8 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
         title: "Transaction Submitted to Ganache",
         description: `Tx Hash: ${txHash.substring(0,10)}... Simulating block confirmation.`
       });
-      
-      await new Promise(resolve => setTimeout(resolve, 4000)); 
+
+      await new Promise(resolve => setTimeout(resolve, 4000));
       const orderRef = doc(db, "orders", orderId);
       await updateDoc(orderRef, {
         status: 'Paid' as OrderStatus,
@@ -326,7 +330,6 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
         variant: "default"
       });
 
-      // ---- START: Stock Update Logic ----
       if (orderToPay.productId && orderToPay.quantity > 0) {
         const productRef = doc(db, "products", orderToPay.productId);
         try {
@@ -356,8 +359,6 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
       } else {
         console.warn("[TransactionHistoryTable] Product ID or quantity missing in order, cannot update stock:", orderToPay);
       }
-      // ---- END: Stock Update Logic ----
-
       return true;
     } catch (error: any) {
       console.error("Metamask payment failed:", error);
@@ -370,7 +371,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
     } finally {
       setPayingOrderId(null);
     }
-  }, [orders, toast]); 
+  }, [orders, toast]);
 
   const handleSupplierConfirmOrder = async (orderId: string) => {
     setConfirmingOrderId(orderId);
@@ -388,13 +389,13 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
 
   const handleOpenAssignTransporterDialog = (order: StoredOrder) => {
     setCurrentOrderToAssign(order);
-    setSelectedTransporter(null); 
+    setSelectedTransporter(null);
     setIsAssignTransporterDialogOpen(true);
   };
 
   const handleAssignTransporter = async () => {
-    if (!currentOrderToAssign || !selectedTransporter) {
-      toast({ title: "Error", description: "Please select a transporter.", variant: "destructive" });
+    if (!currentOrderToAssign || !selectedTransporter || !user) {
+      toast({ title: "Error", description: "Please select a transporter or ensure order details are present.", variant: "destructive" });
       return;
     }
     setAssigningTransporterOrderId(currentOrderToAssign.id);
@@ -405,13 +406,42 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
       return;
     }
 
+    // Fetch supplier and customer addresses
+    let supplierAddress = 'N/A';
+    let customerAddress = 'N/A';
+
+    try {
+        const supplierDocRef = doc(db, "users", currentOrderToAssign.supplierId);
+        const supplierDocSnap = await getDoc(supplierDocRef);
+        if (supplierDocSnap.exists() && supplierDocSnap.data().address) {
+            supplierAddress = supplierDocSnap.data().address;
+        } else {
+            console.warn(`Supplier address not found for supplierId: ${currentOrderToAssign.supplierId}`);
+        }
+
+        const customerDocRef = doc(db, "users", currentOrderToAssign.customerId);
+        const customerDocSnap = await getDoc(customerDocRef);
+        if (customerDocSnap.exists() && customerDocSnap.data().address) {
+            customerAddress = customerDocSnap.data().address;
+        } else {
+            console.warn(`Customer address not found for customerId: ${currentOrderToAssign.customerId}`);
+        }
+
+    } catch (addrError) {
+        console.error("Error fetching addresses for order:", addrError);
+        toast({title: "Address Fetch Error", description: "Could not fetch supplier/customer address. Using N/A.", variant: "outline", duration: 6000});
+    }
+
+
     try {
       const orderRef = doc(db, "orders", currentOrderToAssign.id);
       await updateDoc(orderRef, {
         transporterId: selectedTransporter,
         transporterName: transporterUser.name,
-        status: 'Ready for Pickup' as OrderStatus, 
-        shipmentStatus: 'Ready for Pickup' as OrderStatus 
+        status: 'Ready for Pickup' as OrderStatus,
+        shipmentStatus: 'Ready for Pickup' as OrderShipmentStatus,
+        pickupAddress: supplierAddress,
+        deliveryAddress: customerAddress,
       });
       toast({ title: "Transporter Assigned", description: `${transporterUser.name} assigned. Order ready for pickup.` });
       setIsAssignTransporterDialogOpen(false);
@@ -429,8 +459,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
     try {
       const orderRef = doc(db, "orders", orderId);
       await updateDoc(orderRef, { status: 'Receipt Confirmed' as OrderStatus });
-      toast({ title: "Receipt Confirmed", description: "Thank you! If payment is due, please click 'Pay'." });
-      // No automatic payment attempt from here
+      toast({ title: "Receipt Confirmed", description: "Thank you! Please proceed with payment if outstanding." });
     } catch (error) {
       toast({ title: "Error", description: "Could not confirm receipt.", variant: "destructive" });
       console.error("Error confirming receipt:", error);
@@ -443,7 +472,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
     return <div className="flex justify-center items-center py-8"><Loader2 className="h-8 w-8 animate-spin mr-2" /> Loading order history...</div>;
   }
 
-  if (orders.length === 0 && !isLoading) { 
+  if (orders.length === 0 && !isLoading) {
     return <p className="text-center text-muted-foreground py-8">No orders recorded yet.</p>;
   }
 
@@ -499,7 +528,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
                 {isCustomerView && order.shipmentStatus === 'Delivered' && order.status !== 'Paid' && order.status !== 'Receipt Confirmed' && (
                   <Button
                     variant="outline" size="sm" onClick={() => handleCustomerConfirmReceipt(order.id)}
-                    disabled={confirmingReceiptOrderId === order.id} className="h-8 px-2" title="Confirm Receipt"
+                    disabled={confirmingReceiptOrderId === order.id || !!confirmingReceiptOrderId} className="h-8 px-2" title="Confirm Receipt"
                   >
                     {confirmingReceiptOrderId === order.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckSquare className="h-4 w-4" />}
                     <span className="ml-1">Confirm Receipt</span>
@@ -509,7 +538,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
                 {!isCustomerView && user?.role === 'supplier' && order.status === 'Awaiting Supplier Confirmation' && (
                   <Button
                     variant="outline" size="sm" onClick={() => handleSupplierConfirmOrder(order.id)}
-                    disabled={confirmingOrderId === order.id} className="h-8 px-2 text-green-600 border-green-600 hover:text-green-700" title="Confirm Order"
+                    disabled={confirmingOrderId === order.id || !!confirmingOrderId} className="h-8 px-2 text-green-600 border-green-600 hover:text-green-700" title="Confirm Order"
                   >
                     {confirmingOrderId === order.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <ThumbsUp className="h-4 w-4" />}
                     <span className="ml-1">Confirm Order</span>
@@ -518,7 +547,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
                 {!isCustomerView && user?.role === 'supplier' && order.status === 'Awaiting Transporter Assignment' && (
                   <Button
                     variant="outline" size="sm" onClick={() => handleOpenAssignTransporterDialog(order)}
-                    disabled={assigningTransporterOrderId === order.id} className="h-8 px-2 text-blue-600 border-blue-600 hover:text-blue-700" title="Assign Transporter"
+                    disabled={assigningTransporterOrderId === order.id || !!assigningTransporterOrderId} className="h-8 px-2 text-blue-600 border-blue-600 hover:text-blue-700" title="Assign Transporter"
                   >
                     {assigningTransporterOrderId === order.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Truck className="h-4 w-4" />}
                     <span className="ml-1">Assign Transporter</span>
@@ -582,7 +611,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
             <Button
               type="button"
               onClick={handleAssignTransporter}
-              disabled={!selectedTransporter || assigningTransporterOrderId === currentOrderToAssign.id}
+              disabled={!selectedTransporter || assigningTransporterOrderId === currentOrderToAssign.id || !!assigningTransporterOrderId}
             >
               {assigningTransporterOrderId === currentOrderToAssign.id && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Assign
@@ -595,3 +624,4 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
   );
 }
 
+    

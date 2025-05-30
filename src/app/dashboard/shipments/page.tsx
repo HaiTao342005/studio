@@ -9,12 +9,14 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { StoredOrder, OrderShipmentStatus, OrderStatus } from '@/types/transaction';
 import { db } from '@/lib/firebase/config';
-import { collection, onSnapshot, query, where, doc, updateDoc, Timestamp } from 'firebase/firestore'; // Removed orderBy
+import { collection, onSnapshot, query, where, doc, updateDoc, Timestamp } from 'firebase/firestore';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
-import { Truck, ListFilter, MapPin, Loader2, Info, PackageCheck } from 'lucide-react';
+import { Truck, MapPin, Loader2, Info, PackageCheck, RouteIcon } from 'lucide-react'; // Added RouteIcon
 import { format } from 'date-fns';
 import { Badge } from '@/components/ui/badge';
+import { calculateDistance, type CalculateDistanceOutput } from '@/ai/flows/calculate-distance-flow'; // Import the flow
+
 
 const shipmentStatuses: OrderShipmentStatus[] = ['Ready for Pickup', 'In Transit', 'Out for Delivery', 'Delivered', 'Delivery Failed', 'Shipment Cancelled'];
 
@@ -23,30 +25,45 @@ interface ManageShipmentsPageProps {
   searchParams: { [key: string]: string | string[] | undefined };
 }
 
-// Helper function to determine badge variant based on status
-const getStatusBadgeVariant = (status: OrderStatus): "default" | "secondary" | "destructive" | "outline" => {
+const getStatusBadgeVariant = (status: OrderStatus | OrderShipmentStatus): "default" | "secondary" | "destructive" | "outline" => {
   switch (status) {
-    case 'Paid': return 'default';
-    case 'Delivered': return 'default';
-    case 'Receipt Confirmed': return 'default';
-    case 'Shipped': return 'secondary';
-    case 'Ready for Pickup': return 'secondary';
-    case 'Awaiting Supplier Confirmation': return 'outline';
-    case 'Awaiting Transporter Assignment': return 'outline';
-    case 'Awaiting Payment': return 'outline';
-    case 'Pending': return 'outline';
-    case 'Cancelled': return 'destructive';
+    case 'Paid': case 'Delivered': case 'Receipt Confirmed': return 'default';
+    case 'Shipped': case 'Ready for Pickup': case 'In Transit': case 'Out for Delivery': return 'secondary';
+    case 'Awaiting Supplier Confirmation': case 'Awaiting Transporter Assignment': case 'Awaiting Payment': case 'Pending': return 'outline';
+    case 'Cancelled': case 'Delivery Failed': case 'Shipment Cancelled': return 'destructive';
     default: return 'secondary';
   }
 };
 
+interface ShipmentWithDistance extends StoredOrder {
+    distanceInfo?: CalculateDistanceOutput | null;
+    isLoadingDistance?: boolean;
+}
+
 
 export default function ManageShipmentsPage({ params, searchParams }: ManageShipmentsPageProps) {
-  const { user, allUsersList } = useAuth();
+  const { user } = useAuth();
   const { toast } = useToast();
-  const [assignedShipments, setAssignedShipments] = useState<StoredOrder[]>([]);
+  const [assignedShipments, setAssignedShipments] = useState<ShipmentWithDistance[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [updatingShipmentId, setUpdatingShipmentId] = useState<string | null>(null);
+
+  const fetchDistanceForShipment = useCallback(async (shipment: StoredOrder): Promise<ShipmentWithDistance> => {
+    if (shipment.pickupAddress && shipment.deliveryAddress && shipment.pickupAddress !== 'N/A' && shipment.deliveryAddress !== 'N/A') {
+      try {
+        const distanceResult = await calculateDistance({
+          originAddress: shipment.pickupAddress,
+          destinationAddress: shipment.deliveryAddress,
+        });
+        return { ...shipment, distanceInfo: distanceResult, isLoadingDistance: false };
+      } catch (error) {
+        console.error(`Error calculating distance for order ${shipment.id}:`, error);
+        return { ...shipment, distanceInfo: { distanceText: 'Error', durationText: 'Error', note: 'Failed to calculate distance.' }, isLoadingDistance: false };
+      }
+    }
+    return { ...shipment, isLoadingDistance: false };
+  }, []);
+
 
   useEffect(() => {
     if (!user || user.role !== 'transporter') {
@@ -56,32 +73,34 @@ export default function ManageShipmentsPage({ params, searchParams }: ManageShip
     }
 
     setIsLoading(true);
-    // Transporters should see orders assigned to them and ready for action
     const q = query(
       collection(db, "orders"),
       where("transporterId", "==", user.id),
       where("status", "in", ['Ready for Pickup', 'Shipped', 'Delivered'])
-      // Removed orderBy("orderDate", "desc") due to missing index. Client-side sorting will be applied.
+      // Firestore index needed for this query if also ordering by orderDate:
+      // transporterId ASC, status ASC, orderDate DESC
+      // Link: https://console.firebase.google.com/v1/r/project/newtech-be296/firestore/indexes?create_composite=Ckxwcm9qZWN0cy9uZXd0ZWNoLWJlMjk2L2RhdGFiYXNlcy8oZGVmYXVsdCkvY29sbGVjdGlvbkdyb3Vwcy9vcmRlcnMvaW5kZXhlcy9fEAEaEQoNdHJhbnNwb3J0ZXJJZBABGgoKBnN0YXR1cxABGg0KCW9yZGVyRGF0ZRACGgwKCF9fbmFtZV9fEAI
     );
 
-    const unsubscribe = onSnapshot(q, (querySnapshot) => {
-      const fetchedOrders: StoredOrder[] = [];
+    const unsubscribe = onSnapshot(q, async (querySnapshot) => {
+      const fetchedOrdersData: StoredOrder[] = [];
       querySnapshot.forEach((orderDoc) => {
-        const orderData = { id: orderDoc.id, ...orderDoc.data() } as StoredOrder;
-        if (orderData.shipmentStatus !== 'Shipment Cancelled' || orderData.status !== 'Awaiting Transporter Assignment') {
-             fetchedOrders.push(orderData);
-        }
+        fetchedOrdersData.push({ id: orderDoc.id, ...orderDoc.data() } as StoredOrder);
       });
-      // Client-side sorting
-      fetchedOrders.sort((a, b) => {
+      
+      fetchedOrdersData.sort((a, b) => {
         const dateA = (a.orderDate || (a as any).date) as Timestamp | undefined;
         const dateB = (b.orderDate || (b as any).date) as Timestamp | undefined;
-        if (dateA && dateB) {
-          return dateB.toMillis() - dateA.toMillis();
-        }
-        return 0;
+        return (dateB?.toMillis() || 0) - (dateA?.toMillis() || 0);
       });
-      setAssignedShipments(fetchedOrders);
+      
+      // Fetch distances for all shipments
+      const shipmentsWithDistancePromises = fetchedOrdersData.map(order => 
+        fetchDistanceForShipment(order)
+      );
+      const shipmentsWithDistances = await Promise.all(shipmentsWithDistancePromises);
+
+      setAssignedShipments(shipmentsWithDistances);
       setIsLoading(false);
     }, (error) => {
       console.error("Error fetching shipments:", error);
@@ -90,33 +109,34 @@ export default function ManageShipmentsPage({ params, searchParams }: ManageShip
     });
 
     return () => unsubscribe();
-  }, [user, toast]);
+  }, [user, toast, fetchDistanceForShipment]);
 
   const handleStatusUpdate = async (orderId: string, newStatus: OrderShipmentStatus) => {
     if (!user || user.role !== 'transporter') return;
     setUpdatingShipmentId(orderId);
     const orderRef = doc(db, "orders", orderId);
-    
+
     try {
-      let updateData: Partial<StoredOrder> = {
-        shipmentStatus: newStatus,
-      };
+      let updateData: Partial<StoredOrder> = { shipmentStatus: newStatus };
 
       if (newStatus === 'Shipment Cancelled') {
         updateData = {
           ...updateData,
           status: 'Awaiting Transporter Assignment',
-          transporterId: null, // Explicitly set to null
-          transporterName: null, // Explicitly set to null
+          transporterId: null,
+          transporterName: null,
         };
         toast({ title: "Shipment Cancelled", description: `Order ${orderId} is now awaiting re-assignment by the supplier.` });
       } else if (newStatus === 'Delivered') {
-        // Do not change main 'status' here. Customer 'Confirm Receipt' will handle payment & final status.
+        updateData.status = 'Delivered'; // Main status update for customer to confirm
         toast({ title: "Success", description: `Shipment status updated to ${newStatus}. Customer will be prompted to confirm receipt.` });
+      } else if (newStatus === 'In Transit' || newStatus === 'Out for Delivery' || newStatus === 'Ready for Pickup') {
+        updateData.status = 'Shipped'; // Main order status
+        toast({ title: "Success", description: `Shipment status updated to ${newStatus}.` });
       } else {
          toast({ title: "Success", description: `Shipment status updated to ${newStatus}.` });
       }
-      
+
       await updateDoc(orderRef, updateData);
 
     } catch (error) {
@@ -126,7 +146,7 @@ export default function ManageShipmentsPage({ params, searchParams }: ManageShip
       setUpdatingShipmentId(null);
     }
   };
-  
+
   if (isLoading) {
     return (
       <>
@@ -150,7 +170,7 @@ export default function ManageShipmentsPage({ params, searchParams }: ManageShip
               Your Shipment Assignments
             </CardTitle>
             <CardDescription>
-              View and update the status of your assigned shipments.
+              View, update status, and see estimated travel for your assigned shipments.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -170,9 +190,11 @@ export default function ManageShipmentsPage({ params, searchParams }: ManageShip
                       <TableHead>Order Date</TableHead>
                       <TableHead>Product</TableHead>
                       <TableHead>Customer</TableHead>
-                      <TableHead>Current Main Status</TableHead>
-                      <TableHead>Current Shipment Status</TableHead>
-                      <TableHead className="w-[250px]">Update Shipment Status</TableHead>
+                      <TableHead>Pickup Address</TableHead>
+                      <TableHead>Delivery Address</TableHead>
+                      <TableHead>Est. Distance/Time</TableHead>
+                      <TableHead>Shipment Status</TableHead>
+                      <TableHead className="w-[200px]">Update Status</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -181,27 +203,32 @@ export default function ManageShipmentsPage({ params, searchParams }: ManageShip
                       return (
                         <TableRow key={shipment.id}>
                           <TableCell>
-                            { displayDate ? 
-                              format((displayDate as Timestamp).toDate(), "MMM d, yyyy") : 
-                              'N/A' 
+                            { displayDate ?
+                              format((displayDate as Timestamp).toDate(), "MMM d, yyyy") :
+                              'N/A'
                             }
                           </TableCell>
                           <TableCell>{shipment.productName || (shipment as any).fruitType || 'N/A'}</TableCell>
                           <TableCell>{shipment.customerName}</TableCell>
-                          <TableCell>
-                             <Badge variant={getStatusBadgeVariant(shipment.status)}>{shipment.status}</Badge>
+                          <TableCell className="text-xs max-w-xs truncate" title={shipment.pickupAddress || 'N/A'}>{shipment.pickupAddress || 'N/A'}</TableCell>
+                          <TableCell className="text-xs max-w-xs truncate" title={shipment.deliveryAddress || 'N/A'}>{shipment.deliveryAddress || 'N/A'}</TableCell>
+                          <TableCell className="text-xs">
+                            {shipment.isLoadingDistance ? <Loader2 className="h-4 w-4 animate-spin" /> :
+                             shipment.distanceInfo ? (
+                                <div>
+                                    <p>{shipment.distanceInfo.distanceText}</p>
+                                    <p>{shipment.distanceInfo.durationText}</p>
+                                    {shipment.distanceInfo.note && <p className="text-muted-foreground italic">({shipment.distanceInfo.note.includes("AI estimation") ? "AI Est." : shipment.distanceInfo.note})</p>}
+                                </div>
+                             ) : (
+                                <span className="text-muted-foreground">N/A</span>
+                             )
+                            }
                           </TableCell>
                           <TableCell>
-                            <span className={`px-2 py-1 text-xs rounded-full ${
-                              shipment.shipmentStatus === 'Delivered' ? 'bg-green-100 text-green-700 dark:bg-green-700 dark:text-green-100' :
-                              shipment.shipmentStatus === 'In Transit' ? 'bg-blue-100 text-blue-700 dark:bg-blue-700 dark:text-blue-100' :
-                              shipment.shipmentStatus === 'Out for Delivery' ? 'bg-blue-100 text-blue-700 dark:bg-blue-700 dark:text-blue-100' :
-                              shipment.shipmentStatus === 'Ready for Pickup' ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-600 dark:text-yellow-100' :
-                              shipment.shipmentStatus === 'Shipment Cancelled' ? 'bg-red-100 text-red-700 dark:bg-red-700 dark:text-red-100' :
-                              'bg-muted text-muted-foreground'
-                            }`}>
-                              {shipment.shipmentStatus || 'Awaiting Action'}
-                            </span>
+                            <Badge variant={getStatusBadgeVariant(shipment.shipmentStatus || shipment.status)} className="whitespace-nowrap">
+                              {shipment.shipmentStatus || shipment.status || 'Awaiting Action'}
+                            </Badge>
                           </TableCell>
                           <TableCell>
                             <div className="flex items-center gap-2">
@@ -210,12 +237,12 @@ export default function ManageShipmentsPage({ params, searchParams }: ManageShip
                                 onValueChange={(value) => handleStatusUpdate(shipment.id, value as OrderShipmentStatus)}
                                 disabled={updatingShipmentId === shipment.id || shipment.shipmentStatus === 'Delivered' || shipment.shipmentStatus === 'Shipment Cancelled'}
                               >
-                                <SelectTrigger className="w-[180px] h-9">
+                                <SelectTrigger className="w-[180px] h-9 text-xs">
                                   <SelectValue placeholder="Select status" />
                                 </SelectTrigger>
                                 <SelectContent>
                                   {shipmentStatuses.map(status => (
-                                    <SelectItem key={status} value={status} 
+                                    <SelectItem key={status} value={status}
                                       disabled={(shipment.shipmentStatus === 'Delivered' && status !== 'Delivered') || (shipment.shipmentStatus === 'Shipment Cancelled' && status !== 'Shipment Cancelled')}
                                     >
                                       {status}
@@ -239,6 +266,5 @@ export default function ManageShipmentsPage({ params, searchParams }: ManageShip
     </>
   );
 }
-
 
     
