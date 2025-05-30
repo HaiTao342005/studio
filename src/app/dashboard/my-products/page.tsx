@@ -9,7 +9,7 @@ import { Header } from "@/components/dashboard/Header";
 import { ProductForm } from "@/components/products/ProductForm";
 import { useAuth } from '@/contexts/AuthContext';
 import { db } from '@/lib/firebase/config';
-import { collection, query, where, onSnapshot, doc, deleteDoc, Timestamp, getDoc } from 'firebase/firestore'; // Added getDoc
+import { collection, query, where, onSnapshot, doc, deleteDoc, Timestamp, getDoc } from 'firebase/firestore';
 import type { Product as ProductType, StoredProduct } from '@/types/product';
 import { PackagePlus, Trash2, Loader2, Info, ImageOff, Edit3, Package, CalendarDays, Home, Landmark, AlertCircle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
@@ -191,6 +191,15 @@ export default function MyProductsPage({ params, searchParams }: MyProductsPageP
   };
 
   const handleOpenAddProductForm = () => {
+    if (!user?.address) {
+      toast({
+        title: "Address Required",
+        description: "Please update your address in your profile before adding new products. This address will be used as the pickup location.",
+        variant: "destructive",
+        duration: 7000,
+      });
+      return;
+    }
     setEditingProduct(null); 
     setIsFormOpen(true);
   };
@@ -213,7 +222,7 @@ export default function MyProductsPage({ params, searchParams }: MyProductsPageP
           <CardHeader className="flex flex-row items-center p-6">
             <div className="flex-grow">
               <CardTitle>Manage Your Products</CardTitle>
-              <CardDescription>Add new products you offer or manage existing ones.</CardDescription>
+              <CardDescription>Add new products you offer or manage existing ones. Ensure your profile address is up-to-date for pickup locations.</CardDescription>
             </div>
             <Button onClick={handleOpenAddProductForm} className="ml-4">
               <PackagePlus className="mr-2 h-5 w-5" /> Add New Product
@@ -266,3 +275,4 @@ export default function MyProductsPage({ params, searchParams }: MyProductsPageP
     </>
   );
 }
+

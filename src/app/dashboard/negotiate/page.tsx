@@ -9,7 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'; 
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"; 
 import { useToast } from '@/hooks/use-toast';
 import { useAuth, type User as AuthUser } from '@/contexts/AuthContext';
 import type { Product as ProductType, StoredProduct } from '@/types/product';
@@ -89,14 +89,13 @@ function NegotiationPageContent({ productId, supplierId }: NegotiationPageConten
           console.error("[NegotiatePage] Supplier not found in allUsersList with id:", supplierId);
         }
         
-        if (fetchedProduct && fetchedProduct.producedArea && customer?.name) {
+        if (fetchedProduct && fetchedProduct.producedArea && customer?.address) { // Use customer.address for destination
           setIsLoadingDistance(true);
           setDistanceError(null);
-          const placeholderDestination = `${customer.name}'s General Area (for AI estimation)`; 
           try {
             const distanceResult = await calculateDistance({ 
               originAddress: fetchedProduct.producedArea, 
-              destinationAddress: placeholderDestination
+              destinationAddress: customer.address // Use actual customer address
             });
             setShippingDistanceResult(distanceResult);
             if (distanceResult.note && distanceResult.note.toLowerCase().includes('failed')) {
@@ -110,7 +109,11 @@ function NegotiationPageContent({ productId, supplierId }: NegotiationPageConten
           } finally {
             setIsLoadingDistance(false);
           }
+        } else if (fetchedProduct && !customer?.address) {
+             setDistanceError("Customer address not set. Please update your profile.");
+             setIsLoadingDistance(false);
         }
+
 
       } catch (err) {
         console.error("[NegotiatePage] Error fetching data:", err);
@@ -139,6 +142,18 @@ function NegotiationPageContent({ productId, supplierId }: NegotiationPageConten
 
   const handleMakeOrder = async () => {
     console.log("[NegotiatePage] handleMakeOrder called");
+
+    if (!customer?.address) {
+      toast({
+        title: "Delivery Address Required",
+        description: "Please update your address in your profile before placing an order.",
+        variant: "destructive",
+        duration: 7000,
+      });
+      setIsSubmittingOrder(false);
+      return;
+    }
+
     console.log("[NegotiatePage] Product:", product);
     console.log("[NegotiatePage] Supplier:", supplier);
     console.log("[NegotiatePage] Customer:", customer);
@@ -175,9 +190,10 @@ function NegotiationPageContent({ productId, supplierId }: NegotiationPageConten
         totalAmount: totalPrice,
         currency: 'USD', 
         unit: product.unit,
-        status: 'Awaiting Supplier Confirmation' as OrderStatus,
+        status: 'Awaiting Supplier Confirmation' as OrderStatus, // Initial status
         orderDate: serverTimestamp(),
-        podSubmitted: false, 
+        podSubmitted: false,
+        // shipmentStatus will be omitted initially
       };
       console.log("[NegotiatePage] OrderData to be sent to Firestore:", orderData);
       console.log("[NegotiatePage] Saving order with supplierId:", orderData.supplierId, "and customerId:", orderData.customerId);
@@ -196,6 +212,7 @@ function NegotiationPageContent({ productId, supplierId }: NegotiationPageConten
   };
 
   const isOutOfStock = product?.stockQuantity !== undefined && product.stockQuantity <= 0;
+  const customerAddressMissing = !customer?.address;
 
   if (isLoadingData || isLoadingAuth) {
     return (
@@ -312,15 +329,15 @@ function NegotiationPageContent({ productId, supplierId }: NegotiationPageConten
                 )}
                 {!isLoadingDistance && !distanceError && shippingDistanceResult && (
                     <div className="text-sm space-y-1">
-                        <p>From: <span className="font-medium">{product.producedArea}</span></p>
-                        <p>To: <span className="font-medium">{customer.name}'s General Area (for AI estimation)</span></p>
+                        <p>From: <span className="font-medium">{product.producedArea || 'N/A'}</span></p>
+                        <p>To: <span className="font-medium">{customer.address || 'Customer Address Not Set'}</span></p>
                         <p>Est. Distance: <span className="font-semibold text-primary">{shippingDistanceResult.distanceText}</span></p>
                         <p>Est. Duration: <span className="font-semibold text-primary">{shippingDistanceResult.durationText}</span></p>
                         {shippingDistanceResult.note && <p className="text-xs text-muted-foreground mt-2 italic">{shippingDistanceResult.note}</p>}
                     </div>
                 )}
                 {!isLoadingDistance && !distanceError && !shippingDistanceResult && !isLoadingData && (
-                    <p className="text-sm text-muted-foreground">Could not estimate shipping distance at this time or no origin address provided.</p>
+                    <p className="text-sm text-muted-foreground">Could not estimate shipping distance at this time or required addresses not provided.</p>
                 )}
             </CardContent>
         </Card>
@@ -329,7 +346,7 @@ function NegotiationPageContent({ productId, supplierId }: NegotiationPageConten
         <Card className="shadow-md">
           <CardHeader>
             <CardTitle>Your Offer</CardTitle>
-            <CardDescription>Specify the quantity you wish to purchase.</CardDescription>
+            <CardDescription>Specify the quantity you wish to purchase. Please ensure your delivery address is updated in your profile.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             {isOutOfStock && (
@@ -338,6 +355,16 @@ function NegotiationPageContent({ productId, supplierId }: NegotiationPageConten
                     <AlertTitle>Out of Stock</AlertTitle>
                     <AlertDescription>This product is currently out of stock and cannot be ordered.</AlertDescription>
                 </Alert>
+            )}
+             {customerAddressMissing && !isOutOfStock && (
+              <Alert variant="outline" className="mb-4 border-yellow-500 text-yellow-700">
+                <Info className="h-4 w-4" />
+                <AlertTitle>Address Required for Ordering</AlertTitle>
+                <AlertDescription>
+                  Please update your delivery address in your profile before you can place an order.
+                  <Button variant="link" onClick={() => router.push('/dashboard/profile')} className="p-0 h-auto ml-1 text-yellow-700 hover:text-yellow-800">Go to Profile</Button>
+                </AlertDescription>
+              </Alert>
             )}
             <div>
               <Label htmlFor="desiredQuantity" className="text-base">Desired Quantity ({product.unit}{product.unit !== 'item' ? 's' : ''})</Label>
@@ -349,7 +376,7 @@ function NegotiationPageContent({ productId, supplierId }: NegotiationPageConten
                 value={desiredQuantity}
                 onChange={(e) => setDesiredQuantity(Math.max(1, parseInt(e.target.value, 10) || 1))}
                 className="mt-1 text-lg p-2"
-                disabled={isOutOfStock}
+                disabled={isOutOfStock || customerAddressMissing}
               />
               {!isOutOfStock && desiredQuantity > (product.stockQuantity ?? 0) && (
                 <p className="text-sm text-destructive mt-1">Requested quantity exceeds available stock ({product.stockQuantity ?? 0}).</p>
@@ -371,7 +398,13 @@ function NegotiationPageContent({ productId, supplierId }: NegotiationPageConten
             </Button>
             <Button
               onClick={handleMakeOrder}
-              disabled={isSubmittingOrder || desiredQuantity <= 0 || desiredQuantity > (product.stockQuantity ?? 0) || isOutOfStock}
+              disabled={
+                isSubmittingOrder || 
+                desiredQuantity <= 0 || 
+                desiredQuantity > (product.stockQuantity ?? 0) || 
+                isOutOfStock ||
+                customerAddressMissing
+              }
               className="w-full sm:w-auto"
             >
               {isSubmittingOrder ? (
@@ -379,7 +412,7 @@ function NegotiationPageContent({ productId, supplierId }: NegotiationPageConten
               ) : (
                 <CheckCircle className="mr-2 h-4 w-4" />
               )}
-              {isOutOfStock ? 'Out of Stock' : 'Make Order'}
+              {isOutOfStock ? 'Out of Stock' : customerAddressMissing ? 'Update Profile to Order' : 'Make Order'}
             </Button>
           </CardFooter>
         </Card>
@@ -431,3 +464,4 @@ const generateAiHint = (name: string, category?: string): string => {
   const nameWords = name.split(' ').map(word => word.toLowerCase().replace(/[^a-z0-9]/gi, '')).filter(Boolean);
   return nameWords.slice(0, 2).join(' ');
 };
+
