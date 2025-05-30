@@ -142,20 +142,20 @@ export default function MyProductsPage({ params, searchParams }: MyProductsPageP
   }, [user, toast]);
 
   const handleDeleteProduct = async (productId: string) => {
-    console.log("handleDeleteProduct called with productId:", productId);
+    console.log("[MyProductsPage] handleDeleteProduct called with productId:", productId);
     if (!confirm("Are you sure you want to delete this product? This action cannot be undone.")) {
-      console.log("Deletion cancelled by user.");
+      console.log("[MyProductsPage] Deletion cancelled by user.");
       return;
     }
     
-    console.log("User confirmed deletion for productId:", productId);
+    console.log("[MyProductsPage] User confirmed deletion for productId:", productId);
     try {
-      console.log("Attempting to delete product from Firestore:", productId);
+      console.log("[MyProductsPage] Attempting to delete product from Firestore:", productId);
       await deleteDoc(doc(db, "products", productId));
-      console.log("Product successfully deleted from Firestore:", productId);
+      console.log("[MyProductsPage] Product successfully deleted from Firestore:", productId);
       toast({ title: "Product Deleted", description: "The product has been removed from your listings." });
     } catch (error) {
-      console.error("Error deleting product from Firestore:", error);
+      console.error("[MyProductsPage] Error deleting product from Firestore:", error);
       toast({ title: "Error Deleting Product", description: `Could not delete product. ${error instanceof Error ? error.message : 'Unknown error'}`, variant: "destructive" });
     }
   };
@@ -222,7 +222,7 @@ export default function MyProductsPage({ params, searchParams }: MyProductsPageP
           setIsFormOpen(isOpen);
           if (!isOpen) setEditingProduct(null); 
         }}>
-          <DialogContent className="sm:max-w-2xl">
+          <DialogContent className="sm:max-w-xl md:max-w-2xl lg:max-w-3xl">
             <DialogHeader>
               <DialogTitle>{editingProduct ? 'Edit Product' : 'Add a New Product'}</DialogTitle>
             </DialogHeader>
@@ -236,3 +236,4 @@ export default function MyProductsPage({ params, searchParams }: MyProductsPageP
     </>
   );
 }
+
