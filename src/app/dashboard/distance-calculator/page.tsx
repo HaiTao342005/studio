@@ -9,7 +9,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { calculateDistance, type CalculateDistanceOutput, type CalculateDistanceInput } from '@/ai/flows/calculate-distance-flow';
-import { Loader2, MapPin, Route } from 'lucide-react';
+import { Loader2, MapPin, Route, Info } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 interface DistanceCalculatorPageProps {
   params: {};
@@ -39,8 +41,14 @@ export default function DistanceCalculatorPage({ params, searchParams }: Distanc
       const input: CalculateDistanceInput = { originAddress, destinationAddress };
       const distanceResult = await calculateDistance(input);
       setResult(distanceResult);
-      if (distanceResult.note) {
-        toast({ title: "Calculation Note", description: distanceResult.note, duration: 7000 });
+      if (distanceResult.note && (distanceResult.note.toLowerCase().includes('simulated') || distanceResult.note.toLowerCase().includes('error') || distanceResult.note.toLowerCase().includes('failed'))) {
+        // Display notes about simulation or specific API errors prominently as a toast
+        toast({
+          title: distanceResult.note.toLowerCase().includes('error') || distanceResult.note.toLowerCase().includes('failed') ? "Calculation Error" : "Calculation Note",
+          description: distanceResult.note,
+          duration: 8000,
+          variant: distanceResult.note.toLowerCase().includes('error') || distanceResult.note.toLowerCase().includes('failed') ? "destructive" : "default",
+        });
       }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : "An unknown error occurred.";
@@ -51,6 +59,10 @@ export default function DistanceCalculatorPage({ params, searchParams }: Distanc
       setIsLoading(false);
     }
   };
+
+  const isSimulated = result?.note?.toLowerCase().includes('simulated') || 
+                      result?.distanceText?.toLowerCase().includes('(simulated)') || 
+                      result?.durationText?.toLowerCase().includes('(simulated)');
 
   return (
     <>
@@ -64,7 +76,7 @@ export default function DistanceCalculatorPage({ params, searchParams }: Distanc
             </CardTitle>
             <CardDescription>
               Enter pickup and customer addresses to estimate travel distance and duration.
-              This tool uses a simulated calculation if the Google Maps API key is not configured.
+              <span className="font-semibold text-primary"> For real-time calculations, ensure your Google Maps API key is correctly configured in the application's environment variables and that the necessary Google Cloud APIs (Geocoding & Distance Matrix) are enabled with billing active.</span> Otherwise, a simulation will be used.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -100,25 +112,37 @@ export default function DistanceCalculatorPage({ params, searchParams }: Distanc
         {result && (
           <Card className="shadow-md">
             <CardHeader>
-              <CardTitle>Calculation Result</CardTitle>
+              <CardTitle className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <MapPin className="h-5 w-5 text-primary" />
+                  Calculation Result
+                </div>
+                {isSimulated ? (
+                  <Badge variant="outline" className="text-orange-600 border-orange-400">Simulated Data</Badge>
+                ) : (
+                  <Badge variant="default" className="bg-green-500 hover:bg-green-600 text-white">Real Data</Badge>
+                )}
+              </CardTitle>
             </CardHeader>
             <CardContent className="space-y-2 text-sm">
               <p>
-                <MapPin className="inline-block mr-2 h-4 w-4 text-primary/70" />
-                <strong>From:</strong> {originAddress}
+                <span className="font-medium">From:</span> {originAddress}
               </p>
               <p>
-                <MapPin className="inline-block mr-2 h-4 w-4 text-primary/70" />
-                <strong>To:</strong> {destinationAddress}
+                <span className="font-medium">To:</span> {destinationAddress}
               </p>
-              <p className="text-lg font-semibold">
-                Distance: <span className="text-primary">{result.distanceText}</span>
+              <p className="text-lg">
+                <strong>Distance:</strong> <span className="font-semibold text-primary">{result.distanceText}</span>
               </p>
-              <p className="text-lg font-semibold">
-                Est. Duration: <span className="text-primary">{result.durationText}</span>
+              <p className="text-lg">
+                <strong>Est. Duration:</strong> <span className="font-semibold text-primary">{result.durationText}</span>
               </p>
               {result.note && (
-                <p className="text-xs text-muted-foreground italic mt-2">{result.note}</p>
+                <Alert className={`mt-4 ${result.note.toLowerCase().includes('error') || result.note.toLowerCase().includes('failed') ? 'border-destructive text-destructive dark:text-destructive-foreground' : 'border-orange-400 text-orange-700 dark:text-orange-300'}`}>
+                  <Info className="h-4 w-4" />
+                  <AlertTitle>{result.note.toLowerCase().includes('error') || result.note.toLowerCase().includes('failed') ? 'Error Note' : 'Calculation Info'}</AlertTitle>
+                  <AlertDescription>{result.note}</AlertDescription>
+                </Alert>
               )}
             </CardContent>
           </Card>
