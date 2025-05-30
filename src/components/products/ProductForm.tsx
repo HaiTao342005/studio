@@ -19,7 +19,7 @@ import { useToast } from "@/hooks/use-toast";
 import { db } from '@/lib/firebase/config';
 import { collection, addDoc, doc, updateDoc, serverTimestamp, Timestamp } from 'firebase/firestore';
 import { useAuth } from '@/contexts/AuthContext';
-import type { ProductUnit, Product, ProductFormData } from '@/types/product';
+import type { ProductUnit, Product, ProductFormData, StoredProduct } from '@/types/product';
 
 const productUnits: [ProductUnit, ...ProductUnit[]] = ['kg', 'box', 'pallet', 'item'];
 
@@ -45,6 +45,7 @@ interface ProductFormProps {
 export function ProductForm({ productToEdit, onFormSubmitSuccess }: ProductFormProps) {
   const { toast } = useToast();
   const { user } = useAuth();
+  const isEditing = !!productToEdit;
 
   const form = useForm<ProductFormData>({
     resolver: zodResolver(productSchema),
@@ -103,46 +104,63 @@ export function ProductForm({ productToEdit, onFormSubmitSuccess }: ProductFormP
       return;
     }
 
-    const productDataForFirestore = {
-      supplierId: user.id,
-      name: data.name,
-      description: data.description,
-      price: data.price,
-      unit: data.unit,
-      stockQuantity: data.stockQuantity ?? 0,
-      category: data.category || '',
-      imageUrl: data.imageUrl || `https://placehold.co/300x200.png?text=${encodeURIComponent(data.name)}`,
-      producedDate: Timestamp.fromDate(data.producedDate),
-      producedArea: data.producedArea,
-      producedByOrganization: data.producedByOrganization,
-      updatedAt: serverTimestamp(),
-    };
-
     try {
-      if (productToEdit && productToEdit.id) {
+      if (isEditing && productToEdit && productToEdit.id) {
+        // UPDATING existing product
         const productRef = doc(db, "products", productToEdit.id);
-        await updateDoc(productRef, productDataForFirestore);
+        const updatePayload: Partial<Omit<StoredProduct, 'id' | 'createdAt'>> = {
+          // Editable fields from form data
+          name: data.name,
+          description: data.description,
+          price: data.price,
+          unit: data.unit,
+          stockQuantity: data.stockQuantity ?? 0,
+          category: data.category || '',
+          imageUrl: data.imageUrl || `https://placehold.co/300x200.png?text=${encodeURIComponent(data.name)}`,
+          // Non-editable fields - take from the original productToEdit (ensure they exist)
+          producedDate: productToEdit.producedDate ? Timestamp.fromDate(productToEdit.producedDate) : serverTimestamp(), // Fallback, should exist
+          producedArea: productToEdit.producedArea,
+          producedByOrganization: productToEdit.producedByOrganization,
+          // Always update supplierId and updatedAt
+          supplierId: user.id, 
+          updatedAt: serverTimestamp(),
+        };
+
+        await updateDoc(productRef, updatePayload);
         toast({
           title: "Product Updated!",
           description: `${data.name} has been successfully updated.`,
         });
       } else {
-        await addDoc(collection(db, "products"), {
-          ...productDataForFirestore,
+        // ADDING new product
+        const newProductData = {
+          supplierId: user.id,
+          name: data.name,
+          description: data.description,
+          price: data.price,
+          unit: data.unit,
+          stockQuantity: data.stockQuantity ?? 0,
+          category: data.category || '',
+          imageUrl: data.imageUrl || `https://placehold.co/300x200.png?text=${encodeURIComponent(data.name)}`,
+          producedDate: Timestamp.fromDate(data.producedDate), 
+          producedArea: data.producedArea,                    
+          producedByOrganization: data.producedByOrganization, 
           createdAt: serverTimestamp(),
-        });
+          updatedAt: serverTimestamp(),
+        };
+        await addDoc(collection(db, "products"), newProductData);
         toast({
           title: "Product Added!",
           description: `${data.name} has been successfully listed.`,
         });
       }
-      form.reset();
+      form.reset(); 
       if (onFormSubmitSuccess) onFormSubmitSuccess();
     } catch (error) {
       console.error("Failed to save product to Firestore:", error);
       toast({
         title: "Firestore Error",
-        description: `Could not ${productToEdit ? 'update' : 'add'} product. Please try again. ${error instanceof Error ? error.message : ''}`,
+        description: `Could not ${isEditing ? 'update' : 'add'} product. Please try again. ${error instanceof Error ? error.message : ''}`,
         variant: "destructive",
       });
     }
@@ -252,6 +270,7 @@ export function ProductForm({ productToEdit, onFormSubmitSuccess }: ProductFormP
                           "w-full pl-3 text-left font-normal",
                           !field.value && "text-muted-foreground"
                         )}
+                        disabled={isEditing} // Disable if editing
                       >
                         {field.value ? (
                           format(field.value, "PPP")
@@ -267,8 +286,8 @@ export function ProductForm({ productToEdit, onFormSubmitSuccess }: ProductFormP
                       mode="single"
                       selected={field.value}
                       onSelect={field.onChange}
-                      disabled={(date) =>
-                        date > new Date() || date < new Date("1900-01-01")
+                      disabled={(date) => // Keep existing calendar disabled logic + isEditing
+                        isEditing || date > new Date() || date < new Date("1900-01-01")
                       }
                       initialFocus
                     />
@@ -297,7 +316,7 @@ export function ProductForm({ productToEdit, onFormSubmitSuccess }: ProductFormP
           render={({ field }) => (
             <FormItem>
               <FormLabel>Produced Area/Farm *</FormLabel>
-              <FormControl><Input placeholder="e.g., Sunny Valley Orchard, CA" {...field} /></FormControl>
+              <FormControl><Input placeholder="e.g., Sunny Valley Orchard, CA" {...field} disabled={isEditing} /></FormControl>
               <FormMessage />
             </FormItem>
           )}
@@ -308,7 +327,7 @@ export function ProductForm({ productToEdit, onFormSubmitSuccess }: ProductFormP
           render={({ field }) => (
             <FormItem>
               <FormLabel>Produced By (Organization) *</FormLabel>
-              <FormControl><Input placeholder="e.g., Your Company Name / Farm Cooperative" {...field} /></FormControl>
+              <FormControl><Input placeholder="e.g., Your Company Name / Farm Cooperative" {...field} disabled={isEditing} /></FormControl>
               <FormMessage />
             </FormItem>
           )}
@@ -329,9 +348,10 @@ export function ProductForm({ productToEdit, onFormSubmitSuccess }: ProductFormP
 
         <Button type="submit" disabled={isSubmitting} className="w-full">
           {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-          {productToEdit ? 'Update Product' : 'Add Product'}
+          {isEditing ? 'Update Product' : 'Add Product'}
         </Button>
       </form>
     </Form>
   );
 }
+
