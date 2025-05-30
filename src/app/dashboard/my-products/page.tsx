@@ -9,7 +9,7 @@ import { Header } from "@/components/dashboard/Header";
 import { ProductForm } from "@/components/products/ProductForm";
 import { useAuth } from '@/contexts/AuthContext';
 import { db } from '@/lib/firebase/config';
-import { collection, query, where, onSnapshot, doc, deleteDoc, Timestamp } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, doc, deleteDoc, Timestamp, getDoc } from 'firebase/firestore'; // Added getDoc
 import type { Product as ProductType, StoredProduct } from '@/types/product';
 import { PackagePlus, Trash2, Loader2, Info, ImageOff, Edit3, Package, CalendarDays, Home, Landmark } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
@@ -142,16 +142,39 @@ export default function MyProductsPage({ params, searchParams }: MyProductsPageP
   }, [user, toast]);
 
   const handleDeleteProduct = async (productId: string, productName: string) => {
-    console.log("[MyProductsPage] handleDeleteProduct called with productId:", productId, "productName:", productName);
+    if (!user || !user.id) {
+      toast({ title: "Authentication Error", description: "You must be logged in to delete products.", variant: "destructive" });
+      console.log("[MyProductsPage] Delete cancelled: User not authenticated.");
+      return;
+    }
+
+    console.log(`[MyProductsPage] User ${user.id} is attempting to delete product: "${productName}" (ID: ${productId})`);
+
     if (!confirm(`Are you sure you want to delete the product "${productName}"? This action cannot be undone.`)) {
-      console.log("[MyProductsPage] Deletion cancelled by user for product:", productName);
+      console.log(`[MyProductsPage] Deletion cancelled by user for product: "${productName}"`);
       return;
     }
     
-    console.log("[MyProductsPage] User confirmed deletion for productId:", productId, "productName:", productName);
+    console.log(`[MyProductsPage] User confirmed deletion for product: "${productName}" (ID: ${productId})`);
     try {
-      console.log("[MyProductsPage] Attempting to delete product from Firestore:", productId);
-      await deleteDoc(doc(db, "products", productId));
+      const productRef = doc(db, "products", productId);
+      const productSnap = await getDoc(productRef);
+
+      if (!productSnap.exists()) {
+        console.error("[MyProductsPage] Product not found in Firestore during delete attempt:", productId);
+        toast({ title: "Error", description: `Product "${productName}" not found. It may have already been deleted.`, variant: "destructive" });
+        return;
+      }
+
+      const productData = productSnap.data();
+      if (productData.supplierId !== user.id) {
+        console.error(`[MyProductsPage] Ownership check failed: User ${user.id} attempting to delete product owned by ${productData.supplierId}`);
+        toast({ title: "Permission Denied", description: "You can only delete your own products.", variant: "destructive" });
+        return;
+      }
+      
+      console.log("[MyProductsPage] Ownership confirmed. Attempting to delete product from Firestore:", productId);
+      await deleteDoc(productRef);
       console.log("[MyProductsPage] Product successfully deleted from Firestore:", productId);
       toast({ title: "Product Deleted", description: `Product "${productName}" has been successfully removed from your listings.` });
     } catch (error) {
@@ -236,3 +259,4 @@ export default function MyProductsPage({ params, searchParams }: MyProductsPageP
     </>
   );
 }
+
