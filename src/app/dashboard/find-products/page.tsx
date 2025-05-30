@@ -9,12 +9,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { useAuth, type User as AuthUser } from '@/contexts/AuthContext';
 import type { Product as ProductType, StoredProduct } from '@/types/product';
 import { db } from '@/lib/firebase/config';
-import { collection, getDocs, query, Timestamp, where } from 'firebase/firestore';
+import { collection, getDocs, query, Timestamp } from 'firebase/firestore';
 import { Loader2, Search, Package, ShoppingBag, Info, ImageOff, MessageSquare } from 'lucide-react';
 import Image from 'next/image';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
-import { useRouter } from 'next/navigation'; // Import useRouter
+import { useRouter } from 'next/navigation';
 
 interface SupplierWithProducts {
   supplier: AuthUser;
@@ -37,31 +37,23 @@ const generateAiHint = (name: string, category?: string): string => {
 
 export default function FindProductsPage({ params, searchParams }: FindProductsPageProps) {
   const [searchTerm, setSearchTerm] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true); // Start true for initial load
   const [results, setResults] = useState<SupplierWithProducts[]>([]);
-  const [hasSearched, setHasSearched] = useState(false);
   const { allUsersList, isLoadingUsers } = useAuth();
   const { toast } = useToast();
-  const router = useRouter(); // Initialize useRouter
+  const router = useRouter();
 
-  const handleSearch = async (e?: FormEvent) => {
-    if (e) e.preventDefault();
-    if (!searchTerm.trim()) {
-      toast({ title: "Search Term Required", description: "Please enter a product name to search.", variant: "destructive" });
-      return;
-    }
-
+  const performSearch = useCallback(async (currentSearchTerm: string) => {
     setIsLoading(true);
-    setHasSearched(true);
     setResults([]);
 
     try {
       const productsQuery = query(collection(db, "products"));
       const productsSnapshot = await getDocs(productsQuery);
-      const allProducts: ProductType[] = [];
+      const fetchedProducts: ProductType[] = [];
       productsSnapshot.forEach(doc => {
         const data = doc.data() as Omit<StoredProduct, 'id' | 'createdAt' | 'updatedAt'>;
-        allProducts.push({
+        fetchedProducts.push({
           ...data,
           id: doc.id,
           createdAt: (doc.data().createdAt as Timestamp)?.toDate() || new Date(),
@@ -69,19 +61,17 @@ export default function FindProductsPage({ params, searchParams }: FindProductsP
         });
       });
 
-      const lowerSearchTerm = searchTerm.toLowerCase();
-      const matchingProducts = allProducts.filter(product =>
-        product.name.toLowerCase().includes(lowerSearchTerm) ||
-        (product.category && product.category.toLowerCase().includes(lowerSearchTerm))
-      );
+      let matchingProducts = fetchedProducts;
+      const lowerSearchTerm = currentSearchTerm.toLowerCase().trim();
 
-      if (matchingProducts.length === 0) {
-        setIsLoading(false);
-        return;
+      if (lowerSearchTerm) {
+        matchingProducts = fetchedProducts.filter(product =>
+          product.name.toLowerCase().includes(lowerSearchTerm) ||
+          (product.category && product.category.toLowerCase().includes(lowerSearchTerm))
+        );
       }
 
       const suppliersMap = new Map<string, SupplierWithProducts>();
-
       matchingProducts.forEach(product => {
         const supplier = allUsersList.find(u => u.id === product.supplierId && u.role === 'supplier');
         if (supplier) {
@@ -91,8 +81,15 @@ export default function FindProductsPage({ params, searchParams }: FindProductsP
           suppliersMap.get(supplier.id)!.products.push(product);
         }
       });
+      
+      // Sort products within each supplier group by name for consistency
+      suppliersMap.forEach(supplierWithProducts => {
+        supplierWithProducts.products.sort((a, b) => a.name.localeCompare(b.name));
+      });
 
-      setResults(Array.from(suppliersMap.values()));
+      // Sort suppliers by name for consistency
+      const sortedResults = Array.from(suppliersMap.values()).sort((a,b) => a.supplier.name.localeCompare(b.supplier.name));
+      setResults(sortedResults);
 
     } catch (error) {
       console.error("Error searching products:", error);
@@ -100,8 +97,23 @@ export default function FindProductsPage({ params, searchParams }: FindProductsP
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [allUsersList, toast]);
 
+  // Initial load of all products or perform search when users are loaded/reloaded
+  useEffect(() => {
+    if (!isLoadingUsers) {
+      performSearch(searchTerm); // Perform search with current term (empty on initial if searchTerm is empty)
+    }
+  }, [isLoadingUsers, performSearch, searchTerm]); // Added searchTerm here to re-filter if it changes externally
+
+  const handleSearchFormSubmit = (e: FormEvent) => {
+    e.preventDefault();
+    // performSearch is already called by useEffect when searchTerm changes,
+    // but this can be kept if explicit submit action is desired beyond live filtering.
+    // For now, rely on useEffect triggered by searchTerm state change.
+    // If search should only happen on submit, move performSearch(searchTerm) call here and remove searchTerm from useEffect deps.
+  };
+  
   const handleContactSupplier = (productId: string, supplierId: string) => {
     router.push(`/dashboard/negotiate?productId=${productId}&supplierId=${supplierId}`);
   };
@@ -113,15 +125,15 @@ export default function FindProductsPage({ params, searchParams }: FindProductsP
         <Card className="shadow-lg">
           <CardHeader>
             <CardTitle>Search for Products</CardTitle>
-            <CardDescription>Enter a product name or category to find suppliers.</CardDescription>
+            <CardDescription>Enter a product name or category to filter listings. Leave blank to see all.</CardDescription>
           </CardHeader>
           <CardContent>
-            <form onSubmit={handleSearch} className="flex items-center gap-2">
+            <form onSubmit={handleSearchFormSubmit} className="flex items-center gap-2">
               <Input
                 type="search"
                 placeholder="e.g., Organic Apples, Fuji, Fresh Fruits"
                 value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+                onChange={(e) => setSearchTerm(e.target.value)} // This will trigger useEffect
                 className="flex-grow"
               />
               <Button type="submit" disabled={isLoading || isLoadingUsers}>
@@ -135,16 +147,20 @@ export default function FindProductsPage({ params, searchParams }: FindProductsP
         {(isLoading || isLoadingUsers) && (
           <div className="flex justify-center items-center py-10">
             <Loader2 className="h-8 w-8 animate-spin text-primary mr-2" />
-            <p className="text-muted-foreground">Searching for products...</p>
+            <p className="text-muted-foreground">Loading products...</p>
           </div>
         )}
 
-        {!isLoading && !isLoadingUsers && hasSearched && results.length === 0 && (
+        {!isLoading && !isLoadingUsers && results.length === 0 && (
           <Card>
             <CardContent className="py-10 text-center">
               <Info className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
-              <h3 className="text-xl font-semibold text-muted-foreground">No Products Found</h3>
-              <p className="text-sm text-muted-foreground">No suppliers offer products matching "{searchTerm}". Try a different search term.</p>
+              <h3 className="text-xl font-semibold text-muted-foreground">
+                {searchTerm.trim() ? `No Products Found Matching "${searchTerm}"` : "No Products Currently Listed"}
+              </h3>
+              <p className="text-sm text-muted-foreground">
+                {searchTerm.trim() ? "Try a different search term or clear your search to see all products." : "Check back later or ask suppliers to list their products."}
+              </p>
             </CardContent>
           </Card>
         )}
@@ -152,7 +168,7 @@ export default function FindProductsPage({ params, searchParams }: FindProductsP
         {!isLoading && !isLoadingUsers && results.length > 0 && (
           <div className="space-y-6">
             <h2 className="text-2xl font-semibold text-primary">
-              Suppliers Found for "{searchTerm}"
+              {searchTerm.trim() ? `Suppliers Found for "${searchTerm}"` : "All Available Products"}
             </h2>
             {results.map(({ supplier, products }) => (
               <Card key={supplier.id} className="shadow-md">
@@ -161,7 +177,7 @@ export default function FindProductsPage({ params, searchParams }: FindProductsP
                     <ShoppingBag className="h-6 w-6 text-primary" />
                     Supplier: {supplier.name}
                   </CardTitle>
-                  <CardDescription>Products matching your search from this supplier.</CardDescription>
+                  <CardDescription>Products matching your criteria from this supplier.</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -222,3 +238,4 @@ export default function FindProductsPage({ params, searchParams }: FindProductsP
     </>
   );
 }
+
