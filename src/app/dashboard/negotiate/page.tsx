@@ -9,16 +9,17 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'; // Added Alert imports
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'; 
 import { useToast } from '@/hooks/use-toast';
 import { useAuth, type User as AuthUser } from '@/contexts/AuthContext';
 import type { Product as ProductType, StoredProduct } from '@/types/product';
 import { OrderStatus } from '@/types/transaction'; 
 import { db } from '@/lib/firebase/config';
 import { doc, getDoc, addDoc, collection, serverTimestamp, Timestamp } from 'firebase/firestore';
-import { Loader2, Info, ShoppingBag, UserCircle, ArrowLeft, CheckCircle, XCircle, CalendarDays, Home, Landmark, AlertCircle } from 'lucide-react';
+import { Loader2, Info, ShoppingBag, UserCircle, ArrowLeft, CheckCircle, XCircle, CalendarDays, Home, Landmark, AlertCircle, Pin } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
+import { calculateDistance, type CalculateDistanceOutput } from '@/ai/flows/calculate-distance-flow';
 
 interface NegotiationPageContentProps {
   productId: string;
@@ -37,6 +38,8 @@ function NegotiationPageContent({ productId, supplierId }: NegotiationPageConten
   const [isLoadingData, setIsLoadingData] = useState(true);
   const [isSubmittingOrder, setIsSubmittingOrder] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [shippingDistance, setShippingDistance] = useState<CalculateDistanceOutput | null>(null);
+  const [isLoadingDistance, setIsLoadingDistance] = useState(false);
 
   const { allUsersList } = useAuth();
 
@@ -49,58 +52,76 @@ function NegotiationPageContent({ productId, supplierId }: NegotiationPageConten
       return;
     }
 
-    const fetchProduct = async () => {
-      console.log("[NegotiatePage] fetchProduct called for productId:", productId);
+    const fetchProductAndSupplier = async () => {
+      setIsLoadingData(true);
       try {
         const productRef = doc(db, "products", productId);
         const productSnap = await getDoc(productRef);
+        let fetchedProduct: ProductType | null = null;
+
         if (productSnap.exists()) {
           const data = productSnap.data() as Omit<StoredProduct, 'id' | 'createdAt' | 'updatedAt' | 'producedDate'>;
-          setProduct({
+          fetchedProduct = {
             ...data,
             id: productSnap.id,
             producedDate: (data.producedDate as Timestamp)?.toDate(),
             createdAt: (data.createdAt as Timestamp)?.toDate() || new Date(),
             updatedAt: (data.updatedAt as Timestamp)?.toDate() || new Date(),
-          });
-          console.log("[NegotiatePage] Product fetched successfully:", data.name);
+          };
+          setProduct(fetchedProduct);
+          console.log("[NegotiatePage] Product fetched successfully:", fetchedProduct.name);
         } else {
           setError("Product not found.");
           console.error("[NegotiatePage] Product not found in Firestore with id:", productId);
         }
+
+        const foundSupplier = allUsersList.find(u => u.id === supplierId && u.role === 'supplier');
+        if (foundSupplier) {
+          setSupplier(foundSupplier);
+          console.log("[NegotiatePage] Supplier found:", foundSupplier.name);
+        } else if (allUsersList.length > 0) { // Only set error if users are loaded but supplier not found
+          setError("Supplier not found.");
+          console.error("[NegotiatePage] Supplier not found in allUsersList with id:", supplierId);
+        }
+        
+        if (fetchedProduct && fetchedProduct.producedArea) {
+          setIsLoadingDistance(true);
+          // TODO: In a real app, get customer's actual address.
+          const placeholderDestination = "New York, NY, USA"; 
+          try {
+            const distanceResult = await calculateDistance({ 
+              originAddress: fetchedProduct.producedArea, 
+              destinationAddress: placeholderDestination 
+            });
+            setShippingDistance(distanceResult);
+            if (distanceResult.note) {
+              toast({ title: "Shipping Info", description: distanceResult.note, duration: 7000 });
+            }
+          } catch (distError) {
+            console.error("[NegotiatePage] Error calculating distance:", distError);
+            toast({ title: "Distance Error", description: "Could not estimate shipping distance.", variant: "destructive" });
+          } finally {
+            setIsLoadingDistance(false);
+          }
+        }
+
       } catch (err) {
-        console.error("[NegotiatePage] Error fetching product:", err);
-        setError("Failed to load product details.");
-      }
-    };
-
-    const findSupplier = () => {
-      console.log("[NegotiatePage] findSupplier called for supplierId:", supplierId);
-      console.log("[NegotiatePage] allUsersList available for finding supplier:", allUsersList.length > 0);
-      const foundSupplier = allUsersList.find(u => u.id === supplierId && u.role === 'supplier');
-      if (foundSupplier) {
-        setSupplier(foundSupplier);
-        console.log("[NegotiatePage] Supplier found:", foundSupplier.name);
-      } else {
-        setError("Supplier not found.");
-        console.error("[NegotiatePage] Supplier not found in allUsersList with id:", supplierId);
-      }
-    };
-
-    if (allUsersList.length > 0 || isLoadingAuth) {
-        console.log("[NegotiatePage] Fetching product and finding supplier...");
-        Promise.all([fetchProduct(), findSupplier()]).finally(() => {
-            setIsLoadingData(false);
-            console.log("[NegotiatePage] Finished fetching product and finding supplier.");
-        });
-    } else if (!isLoadingAuth && allUsersList.length === 0 && supplierId) {
-        setError("Supplier list not available. Cannot find supplier.");
+        console.error("[NegotiatePage] Error fetching data:", err);
+        setError("Failed to load product or supplier details.");
+      } finally {
         setIsLoadingData(false);
-        console.error("[NegotiatePage] Supplier list not available, cannot find supplier.");
+      }
+    };
+    
+    if ((allUsersList.length > 0 || isLoadingAuth) && productId && supplierId) {
+      fetchProductAndSupplier();
+    } else if (!isLoadingAuth && allUsersList.length === 0 && supplierId) {
+      setError("Supplier list not available. Cannot find supplier.");
+      setIsLoadingData(false);
     }
 
 
-  }, [productId, supplierId, allUsersList, isLoadingAuth]);
+  }, [productId, supplierId, allUsersList, isLoadingAuth, toast]);
 
   useEffect(() => {
     if (product && desiredQuantity > 0) {
@@ -117,7 +138,6 @@ function NegotiationPageContent({ productId, supplierId }: NegotiationPageConten
     console.log("[NegotiatePage] Customer:", customer);
     console.log("[NegotiatePage] Desired Quantity:", desiredQuantity);
     console.log("[NegotiatePage] Total Price:", totalPrice);
-
 
     if (!product || !supplier || !customer || desiredQuantity <= 0) {
       console.error("[NegotiatePage] Validation failed: Missing product, supplier, customer, or invalid quantity.");
@@ -147,12 +167,12 @@ function NegotiationPageContent({ productId, supplierId }: NegotiationPageConten
         quantity: desiredQuantity,
         pricePerUnit: product.price,
         totalAmount: totalPrice,
-        currency: 'USD', // Assuming USD for now
+        currency: 'USD', 
         unit: product.unit,
         status: 'Awaiting Supplier Confirmation' as OrderStatus,
         orderDate: serverTimestamp(),
-        // shipmentStatus will be set later
-        podSubmitted: false, // Initialize podSubmitted
+        podSubmitted: false, 
+        // shipmentStatus is intentionally omitted, will be set by supplier/transporter
       };
       console.log("[NegotiatePage] OrderData to be sent to Firestore:", orderData);
       console.log("[NegotiatePage] Saving order with supplierId:", orderData.supplierId, "and customerId:", orderData.customerId);
@@ -269,6 +289,30 @@ function NegotiationPageContent({ productId, supplierId }: NegotiationPageConten
             </CardTitle>
           </CardHeader>
         </Card>
+        
+        <Card className="shadow-md">
+            <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-xl">
+                    <Pin className="h-5 w-5 text-primary" /> Estimated Shipping Information
+                </CardTitle>
+            </CardHeader>
+            <CardContent>
+                {isLoadingDistance && <div className="flex items-center"><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Fetching distance...</div>}
+                {shippingDistance && !isLoadingDistance && (
+                    <div className="text-sm space-y-1">
+                        <p>From: <span className="font-medium">{product.producedArea}</span></p>
+                        <p>To: <span className="font-medium">New York, NY, USA (Placeholder Customer Address)</span></p>
+                        <p>Distance: <span className="font-semibold text-primary">{shippingDistance.distanceText}</span></p>
+                        <p>Est. Duration: <span className="font-semibold text-primary">{shippingDistance.durationText}</span></p>
+                        {shippingDistance.note && <p className="text-xs text-muted-foreground mt-2">{shippingDistance.note}</p>}
+                    </div>
+                )}
+                {!isLoadingDistance && !shippingDistance && (
+                    <p className="text-sm text-muted-foreground">Could not estimate shipping distance at this time.</p>
+                )}
+            </CardContent>
+        </Card>
+
 
         <Card className="shadow-md">
           <CardHeader>
