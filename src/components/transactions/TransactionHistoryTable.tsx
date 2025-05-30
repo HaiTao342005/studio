@@ -14,8 +14,10 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
-import { Trash2, Wallet, Loader2, Eye, ThumbsUp, Truck, CheckSquare, AlertTriangle, ThumbsDown } from 'lucide-react';
+import { Trash2, Wallet, Loader2, Eye, ThumbsUp, Truck, AlertTriangle, ThumbsDown, Star } from 'lucide-react';
 import type { OrderStatus, StoredOrder, OrderShipmentStatus } from '@/types/transaction';
 import { AppleIcon, BananaIcon, OrangeIcon, GrapeIcon, MangoIcon, FruitIcon } from '@/components/icons/FruitIcons';
 import { format } from 'date-fns';
@@ -44,26 +46,26 @@ const FALLBACK_SIMULATED_ETH_USD_PRICE = 2000;
 const getStatusBadgeVariant = (status: OrderStatus | OrderShipmentStatus): "default" | "secondary" | "destructive" | "outline" => {
   switch (status) {
     case 'Paid': return 'default';
-    case 'Delivered': return 'default';
+    case 'Delivered': return 'default'; // Main status when shipment is delivered
     case 'Receipt Confirmed': return 'default';
-    case 'Shipped': return 'secondary';
-    case 'Ready for Pickup': return 'secondary';
-    case 'In Transit': return 'secondary';
-    case 'Out for Delivery': return 'secondary';
+    case 'Shipped': return 'secondary'; // Main status when shipment is in progress
+    case 'Ready for Pickup': return 'secondary'; // Shipment status
+    case 'In Transit': return 'secondary'; // Shipment status
+    case 'Out for Delivery': return 'secondary'; // Shipment status
     case 'Awaiting Supplier Confirmation': return 'outline';
     case 'Awaiting Transporter Assignment': return 'outline';
     case 'Awaiting Payment': return 'outline';
     case 'Pending': return 'outline';
     case 'Cancelled': return 'destructive';
-    case 'Delivery Failed': return 'destructive';
-    case 'Shipment Cancelled': return 'destructive';
-    case 'Disputed': return 'destructive'; // New status
+    case 'Delivery Failed': return 'destructive'; // Shipment status
+    case 'Shipment Cancelled': return 'destructive'; // Shipment status
+    case 'Disputed': return 'destructive';
     default: return 'secondary';
   }
 };
 
 const getFruitIcon = (fruitTypeInput?: string): ElementType<SVGProps<SVGSVGElement>> => {
-  const fruitType = fruitTypeInput || ""; // Ensure fruitType is always a string
+  const fruitType = fruitTypeInput || "";
   const lowerFruitType = fruitType.toLowerCase();
   if (lowerFruitType.includes('apple')) return AppleIcon;
   if (lowerFruitType.includes('banana')) return BananaIcon;
@@ -85,10 +87,19 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
   const [confirmingOrderId, setConfirmingOrderId] = useState<string | null>(null);
   const [assigningTransporterOrderId, setAssigningTransporterOrderId] = useState<string | null>(null);
   const [confirmingReceiptOrderId, setConfirmingReceiptOrderId] = useState<string | null>(null);
-  const [denyingReceiptOrderId, setDenyingReceiptOrderId] = useState<string | null>(null); // New state
+  const [denyingReceiptOrderId, setDenyingReceiptOrderId] = useState<string | null>(null);
   const [isAssignTransporterDialogOpen, setIsAssignTransporterDialogOpen] = useState(false);
   const [currentOrderToAssign, setCurrentOrderToAssign] = useState<StoredOrder | null>(null);
   const [selectedTransporter, setSelectedTransporter] = useState<string | null>(null);
+
+  // State for Assessment Dialog
+  const [isAssessmentDialogOpen, setIsAssessmentDialogOpen] = useState(false);
+  const [currentOrderForAssessment, setCurrentOrderForAssessment] = useState<StoredOrder | null>(null);
+  const [supplierRating, setSupplierRating] = useState('');
+  const [supplierFeedback, setSupplierFeedback] = useState('');
+  const [transporterRating, setTransporterRating] = useState('');
+  const [transporterFeedback, setTransporterFeedback] = useState('');
+  const [isSubmittingAssessment, setIsSubmittingAssessment] = useState(false);
 
   const { toast } = useToast();
   const { user, allUsersList } = useAuth();
@@ -97,12 +108,10 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
 
   useEffect(() => {
     if (isCustomerView && initialOrders) {
-      console.log("[TransactionHistoryTable] Customer View - Initial orders received:", initialOrders);
       const mappedOrders: StoredOrder[] = initialOrders.map(order => ({
         ...order,
         FruitIcon: getFruitIcon(order.productName || (order as any).fruitType),
       }));
-      // Client-side sorting for customer view (ensure dates are valid Timestamps)
       mappedOrders.sort((a, b) => {
         const dateA = (a.orderDate as Timestamp)?.toMillis() || 0;
         const dateB = (b.orderDate as Timestamp)?.toMillis() || 0;
@@ -114,7 +123,6 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
     }
 
     if (!user || !user.id) {
-      console.log("[TransactionHistoryTable] No user or user.id, clearing orders.");
       setOrders([]);
       setIsLoading(false);
       return;
@@ -129,15 +137,12 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
     if (currentRole === 'supplier') {
       ordersQuery = query(
         collection(db, "orders"),
-        where("supplierId", "==", user.id),
-        orderBy("orderDate", "desc") // Requires Firestore index
+        where("supplierId", "==", user.id)
+        // orderBy("orderDate", "desc") // Temporarily removed for client-side sort
       );
-      console.log("[TransactionHistoryTable] Supplier query:", user.id);
     } else if (currentRole === 'manager') {
       ordersQuery = query(collection(db, "orders"), orderBy("orderDate", "desc"));
-      console.log("[TransactionHistoryTable] Manager query");
     } else {
-      console.log("[TransactionHistoryTable] Role not supplier or manager, clearing orders.");
       setOrders([]);
       setIsLoading(false);
       return;
@@ -154,8 +159,14 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
         });
       });
       
+      // Client-side sorting for supplier view if orderBy is removed from query
       if (currentRole === 'supplier') {
-         console.log(`[TransactionHistoryTable] Supplier ${user.id} fetched ${fetchedOrders.length} orders:`, fetchedOrders);
+        fetchedOrders.sort((a, b) => {
+            const dateA = (a.orderDate as Timestamp)?.toMillis() || 0;
+            const dateB = (b.orderDate as Timestamp)?.toMillis() || 0;
+            return dateB - dateA;
+        });
+        console.log(`[TransactionHistoryTable] Supplier ${user.id} fetched ${fetchedOrders.length} orders (client-sorted):`, fetchedOrders);
       } else if (currentRole === 'manager') {
          console.log(`[TransactionHistoryTable] Manager fetched ${fetchedOrders.length} orders:`, fetchedOrders);
       }
@@ -230,7 +241,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
     }
   };
 
-  const handlePayWithMetamask = useCallback(async (orderId: string) => {
+  const handlePayWithMetamask = useCallback(async (orderId: string): Promise<boolean> => {
     const orderToPay = orders.find(o => o.id === orderId);
     if (!orderToPay) {
       toast({ title: "Error", description: "Order not found.", variant: "destructive" });
@@ -432,8 +443,8 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
       const updateData: Partial<StoredOrder> = {
         transporterId: selectedTransporter,
         transporterName: transporterUser.name,
-        status: 'Ready for Pickup' as OrderStatus, // Main order status
-        shipmentStatus: 'Ready for Pickup' as OrderShipmentStatus, // Specific shipment status
+        status: 'Ready for Pickup' as OrderStatus,
+        shipmentStatus: 'Ready for Pickup' as OrderShipmentStatus,
         pickupAddress: supplierAddress,
         deliveryAddress: customerAddress,
       };
@@ -459,6 +470,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
       const orderRef = doc(db, "orders", orderId);
       await updateDoc(orderRef, { status: 'Receipt Confirmed' as OrderStatus });
       toast({ title: "Receipt Confirmed", description: "Thank you! Please proceed with payment if outstanding." });
+      // Note: handlePayWithMetamask is NOT called here anymore, payment is now a separate explicit step by customer
     } catch (error) {
       toast({ title: "Error", description: "Could not confirm receipt.", variant: "destructive" });
       console.error("Error confirming receipt:", error);
@@ -478,6 +490,66 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
       console.error("Error denying receipt:", error);
     } finally {
       setDenyingReceiptOrderId(null);
+    }
+  };
+
+  // Assessment Dialog Handlers
+  const handleOpenAssessmentDialog = (order: StoredOrder) => {
+    setCurrentOrderForAssessment(order);
+    setSupplierRating(order.supplierRating?.toString() || '');
+    setSupplierFeedback(order.supplierFeedback || '');
+    setTransporterRating(order.transporterRating?.toString() || '');
+    setTransporterFeedback(order.transporterFeedback || '');
+    setIsAssessmentDialogOpen(true);
+  };
+
+  const handleCloseAssessmentDialog = () => {
+    setIsAssessmentDialogOpen(false);
+    setCurrentOrderForAssessment(null);
+    // Reset form fields
+    setSupplierRating('');
+    setSupplierFeedback('');
+    setTransporterRating('');
+    setTransporterFeedback('');
+  };
+
+  const handleSubmitAssessment = async () => {
+    if (!currentOrderForAssessment) return;
+
+    const sRating = supplierRating ? parseInt(supplierRating, 10) : undefined;
+    const tRating = transporterRating ? parseInt(transporterRating, 10) : undefined;
+
+    if (supplierRating && (isNaN(sRating!) || sRating! < 1 || sRating! > 5)) {
+      toast({ title: "Invalid Input", description: "Supplier rating must be a number between 1 and 5.", variant: "destructive"});
+      return;
+    }
+    if (currentOrderForAssessment.transporterId && transporterRating && (isNaN(tRating!) || tRating! < 1 || tRating! > 5)) {
+      toast({ title: "Invalid Input", description: "Transporter rating must be a number between 1 and 5.", variant: "destructive"});
+      return;
+    }
+
+    setIsSubmittingAssessment(true);
+    const orderRef = doc(db, "orders", currentOrderForAssessment.id);
+    const assessmentData: Partial<StoredOrder> = {
+      supplierRating: sRating,
+      supplierFeedback: supplierFeedback.trim() || undefined,
+      assessmentSubmitted: true,
+    };
+
+    if (currentOrderForAssessment.transporterId) {
+      assessmentData.transporterRating = tRating;
+      assessmentData.transporterFeedback = transporterFeedback.trim() || undefined;
+    }
+
+    try {
+      await updateDoc(orderRef, assessmentData);
+      toast({ title: "Evaluation Submitted", description: "Thank you for your feedback!" });
+      handleCloseAssessmentDialog();
+    } catch (error) {
+      console.error("Error submitting assessment:", error);
+      toast({ title: "Error", description: "Could not submit your evaluation.", variant: "destructive" });
+    } finally {
+      setIsSubmittingAssessment(false);
     }
   };
 
@@ -515,6 +587,8 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
             const productName = order.productName || (order as any).fruitType;
             const canConfirmOrDeny = isCustomerView && order.shipmentStatus === 'Delivered' && order.status !== 'Paid' && order.status !== 'Receipt Confirmed' && order.status !== 'Disputed';
             const canPay = isCustomerView && (order.status === 'Awaiting Payment' || order.status === 'Receipt Confirmed') && order.status !== 'Paid' && order.status !== 'Disputed';
+            const canEvaluate = isCustomerView && (order.status === 'Receipt Confirmed' || order.status === 'Disputed') && !order.assessmentSubmitted;
+
 
             return (
             <TableRow key={order.id}>
@@ -564,11 +638,23 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
                     </Button>
                   </>
                 )}
+                {canEvaluate && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleOpenAssessmentDialog(order)}
+                    className="h-8 px-2 text-blue-600 border-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                    title="Evaluate Service"
+                  >
+                    <Star className="h-4 w-4" />
+                    <span className="ml-1">Evaluate</span>
+                  </Button>
+                )}
 
                 {!isCustomerView && user?.role === 'supplier' && order.status === 'Awaiting Supplier Confirmation' && (
                   <Button
                     variant="outline" size="sm" onClick={() => handleSupplierConfirmOrder(order.id)}
-                    disabled={confirmingOrderId === order.id || !!confirmingOrderId} className="h-8 px-2 text-green-600 border-green-600 hover:text-green-700" title="Confirm Order"
+                    disabled={confirmingOrderId === order.id || !!confirmingOrderId} className="h-8 px-2 text-green-600 border-green-600 hover:text-green-700 hover:bg-green-50" title="Confirm Order"
                   >
                     {confirmingOrderId === order.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <ThumbsUp className="h-4 w-4" />}
                     <span className="ml-1">Confirm Order</span>
@@ -577,7 +663,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
                 {!isCustomerView && user?.role === 'supplier' && order.status === 'Awaiting Transporter Assignment' && (
                   <Button
                     variant="outline" size="sm" onClick={() => handleOpenAssignTransporterDialog(order)}
-                    disabled={assigningTransporterOrderId === order.id || !!assigningTransporterOrderId} className="h-8 px-2 text-blue-600 border-blue-600 hover:text-blue-700" title="Assign Transporter"
+                    disabled={assigningTransporterOrderId === order.id || !!assigningTransporterOrderId} className="h-8 px-2 text-blue-600 border-blue-600 hover:text-blue-700 hover:bg-blue-50" title="Assign Transporter"
                   >
                     {assigningTransporterOrderId === order.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Truck className="h-4 w-4" />}
                     <span className="ml-1">Assign Transporter</span>
@@ -589,7 +675,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
                     <Trash2 className="h-4 w-4 text-destructive" />
                   </Button>
                 )}
-                {isCustomerView && !canConfirmOrDeny && !canPay && (
+                {isCustomerView && !canConfirmOrDeny && !canPay && !canEvaluate && (
                     <Button variant="ghost" size="icon" onClick={() => alert(`Viewing order ${order.id} - details would show here.`)} aria-label="View order" className="h-8 w-8">
                         <Eye className="h-4 w-4 text-primary" />
                     </Button>
@@ -601,7 +687,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
       </Table>
     </div>
 
-    {currentOrderToAssign && (
+    {isAssignTransporterDialogOpen && currentOrderToAssign && (
       <Dialog open={isAssignTransporterDialogOpen} onOpenChange={(isOpen) => {
         if (!isOpen) {
           setCurrentOrderToAssign(null);
@@ -645,6 +731,88 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
             >
               {(assigningTransporterOrderId === currentOrderToAssign.id && assigningTransporterOrderId) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Assign
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    )}
+
+    {isAssessmentDialogOpen && currentOrderForAssessment && (
+      <Dialog open={isAssessmentDialogOpen} onOpenChange={handleCloseAssessmentDialog}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Evaluate Service for Order #{currentOrderForAssessment.id.substring(0,6)}</DialogTitle>
+            <DialogDescription>
+              Product: {currentOrderForAssessment.productName} <br/>
+              Help us improve by rating your experience with the supplier and transporter.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4 space-y-6">
+            {/* Supplier Assessment */}
+            <div className="space-y-2 p-4 border rounded-md">
+              <h3 className="text-md font-semibold">Supplier: {currentOrderForAssessment.supplierName}</h3>
+              <div>
+                <Label htmlFor="supplierRating">Rating (1-5 stars)</Label>
+                <Input 
+                  id="supplierRating" 
+                  type="number" 
+                  min="1" max="5" 
+                  value={supplierRating} 
+                  onChange={(e) => setSupplierRating(e.target.value)}
+                  placeholder="e.g., 5"
+                />
+              </div>
+              <div>
+                <Label htmlFor="supplierFeedback">Feedback (Optional)</Label>
+                <Textarea 
+                  id="supplierFeedback" 
+                  value={supplierFeedback} 
+                  onChange={(e) => setSupplierFeedback(e.target.value)}
+                  placeholder="Your comments about the supplier..."
+                  rows={3}
+                />
+              </div>
+            </div>
+
+            {/* Transporter Assessment (Conditional) */}
+            {currentOrderForAssessment.transporterId && (
+              <div className="space-y-2 p-4 border rounded-md">
+                <h3 className="text-md font-semibold">Transporter: {currentOrderForAssessment.transporterName}</h3>
+                <div>
+                  <Label htmlFor="transporterRating">Rating (1-5 stars)</Label>
+                  <Input 
+                    id="transporterRating" 
+                    type="number" 
+                    min="1" max="5" 
+                    value={transporterRating} 
+                    onChange={(e) => setTransporterRating(e.target.value)}
+                    placeholder="e.g., 5"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="transporterFeedback">Feedback (Optional)</Label>
+                  <Textarea 
+                    id="transporterFeedback" 
+                    value={transporterFeedback} 
+                    onChange={(e) => setTransporterFeedback(e.target.value)}
+                    placeholder="Your comments about the transporter..."
+                    rows={3}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button type="button" variant="outline">Cancel</Button>
+            </DialogClose>
+            <Button
+              type="button"
+              onClick={handleSubmitAssessment}
+              disabled={isSubmittingAssessment}
+            >
+              {isSubmittingAssessment && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Submit Evaluation
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -8,12 +8,12 @@ export type OrderStatus =
   | 'Awaiting Transporter Assignment'
   | 'Awaiting Payment'
   | 'Paid'
-  | 'Ready for Pickup'
-  | 'Shipped'
-  | 'Delivered'
+  | 'Ready for Pickup' // Main order status can be this, then shipmentStatus tracks specifics
+  | 'Shipped' // Main order status can be this
+  | 'Delivered' // Main order status implies shipment was delivered, awaiting customer confirmation
   | 'Receipt Confirmed'
   | 'Cancelled'
-  | 'Disputed'; // New status for denied receipt
+  | 'Disputed';
 
 export type OrderShipmentStatus = 'Ready for Pickup' | 'In Transit' | 'Out for Delivery' | 'Delivered' | 'Delivery Failed' | 'Shipment Cancelled';
 
@@ -42,9 +42,21 @@ export interface StoredOrder {
   pickupAddress?: string;
   deliveryAddress?: string;
   predictedDeliveryDate?: Timestamp;
+
+  // Customer Assessment Fields
+  supplierRating?: number;
+  supplierFeedback?: string;
+  transporterRating?: number;
+  transporterFeedback?: string;
+  assessmentSubmitted?: boolean;
 }
 
-export interface Order extends Omit<StoredOrder, 'orderDate'> {
-  date: Date; // This might be legacy, ensure orderDate is primary
+// This Order type might be legacy or used for specific UI transformations.
+// Ensure it aligns with StoredOrder or is used consciously.
+export interface Order extends Omit<StoredOrder, 'orderDate' | 'predictedDeliveryDate' | 'createdAt' | 'updatedAt'> {
+  date: Date; // This seems to be a client-side transformed date
   FruitIcon?: ElementType<SVGProps<SVGSVGElement>>;
+  predictedDeliveryDate?: Date; // Client-side transformed
+  createdAt?: Date; // Client-side transformed
+  updatedAt?: Date; // Client-side transformed
 }
