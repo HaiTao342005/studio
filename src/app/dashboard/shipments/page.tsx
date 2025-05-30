@@ -37,33 +37,41 @@ export default function ManageShipmentsPage({ params, searchParams }: ManageShip
     }
 
     setIsLoading(true);
-    // Fetch orders that are 'Paid' (ready for shipment) OR already assigned to this transporter and not yet finalized
     const q = query(
       collection(db, "orders"),
-      where("status", "==", "Paid")
-      // More complex OR queries (Paid OR (assignedToMe AND notDelivered)) are hard with Firestore basic queries.
-      // We will fetch 'Paid' orders and then filter client-side for demonstration,
-      // or also fetch orders already assigned to this transporter.
-      // For simplicity, we'll fetch 'Paid' orders or orders explicitly assigned to this transporter
-      // and not yet in a final 'Delivered' or 'Shipment Cancelled' state.
+      // Querying for orders relevant to a transporter
+      // This could be orders explicitly assigned to them OR orders that are "Paid" and awaiting pickup
+      // For simplicity, we will fetch orders that are 'Paid' OR already assigned to this transporter
+      // and not in a finalized state.
+      // A more complex OR query (e.g., (status == 'Paid' AND transporterId == null) OR (transporterId == user.id))
+      // is harder with basic Firestore queries. We'll filter more client-side.
+      where("status", "in", ["Paid", "Shipped", "Delivered"]) // Fetch potentially relevant orders
     );
 
     const unsubscribe = onSnapshot(q, (querySnapshot) => {
       const fetchedOrders: StoredOrder[] = [];
       querySnapshot.forEach((orderDoc) => {
         const orderData = { id: orderDoc.id, ...orderDoc.data() } as StoredOrder;
-        // Condition: Order is 'Paid' AND (not yet assigned OR assigned to me) AND not in a final shipment state
-        // OR Order is already assigned to me AND not in a final shipment state
-        const isRelevant =
-          (orderData.status === 'Paid' && (!orderData.shipmentStatus || !['Delivered', 'Shipment Cancelled'].includes(orderData.shipmentStatus))) ||
-          (orderData.transporterId === user.id && !['Delivered', 'Shipment Cancelled'].includes(orderData.shipmentStatus || ''));
+        
+        const isRelevantForPickup = orderData.status === 'Paid' && 
+                                   (!orderData.shipmentStatus || !['Delivered', 'Shipment Cancelled'].includes(orderData.shipmentStatus));
+        
+        const isAlreadyAssigned = orderData.transporterId === user.id &&
+                                 (!orderData.shipmentStatus || !['Delivered', 'Shipment Cancelled'].includes(orderData.shipmentStatus));
 
-        if (isRelevant) {
+        if (isRelevantForPickup || isAlreadyAssigned) {
           fetchedOrders.push(orderData);
         }
       });
-      // Sort by order date descending
-      fetchedOrders.sort((a, b) => (b.orderDate as Timestamp).toMillis() - (a.orderDate as Timestamp).toMillis());
+      
+      // Sort by order date descending, handling potential undefined dates or mixed date fields
+      fetchedOrders.sort((a, b) => {
+        const tsA = (a.orderDate || (a as any).date) as Timestamp | undefined;
+        const tsB = (b.orderDate || (b as any).date) as Timestamp | undefined;
+        const timeA = tsA ? tsA.toMillis() : 0;
+        const timeB = tsB ? tsB.toMillis() : 0;
+        return timeB - timeA; // Sort descending
+      });
       setAssignedShipments(fetchedOrders);
       setIsLoading(false);
     }, (error) => {
@@ -85,7 +93,8 @@ export default function ManageShipmentsPage({ params, searchParams }: ManageShip
       const updateData: Partial<StoredOrder> = {
         shipmentStatus: newStatus,
       };
-      if (!orderToUpdate?.transporterId) { // If no transporter assigned yet, assign current user
+      if (!orderToUpdate?.transporterId && ['Ready for Pickup', 'In Transit', 'Out for Delivery', 'Delivered'].includes(newStatus)) { 
+        // Assign current transporter if one isn't already set and status indicates active handling
         updateData.transporterId = user.id;
         updateData.transporterName = user.name;
       }
@@ -155,43 +164,53 @@ export default function ManageShipmentsPage({ params, searchParams }: ManageShip
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {assignedShipments.map((shipment) => (
-                      <TableRow key={shipment.id}>
-                        <TableCell>{format((shipment.orderDate as Timestamp).toDate(), "MMM d, yyyy")}</TableCell>
-                        <TableCell>{shipment.productName}</TableCell>
-                        <TableCell>{shipment.customerName}</TableCell>
-                        <TableCell>{shipment.status}</TableCell>
-                        <TableCell>
-                          <span className={`px-2 py-1 text-xs rounded-full ${
-                            shipment.shipmentStatus === 'Delivered' ? 'bg-green-100 text-green-700' :
-                            shipment.shipmentStatus === 'In Transit' ? 'bg-blue-100 text-blue-700' :
-                            'bg-yellow-100 text-yellow-700'
-                          }`}>
-                            {shipment.shipmentStatus || 'Ready for Pickup'}
-                          </span>
-                        </TableCell>
-                        <TableCell>{shipment.transporterName || getTransporterName(shipment.transporterId) || 'N/A'}</TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-2">
-                            <Select
-                              defaultValue={shipment.shipmentStatus}
-                              onValueChange={(value) => handleStatusUpdate(shipment.id, value as OrderShipmentStatus)}
-                              disabled={updatingShipmentId === shipment.id}
-                            >
-                              <SelectTrigger className="w-[180px] h-9">
-                                <SelectValue placeholder="Select status" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {shipmentStatuses.map(status => (
-                                  <SelectItem key={status} value={status}>{status}</SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                            {updatingShipmentId === shipment.id && <Loader2 className="h-4 w-4 animate-spin" />}
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                    {assignedShipments.map((shipment) => {
+                      const displayDate = shipment.orderDate || (shipment as any).date;
+                      return (
+                        <TableRow key={shipment.id}>
+                          <TableCell>
+                            { displayDate ? 
+                              format((displayDate as Timestamp).toDate(), "MMM d, yyyy") : 
+                              'N/A' 
+                            }
+                          </TableCell>
+                          <TableCell>{shipment.productName || (shipment as any).fruitType || 'N/A'}</TableCell>
+                          <TableCell>{shipment.customerName}</TableCell>
+                          <TableCell>{shipment.status}</TableCell>
+                          <TableCell>
+                            <span className={`px-2 py-1 text-xs rounded-full ${
+                              shipment.shipmentStatus === 'Delivered' ? 'bg-green-100 text-green-700' :
+                              shipment.shipmentStatus === 'In Transit' ? 'bg-blue-100 text-blue-700' :
+                              shipment.shipmentStatus === 'Out for Delivery' ? 'bg-blue-100 text-blue-700' :
+                              shipment.shipmentStatus === 'Ready for Pickup' ? 'bg-yellow-100 text-yellow-700' :
+                              'bg-muted text-muted-foreground' // default for others or undefined
+                            }`}>
+                              {shipment.shipmentStatus || (shipment.status === 'Paid' ? 'Ready for Pickup' : 'Pending Assignment')}
+                            </span>
+                          </TableCell>
+                          <TableCell>{shipment.transporterName || getTransporterName(shipment.transporterId) || (shipment.status === 'Paid' ? 'Awaiting Assignment' : 'N/A')}</TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              <Select
+                                defaultValue={shipment.shipmentStatus}
+                                onValueChange={(value) => handleStatusUpdate(shipment.id, value as OrderShipmentStatus)}
+                                disabled={updatingShipmentId === shipment.id}
+                              >
+                                <SelectTrigger className="w-[180px] h-9">
+                                  <SelectValue placeholder="Select status" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {shipmentStatuses.map(status => (
+                                    <SelectItem key={status} value={status}>{status}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              {updatingShipmentId === shipment.id && <Loader2 className="h-4 w-4 animate-spin" />}
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
                   </TableBody>
                 </Table>
               </div>

@@ -16,7 +16,7 @@ import { format } from "date-fns";
 import { CalendarIcon, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import type { ReactNode } from 'react';
-import type { OrderStatus } from '@/types/transaction'; // StoredOrder not needed here for form data directly
+import type { OrderStatus } from '@/types/transaction'; 
 import { db } from '@/lib/firebase/config';
 import { collection, addDoc, Timestamp } from 'firebase/firestore';
 
@@ -63,15 +63,21 @@ export function TransactionForm({ onSubmitSuccess, children }: OrderFormProps) {
   const {formState: { isSubmitting }} = form;
 
   const onSubmit: SubmitHandler<OrderFormData> = async (data) => {
+    // This structure attempts to match StoredOrder more closely
+    // but the key discrepancy was `date` vs `orderDate`
     const orderDataToSave = {
-      date: Timestamp.fromDate(data.transactionDate),
-      fruitType: data.fruitType,
+      orderDate: Timestamp.fromDate(data.transactionDate), // Standardized to orderDate
+      productName: data.fruitType, // Assuming fruitType is the productName for these orders
+      productId: `manual-${Date.now()}`, // Placeholder productId
       quantity: data.quantity ?? 0,
       unit: data.unit,
-      amount: (data.pricePerUnit ?? 0) * (data.quantity ?? 0), 
+      pricePerUnit: data.pricePerUnit ?? 0,
+      totalAmount: (data.pricePerUnit ?? 0) * (data.quantity ?? 0), 
       currency: data.currency,
-      customer: data.customerName,
-      supplier: data.supplierName,
+      customerName: data.customerName, // Corresponds to customerName in StoredOrder
+      customerId: `manual-customer-${Date.now()}`, // Placeholder customerId
+      supplierName: data.supplierName, // Corresponds to supplierName in StoredOrder
+      supplierId: `manual-supplier-${Date.now()}`, // Placeholder supplierId
       status: data.status,
       notes: data.notes ?? '',
     };
@@ -147,7 +153,7 @@ export function TransactionForm({ onSubmitSuccess, children }: OrderFormProps) {
             name="fruitType"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Fruit Type *</FormLabel>
+                <FormLabel>Product Name *</FormLabel> 
                 <FormControl><Input placeholder="e.g., Organic Apples" {...field} /></FormControl>
                 <FormMessage />
               </FormItem>
