@@ -12,6 +12,7 @@ import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth, type User as AuthUser } from '@/contexts/AuthContext';
 import type { Product as ProductType, StoredProduct } from '@/types/product';
+import { OrderStatus } from '@/types/transaction'; // Import OrderStatus
 import { db } from '@/lib/firebase/config';
 import { doc, getDoc, addDoc, collection, serverTimestamp, Timestamp } from 'firebase/firestore';
 import { Loader2, Info, ShoppingBag, UserCircle, ArrowLeft, CheckCircle, XCircle } from 'lucide-react';
@@ -74,9 +75,17 @@ function NegotiationPageContent({ productId, supplierId }: NegotiationPageConten
       }
     };
 
-    Promise.all([fetchProduct(), findSupplier()]).finally(() => setIsLoadingData(false));
+    // Ensure both fetchProduct and findSupplier (dependent on allUsersList) are handled
+    if (allUsersList.length > 0 || isLoadingAuth) { // Proceed if users are loaded or still loading (to avoid race condition)
+        Promise.all([fetchProduct(), findSupplier()]).finally(() => setIsLoadingData(false));
+    } else if (!isLoadingAuth && allUsersList.length === 0 && supplierId) {
+        // Handle case where users list is definitively empty but we need a supplier
+        setError("Supplier list not available. Cannot find supplier.");
+        setIsLoadingData(false);
+    }
 
-  }, [productId, supplierId, allUsersList]);
+
+  }, [productId, supplierId, allUsersList, isLoadingAuth]); // Added isLoadingAuth
 
   useEffect(() => {
     if (product && desiredQuantity > 0) {
@@ -87,16 +96,31 @@ function NegotiationPageContent({ productId, supplierId }: NegotiationPageConten
   }, [product, desiredQuantity]);
 
   const handleMakeOrder = async () => {
+    console.log("[NegotiatePage] handleMakeOrder called");
+    console.log("[NegotiatePage] Product:", product);
+    console.log("[NegotiatePage] Supplier:", supplier);
+    console.log("[NegotiatePage] Customer:", customer);
+    console.log("[NegotiatePage] Desired Quantity:", desiredQuantity);
+    console.log("[NegotiatePage] Total Price:", totalPrice);
+
+
     if (!product || !supplier || !customer || desiredQuantity <= 0) {
+      console.error("[NegotiatePage] Validation failed: Missing product, supplier, customer, or invalid quantity.");
       toast({ title: "Order Error", description: "Missing information or invalid quantity.", variant: "destructive" });
       return;
     }
-    if (desiredQuantity > product.stockQuantity) {
-      toast({ title: "Order Error", description: `Not enough stock. Available: ${product.stockQuantity} ${product.unit}(s).`, variant: "destructive" });
+
+    const availableStock = product.stockQuantity ?? 0;
+    console.log("[NegotiatePage] Available Stock:", availableStock);
+
+    if (desiredQuantity > availableStock) {
+      console.error("[NegotiatePage] Validation failed: Not enough stock.");
+      toast({ title: "Order Error", description: `Not enough stock. Available: ${availableStock} ${product.unit}(s).`, variant: "destructive" });
       return;
     }
 
     setIsSubmittingOrder(true);
+    console.log("[NegotiatePage] Attempting to create orderData...");
     try {
       const orderData = {
         productId: product.id,
@@ -108,22 +132,26 @@ function NegotiationPageContent({ productId, supplierId }: NegotiationPageConten
         quantity: desiredQuantity,
         pricePerUnit: product.price,
         totalAmount: totalPrice,
-        currency: 'USD', 
+        currency: 'USD',
         unit: product.unit,
-        status: 'Awaiting Supplier Confirmation', // Updated initial status
+        status: 'Awaiting Supplier Confirmation' as OrderStatus,
         orderDate: serverTimestamp(),
-        shipmentStatus: undefined, // Explicitly undefined initially
+        shipmentStatus: undefined,
         podSubmitted: false,
       };
-      await addDoc(collection(db, "orders"), orderData);
+      console.log("[NegotiatePage] OrderData to be sent to Firestore:", orderData);
+
+      const docRef = await addDoc(collection(db, "orders"), orderData);
+      console.log("[NegotiatePage] Order placed successfully in Firestore, doc ID:", docRef.id);
 
       toast({ title: "Order Placed!", description: `Your order for ${desiredQuantity} ${product.unit}(s) of ${product.name} has been placed and is awaiting supplier confirmation.`, });
       router.push('/dashboard/my-orders');
     } catch (err) {
-      console.error("Error placing order:", err);
-      toast({ title: "Order Failed", description: "Could not place your order. Please try again.", variant: "destructive" });
+      console.error("[NegotiatePage] Error placing order in try-catch:", err);
+      toast({ title: "Order Failed", description: `Could not place your order. ${(err as Error).message || 'Please try again.'}`, variant: "destructive" });
     } finally {
       setIsSubmittingOrder(false);
+      console.log("[NegotiatePage] handleMakeOrder finished.");
     }
   };
 
@@ -154,7 +182,7 @@ function NegotiationPageContent({ productId, supplierId }: NegotiationPageConten
       <div className="flex flex-1 flex-col justify-center items-center min-h-screen p-6">
         <Info className="h-12 w-12 text-muted-foreground mb-4" />
         <h3 className="text-xl font-semibold text-muted-foreground">Information Missing</h3>
-        <p className="text-sm text-muted-foreground mb-4">Could not load product or supplier details. Please try again.</p>
+        <p className="text-sm text-muted-foreground mb-4">Could not load product, supplier, or customer details. Please try again.</p>
         <Button onClick={() => router.push('/dashboard/find-products')}>
             <ArrowLeft className="mr-2 h-4 w-4" /> Back to Find Products
         </Button>
@@ -188,7 +216,7 @@ function NegotiationPageContent({ productId, supplierId }: NegotiationPageConten
                 ${product.price.toFixed(2)} <span className="text-sm text-muted-foreground">/{product.unit}</span>
               </p>
               <p className="text-sm text-muted-foreground">
-                Available Stock: {product.stockQuantity} {product.unit}{product.stockQuantity !== 1 ? 's' : ''}
+                Available Stock: {product.stockQuantity ?? 0} {product.unit}{(product.stockQuantity ?? 0) !== 1 ? 's' : ''}
               </p>
             </div>
           </CardContent>
@@ -214,13 +242,13 @@ function NegotiationPageContent({ productId, supplierId }: NegotiationPageConten
                 id="desiredQuantity"
                 type="number"
                 min="1"
-                max={product.stockQuantity}
+                max={product.stockQuantity ?? 0}
                 value={desiredQuantity}
                 onChange={(e) => setDesiredQuantity(Math.max(1, parseInt(e.target.value, 10) || 1))}
                 className="mt-1 text-lg p-2"
               />
-              {desiredQuantity > product.stockQuantity && (
-                <p className="text-sm text-destructive mt-1">Requested quantity exceeds available stock ({product.stockQuantity}).</p>
+              {desiredQuantity > (product.stockQuantity ?? 0) && (
+                <p className="text-sm text-destructive mt-1">Requested quantity exceeds available stock ({product.stockQuantity ?? 0}).</p>
               )}
             </div>
             {desiredQuantity > 0 && (
@@ -239,7 +267,7 @@ function NegotiationPageContent({ productId, supplierId }: NegotiationPageConten
             </Button>
             <Button
               onClick={handleMakeOrder}
-              disabled={isSubmittingOrder || desiredQuantity <= 0 || desiredQuantity > product.stockQuantity}
+              disabled={isSubmittingOrder || desiredQuantity <= 0 || desiredQuantity > (product.stockQuantity ?? 0)}
               className="w-full sm:w-auto"
             >
               {isSubmittingOrder ? (
