@@ -26,7 +26,7 @@ const generateAiHint = (name: string, category?: string): string => {
   return nameWords.slice(0, 2).join(' ');
 };
 
-function ProductCard({ product, onDelete, onEdit }: { product: ProductType, onDelete: (productId: string) => void, onEdit: (product: ProductType) => void }) {
+function ProductCard({ product, onDelete, onEdit }: { product: ProductType, onDelete: (productId: string, productName: string) => void, onEdit: (product: ProductType) => void }) {
   const aiHint = generateAiHint(product.name, product.category);
   return (
     <Card className="flex flex-col shadow-lg hover:shadow-xl transition-shadow duration-300">
@@ -86,7 +86,7 @@ function ProductCard({ product, onDelete, onEdit }: { product: ProductType, onDe
           <Button variant="outline" size="icon" onClick={() => onEdit(product)} aria-label="Edit product">
             <Edit3 className="h-5 w-5 text-primary" />
           </Button>
-          <Button variant="ghost" size="icon" onClick={() => onDelete(product.id)} aria-label="Delete product">
+          <Button variant="ghost" size="icon" onClick={() => onDelete(product.id, product.name)} aria-label={`Delete product ${product.name}`}>
             <Trash2 className="h-5 w-5 text-destructive" />
           </Button>
         </div>
@@ -141,22 +141,22 @@ export default function MyProductsPage({ params, searchParams }: MyProductsPageP
     return () => unsubscribe();
   }, [user, toast]);
 
-  const handleDeleteProduct = async (productId: string) => {
-    console.log("[MyProductsPage] handleDeleteProduct called with productId:", productId);
-    if (!confirm("Are you sure you want to delete this product? This action cannot be undone.")) {
-      console.log("[MyProductsPage] Deletion cancelled by user.");
+  const handleDeleteProduct = async (productId: string, productName: string) => {
+    console.log("[MyProductsPage] handleDeleteProduct called with productId:", productId, "productName:", productName);
+    if (!confirm(`Are you sure you want to delete the product "${productName}"? This action cannot be undone.`)) {
+      console.log("[MyProductsPage] Deletion cancelled by user for product:", productName);
       return;
     }
     
-    console.log("[MyProductsPage] User confirmed deletion for productId:", productId);
+    console.log("[MyProductsPage] User confirmed deletion for productId:", productId, "productName:", productName);
     try {
       console.log("[MyProductsPage] Attempting to delete product from Firestore:", productId);
       await deleteDoc(doc(db, "products", productId));
       console.log("[MyProductsPage] Product successfully deleted from Firestore:", productId);
-      toast({ title: "Product Deleted", description: "The product has been removed from your listings." });
+      toast({ title: "Product Deleted", description: `Product "${productName}" has been successfully removed from your listings.` });
     } catch (error) {
       console.error("[MyProductsPage] Error deleting product from Firestore:", error);
-      toast({ title: "Error Deleting Product", description: `Could not delete product. ${error instanceof Error ? error.message : 'Unknown error'}`, variant: "destructive" });
+      toast({ title: "Error Deleting Product", description: `Could not delete product "${productName}". ${error instanceof Error ? error.message : 'Unknown error'}`, variant: "destructive" });
     }
   };
 
@@ -180,12 +180,12 @@ export default function MyProductsPage({ params, searchParams }: MyProductsPageP
       <Header title="My Product Listings" />
       <main className="flex-1 p-6 space-y-6">
         <Card className="shadow-lg">
-          <CardHeader className="flex flex-row items-center justify-between">
-            <div>
+          <CardHeader className="flex flex-row items-center p-6">
+            <div className="flex-grow">
               <CardTitle>Manage Your Products</CardTitle>
               <CardDescription>Add new products you offer or manage existing ones.</CardDescription>
             </div>
-            <Button onClick={handleOpenAddProductForm}>
+            <Button onClick={handleOpenAddProductForm} className="ml-4">
               <PackagePlus className="mr-2 h-5 w-5" /> Add New Product
             </Button>
           </CardHeader>
@@ -224,7 +224,7 @@ export default function MyProductsPage({ params, searchParams }: MyProductsPageP
         }}>
           <DialogContent className="sm:max-w-xl md:max-w-2xl lg:max-w-3xl">
             <DialogHeader>
-              <DialogTitle>{editingProduct ? 'Edit Product' : 'Add a New Product'}</DialogTitle>
+              <DialogTitle>{editingProduct ? `Edit Product: ${editingProduct.name}` : 'Add a New Product'}</DialogTitle>
             </DialogHeader>
             <ProductForm
               productToEdit={editingProduct}
@@ -236,4 +236,3 @@ export default function MyProductsPage({ params, searchParams }: MyProductsPageP
     </>
   );
 }
-
