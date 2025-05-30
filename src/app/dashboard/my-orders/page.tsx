@@ -4,11 +4,11 @@
 import { Header } from '@/components/dashboard/Header';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ClipboardList, Loader2, Info } from 'lucide-react';
-import { TransactionHistoryTable } from '@/components/transactions/TransactionHistoryTable'; // Re-using for customer view
+import { TransactionHistoryTable } from '@/components/transactions/TransactionHistoryTable';
 import { useAuth } from '@/contexts/AuthContext';
 import { StoredOrder } from '@/types/transaction';
 import { db } from '@/lib/firebase/config';
-import { collection, onSnapshot, query, where, Timestamp } from 'firebase/firestore';
+import { collection, onSnapshot, query, where, Timestamp, orderBy } from 'firebase/firestore';
 import { useState, useEffect } from 'react';
 
 interface MyOrdersPageProps {
@@ -27,21 +27,19 @@ export default function MyOrdersPage({ params, searchParams }: MyOrdersPageProps
       const ordersQuery = query(
         collection(db, "orders"),
         where("customerId", "==", user.id),
-        // orderBy("orderDate", "desc") // Requires composite index if not already present
+        orderBy("orderDate", "desc") 
       );
 
       const unsubscribe = onSnapshot(ordersQuery, (querySnapshot) => {
         const fetchedOrders: StoredOrder[] = [];
         querySnapshot.forEach((doc) => {
           fetchedOrders.push({
-            ...(doc.data() as Omit<StoredOrder, 'id' | 'date'>),
+            ...(doc.data() as Omit<StoredOrder, 'id'>), // No need to map date here
             id: doc.id,
-            date: doc.data().orderDate as Timestamp, // Ensure field name matches Firestore
+            // date: (doc.data().orderDate as Timestamp)?.toDate(), // Not needed if StoredOrder is passed directly
           });
         });
-         // Sort manually as orderBy might require composite index setup
-        fetchedOrders.sort((a, b) => b.date.toMillis() - a.date.toMillis());
-        setCustomerOrders(fetchedOrders);
+        setCustomerOrders(fetchedOrders); // Firestore query handles sorting
         setIsLoadingOrders(false);
       }, (error) => {
         console.error("Error fetching customer orders:", error);
@@ -86,7 +84,6 @@ export default function MyOrdersPage({ params, searchParams }: MyOrdersPageProps
               </div>
             )}
             {!isLoadingOrders && customerOrders.length > 0 && (
-              // Pass only the customer's orders to the table
               <TransactionHistoryTable initialOrders={customerOrders} isCustomerView={true} />
             )}
           </CardContent>

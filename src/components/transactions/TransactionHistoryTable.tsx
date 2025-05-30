@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, useEffect, type SVGProps, type ElementType } from 'react';
+import { useState, useEffect, type SVGProps, type ElementType, useCallback } from 'react';
 import {
   Table,
   TableBody,
@@ -12,14 +12,17 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from '@/components/ui/button';
-import { Trash2, Wallet, Loader2, Eye } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose } from '@/components/ui/dialog';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Label } from '@/components/ui/label';
+import { Trash2, Wallet, Loader2, Eye, ThumbsUp, Truck, Edit, CheckSquare, PackageCheck } from 'lucide-react';
 import type { OrderStatus, StoredOrder } from '@/types/transaction';
 import { AppleIcon, BananaIcon, OrangeIcon, GrapeIcon, MangoIcon, FruitIcon } from '@/components/icons/FruitIcons';
 import { format } from 'date-fns';
 import { useToast } from "@/hooks/use-toast";
 import { db } from '@/lib/firebase/config';
 import { collection, onSnapshot, query, orderBy, doc, deleteDoc, updateDoc, Timestamp, where } from 'firebase/firestore';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuth, type User as AuthUser } from '@/contexts/AuthContext';
 
 const GANACHE_RECIPIENT_ADDRESS = "0x83491285C0aC3dd64255A5D68f0C3e919A5Eacf2";
 const FALLBACK_SIMULATED_ETH_USD_PRICE = 2000;
@@ -28,7 +31,11 @@ const getStatusBadgeVariant = (status: OrderStatus): "default" | "secondary" | "
   switch (status) {
     case 'Paid': return 'default';
     case 'Delivered': return 'default';
+    case 'Receipt Confirmed': return 'default';
     case 'Shipped': return 'secondary';
+    case 'Ready for Pickup': return 'secondary';
+    case 'Awaiting Supplier Confirmation': return 'outline';
+    case 'Awaiting Transporter Assignment': return 'outline';
     case 'Awaiting Payment': return 'outline';
     case 'Pending': return 'outline';
     case 'Cancelled': return 'destructive';
@@ -36,8 +43,8 @@ const getStatusBadgeVariant = (status: OrderStatus): "default" | "secondary" | "
   }
 };
 
-const getFruitIcon = (fruitTypeInput: string | undefined): ElementType<SVGProps<SVGSVGElement>> => {
-  const fruitType = fruitTypeInput || ""; // Ensure fruitType is a string
+const getFruitIcon = (fruitTypeInput?: string): ElementType<SVGProps<SVGSVGElement>> => {
+  const fruitType = fruitTypeInput || ""; 
   const lowerFruitType = fruitType.toLowerCase();
   if (lowerFruitType.includes('apple')) return AppleIcon;
   if (lowerFruitType.includes('banana')) return BananaIcon;
@@ -56,17 +63,27 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
   const [orders, setOrders] = useState<StoredOrder[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [payingOrderId, setPayingOrderId] = useState<string | null>(null);
+  const [confirmingOrderId, setConfirmingOrderId] = useState<string | null>(null); // For supplier confirmation
+  const [assigningTransporterOrderId, setAssigningTransporterOrderId] = useState<string | null>(null); // For supplier assigning transporter
+  const [confirmingReceiptOrderId, setConfirmingReceiptOrderId] = useState<string | null>(null); // For customer confirming receipt
+
+  const [isAssignTransporterDialogOpen, setIsAssignTransporterDialogOpen] = useState(false);
+  const [currentOrderToAssign, setCurrentOrderToAssign] = useState<StoredOrder | null>(null);
+  const [selectedTransporter, setSelectedTransporter] = useState<string | null>(null);
+
+
   const { toast } = useToast();
-  const { user } = useAuth();
+  const { user, allUsersList } = useAuth();
+
+  const availableTransporters = allUsersList.filter(u => u.role === 'transporter' && u.isApproved);
 
   useEffect(() => {
-    if (isCustomerView && initialOrders) {
+    if (initialOrders && (isCustomerView || user?.role === 'supplier')) {
       const mappedOrders: StoredOrder[] = initialOrders.map(order => ({
         ...order,
-        // date: (order.orderDate as Timestamp).toDate(), // No longer needed directly as we keep StoredOrder
         FruitIcon: getFruitIcon(order.productName || (order as any).fruitType),
-      }));
-      setOrders(mappedOrders.sort((a, b) => (b.orderDate as Timestamp).toMillis() - (a.orderDate as Timestamp).toMillis()));
+      })).sort((a, b) => (b.orderDate as Timestamp).toMillis() - (a.orderDate as Timestamp).toMillis());
+      setOrders(mappedOrders);
       setIsLoading(false);
       return;
     }
@@ -76,9 +93,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
     if (isCustomerView && user) {
         ordersQuery = query(collection(db, "orders"), where("customerId", "==", user.id), orderBy("orderDate", "desc"));
     } else if (user && user.role === 'supplier') {
-        // Removed orderBy("orderDate", "desc") to avoid composite index error for now
-        // Sorting will be done client-side
-        ordersQuery = query(collection(db, "orders"), where("supplierId", "==", user.id));
+        ordersQuery = query(collection(db, "orders"), where("supplierId", "==", user.id), orderBy("orderDate", "desc"));
     } else if (user && user.role === 'manager') {
         ordersQuery = query(collection(db, "orders"), orderBy("orderDate", "desc"));
     } else {
@@ -89,24 +104,15 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
 
     const unsubscribe = onSnapshot(ordersQuery, (querySnapshot) => {
       const fetchedOrders: StoredOrder[] = [];
-      querySnapshot.forEach((docSnapshot) => { // Renamed doc to docSnapshot to avoid conflict
+      querySnapshot.forEach((docSnapshot) => {
         const data = docSnapshot.data() as Omit<StoredOrder, 'id'>;
         fetchedOrders.push({
           ...data,
           id: docSnapshot.id,
-          // date: (data.orderDate as Timestamp).toDate(), // No longer needed directly
           FruitIcon: getFruitIcon(data.productName || (data as any).fruitType), 
         });
       });
-
-      // Client-side sorting for supplier if orderby was removed
-      if (user && user.role === 'supplier') {
-        fetchedOrders.sort((a, b) => (b.orderDate as Timestamp).toMillis() - (a.orderDate as Timestamp).toMillis());
-      }
-      // Customer view already sorts if initialOrders provided, otherwise Firestore sorts
-      // Manager view is sorted by Firestore
-
-      setOrders(fetchedOrders);
+      setOrders(fetchedOrders); // Firestore query already handles sorting
       setIsLoading(false);
     }, (error) => {
       console.error("Error fetching orders from Firestore:", error);
@@ -119,6 +125,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
   }, [toast, initialOrders, isCustomerView, user]);
 
   const handleDeleteOrder = async (orderId: string) => {
+    // ... (existing handleDeleteOrder logic, no changes needed here for the new flow)
     if (user?.role === 'customer') {
         toast({ title: "Action Not Allowed", description: "Customers cannot delete orders. Please contact support.", variant: "destructive"});
         return;
@@ -136,6 +143,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
   };
 
   const fetchEthPrice = async (): Promise<number> => {
+    // ... (existing fetchEthPrice logic, no changes needed here)
     toast({
       title: "Fetching Live ETH Price...",
       description: "Getting the latest ETH to USD conversion rate from CoinGecko.",
@@ -167,18 +175,17 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
     }
   };
 
-  const handlePayWithMetamask = async (orderId: string) => {
+  const handlePayWithMetamask = useCallback(async (orderId: string) => {
     const orderToPay = orders.find(o => o.id === orderId);
     if (!orderToPay) {
       toast({ title: "Error", description: "Order not found.", variant: "destructive" });
-      return;
+      return false;
     }
-
-    if (orderToPay.totalAmount <= 0) {
+    // ... (rest of the existing Metamask payment logic)
+     if (orderToPay.totalAmount <= 0) {
       toast({ title: "Payment Error", description: "Order amount must be greater than zero to pay.", variant: "destructive" });
-      return;
+      return false;
     }
-
     if (GANACHE_RECIPIENT_ADDRESS === "YOUR_GANACHE_ACCOUNT_ADDRESS_HERE" || GANACHE_RECIPIENT_ADDRESS.toUpperCase().includes("YOUR_GANACHE_ACCOUNT_ADDRESS_HERE")) {
       toast({
         title: "Configuration Needed",
@@ -186,23 +193,20 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
         variant: "destructive",
         duration: 10000,
       });
-      return;
+      return false;
     }
-
     if (typeof window.ethereum === 'undefined') {
       toast({ title: "Metamask Not Found", description: "Please install Metamask to use this feature.", variant: "destructive" });
-      return;
+      return false;
     }
 
     setPayingOrderId(orderId);
-
     let currentEthUsdPrice: number;
     try {
       currentEthUsdPrice = await fetchEthPrice();
     } catch (priceError) {
       currentEthUsdPrice = FALLBACK_SIMULATED_ETH_USD_PRICE;
     }
-
     const ethAmount = orderToPay.totalAmount / currentEthUsdPrice;
     const ethAmountFixed = parseFloat(ethAmount.toFixed(18)); 
 
@@ -216,54 +220,44 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
       if (!accounts || accounts.length === 0) {
         toast({ title: "Connection Failed", description: "No accounts found in Metamask.", variant: "destructive" });
         setPayingOrderId(null);
-        return;
+        return false;
       }
       const fromAccount = accounts[0];
-
       const amountInWei = BigInt(Math.floor(ethAmountFixed * 1e18));
-
       if (amountInWei <= 0) {
         toast({ title: "Payment Error", description: "Calculated ETH amount is too small or zero. Try a larger order amount.", variant: "destructive" });
         setPayingOrderId(null);
-        return;
+        return false;
       }
-
       const transactionParameters = {
         to: GANACHE_RECIPIENT_ADDRESS,
         from: fromAccount,
         value: '0x' + amountInWei.toString(16),
       };
-
       toast({
         title: "Sending to Smart Contract (Simulated)",
         description: `Sending ${ethAmountFixed.toFixed(6)} ETH. Awaiting your confirmation in Metamask...`
       });
-
       const txHash = await window.ethereum.request({
         method: 'eth_sendTransaction',
         params: [transactionParameters],
       }) as string;
-
       toast({
         title: "Transaction Submitted to Ganache",
         description: `Tx Hash: ${txHash.substring(0,10)}... Simulating block confirmation.`
       });
-
-      // Simulate block confirmation delay
-      await new Promise(resolve => setTimeout(resolve, 4000)); // 4 seconds delay
-
+      await new Promise(resolve => setTimeout(resolve, 4000)); 
       const orderRef = doc(db, "orders", orderId);
       await updateDoc(orderRef, {
         status: 'Paid' as OrderStatus,
         paymentTransactionHash: txHash 
       });
-
       toast({
         title: "Payment Confirmed (Simulated)",
-        description: `Order for ${orderToPay.productName || (orderToPay as any).fruitType} (Amount: ${ethAmountFixed.toFixed(6)} ETH) marked as Paid. Block confirmed on Ganache (simulated).`,
+        description: `Order for ${orderToPay.productName || (orderToPay as any).fruitType} (Amount: ${ethAmountFixed.toFixed(6)} ETH) marked as Paid.`,
         variant: "default"
       });
-
+      return true;
     } catch (error: any) {
       console.error("Metamask payment failed:", error);
       toast({
@@ -271,8 +265,86 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
         description: error.message || "Failed to process payment with Metamask.",
         variant: "destructive"
       });
+      return false;
     } finally {
       setPayingOrderId(null);
+    }
+  }, [orders, toast]);
+
+  // --- Supplier Actions ---
+  const handleSupplierConfirmOrder = async (orderId: string) => {
+    setConfirmingOrderId(orderId);
+    try {
+      const orderRef = doc(db, "orders", orderId);
+      await updateDoc(orderRef, { status: 'Awaiting Transporter Assignment' as OrderStatus });
+      toast({ title: "Order Confirmed", description: "Order is now awaiting transporter assignment." });
+    } catch (error) {
+      toast({ title: "Error", description: "Could not confirm order.", variant: "destructive" });
+      console.error("Error confirming order:", error);
+    } finally {
+      setConfirmingOrderId(null);
+    }
+  };
+
+  const handleOpenAssignTransporterDialog = (order: StoredOrder) => {
+    setCurrentOrderToAssign(order);
+    setSelectedTransporter(null); // Reset selection
+    setIsAssignTransporterDialogOpen(true);
+  };
+
+  const handleAssignTransporter = async () => {
+    if (!currentOrderToAssign || !selectedTransporter) {
+      toast({ title: "Error", description: "Please select a transporter.", variant: "destructive" });
+      return;
+    }
+    setAssigningTransporterOrderId(currentOrderToAssign.id);
+    const transporterUser = allUsersList.find(u => u.id === selectedTransporter);
+    if (!transporterUser) {
+      toast({ title: "Error", description: "Selected transporter not found.", variant: "destructive" });
+      setAssigningTransporterOrderId(null);
+      return;
+    }
+
+    try {
+      const orderRef = doc(db, "orders", currentOrderToAssign.id);
+      await updateDoc(orderRef, {
+        transporterId: selectedTransporter,
+        transporterName: transporterUser.name,
+        status: 'Ready for Pickup' as OrderStatus,
+        shipmentStatus: 'Ready for Pickup' // Also set initial shipment status
+      });
+      toast({ title: "Transporter Assigned", description: `${transporterUser.name} assigned. Order ready for pickup.` });
+      setIsAssignTransporterDialogOpen(false);
+      setCurrentOrderToAssign(null);
+    } catch (error) {
+      toast({ title: "Error", description: "Could not assign transporter.", variant: "destructive" });
+      console.error("Error assigning transporter:", error);
+    } finally {
+      setAssigningTransporterOrderId(null);
+    }
+  };
+
+  // --- Customer Actions ---
+  const handleCustomerConfirmReceipt = async (orderId: string) => {
+    setConfirmingReceiptOrderId(orderId);
+    try {
+      const orderRef = doc(db, "orders", orderId);
+      await updateDoc(orderRef, { status: 'Receipt Confirmed' as OrderStatus });
+      toast({ title: "Receipt Confirmed", description: "Thank you! Attempting to process payment." });
+      
+      // Attempt automatic payment
+      const paymentSuccessful = await handlePayWithMetamask(orderId);
+      if (!paymentSuccessful) {
+        // If auto-payment fails, status remains 'Receipt Confirmed'
+        // User might need to manually retry payment if a 'Pay' button is available for this status,
+        // or we revert status back to 'Awaiting Payment' if desired. For now, it stays 'Receipt Confirmed'.
+        toast({ title: "Payment Notice", description: "Automatic payment could not be completed. Please check your Metamask or try paying manually if available.", variant: "destructive", duration: 7000 });
+      }
+    } catch (error) {
+      toast({ title: "Error", description: "Could not confirm receipt.", variant: "destructive" });
+      console.error("Error confirming receipt:", error);
+    } finally {
+      setConfirmingReceiptOrderId(null);
     }
   };
 
@@ -285,6 +357,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
   }
 
   return (
+    <>
     <div className="overflow-x-auto">
       <Table>
         <TableHeader>
@@ -297,7 +370,8 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
             <TableHead className="text-right">Amount</TableHead>
             <TableHead className="text-right">Quantity</TableHead>
             <TableHead>Status</TableHead>
-            <TableHead className="w-[120px] text-center">Actions</TableHead>
+            <TableHead>Shipment Status</TableHead>
+            <TableHead className="w-[200px] text-center">Actions</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -315,30 +389,57 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
               <TableCell>
                 <Badge variant={getStatusBadgeVariant(order.status)}>{order.status}</Badge>
               </TableCell>
+              <TableCell>
+                {order.shipmentStatus ? <Badge variant={order.shipmentStatus === 'Delivered' ? 'default' : 'secondary'}>{order.shipmentStatus}</Badge> : <span className="text-xs text-muted-foreground">N/A</span>}
+              </TableCell>
               <TableCell className="space-x-1 text-center">
-                {order.status === 'Awaiting Payment' && (user?.role === 'customer' || user?.role === 'manager') && (
+                {/* Customer Actions */}
+                {isCustomerView && order.status === 'Awaiting Payment' && (
                   <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handlePayWithMetamask(order.id)}
-                    disabled={payingOrderId === order.id || !!payingOrderId}
-                    className="h-8 px-2"
-                    title="Pay with Metamask"
+                    variant="outline" size="sm" onClick={() => handlePayWithMetamask(order.id)}
+                    disabled={payingOrderId === order.id || !!payingOrderId} className="h-8 px-2" title="Pay with Metamask"
                   >
-                    {payingOrderId === order.id ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Wallet className="h-4 w-4" />
-                    )}
+                    {payingOrderId === order.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wallet className="h-4 w-4" />}
                     <span className={payingOrderId === order.id ? "sr-only" : "ml-1"}>Pay</span>
                   </Button>
                 )}
+                {isCustomerView && order.shipmentStatus === 'Delivered' && order.status !== 'Paid' && order.status !== 'Receipt Confirmed' && (
+                  <Button
+                    variant="outline" size="sm" onClick={() => handleCustomerConfirmReceipt(order.id)}
+                    disabled={confirmingReceiptOrderId === order.id} className="h-8 px-2" title="Confirm Receipt"
+                  >
+                    {confirmingReceiptOrderId === order.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckSquare className="h-4 w-4" />}
+                    <span className="ml-1">Confirm Receipt</span>
+                  </Button>
+                )}
+
+                {/* Supplier Actions */}
+                {!isCustomerView && user?.role === 'supplier' && order.status === 'Awaiting Supplier Confirmation' && (
+                  <Button 
+                    variant="outline" size="sm" onClick={() => handleSupplierConfirmOrder(order.id)}
+                    disabled={confirmingOrderId === order.id} className="h-8 px-2 text-green-600 border-green-600 hover:text-green-700" title="Confirm Order"
+                  >
+                    {confirmingOrderId === order.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <ThumbsUp className="h-4 w-4" />}
+                    <span className="ml-1">Confirm Order</span>
+                  </Button>
+                )}
+                {!isCustomerView && user?.role === 'supplier' && order.status === 'Awaiting Transporter Assignment' && (
+                  <Button
+                    variant="outline" size="sm" onClick={() => handleOpenAssignTransporterDialog(order)}
+                    disabled={assigningTransporterOrderId === order.id} className="h-8 px-2 text-blue-600 border-blue-600 hover:text-blue-700" title="Assign Transporter"
+                  >
+                    {assigningTransporterOrderId === order.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Truck className="h-4 w-4" />}
+                    <span className="ml-1">Assign Transporter</span>
+                  </Button>
+                )}
+
+                {/* Generic Actions */}
                 {user?.role !== 'customer' && (
                   <Button variant="ghost" size="icon" onClick={() => handleDeleteOrder(order.id)} aria-label="Delete order" className="h-8 w-8">
                     <Trash2 className="h-4 w-4 text-destructive" />
                   </Button>
                 )}
-                 {user?.role === 'customer' && order.status !== 'Awaiting Payment' && ( 
+                {isCustomerView && order.status !== 'Awaiting Payment' && !(order.shipmentStatus === 'Delivered' && order.status !== 'Paid' && order.status !== 'Receipt Confirmed') && ( 
                     <Button variant="ghost" size="icon" onClick={() => alert(`Viewing order ${order.id} - details would show here.`)} aria-label="View order" className="h-8 w-8">
                         <Eye className="h-4 w-4 text-primary" />
                     </Button>
@@ -349,5 +450,57 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
         </TableBody>
       </Table>
     </div>
+
+    {/* Assign Transporter Dialog */}
+    {currentOrderToAssign && (
+      <Dialog open={isAssignTransporterDialogOpen} onOpenChange={(isOpen) => {
+        if (!isOpen) {
+          setCurrentOrderToAssign(null);
+          setSelectedTransporter(null);
+        }
+        setIsAssignTransporterDialogOpen(isOpen);
+      }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Assign Transporter for Order: {currentOrderToAssign.productName}</DialogTitle>
+            <DialogDescription>
+              Customer: {currentOrderToAssign.customerName} <br/>
+              Order ID: {currentOrderToAssign.id}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4 space-y-2">
+            <Label htmlFor="transporter-select">Select Transporter</Label>
+            <Select onValueChange={setSelectedTransporter} value={selectedTransporter || undefined}>
+              <SelectTrigger id="transporter-select">
+                <SelectValue placeholder="Choose a transporter..." />
+              </SelectTrigger>
+              <SelectContent>
+                {availableTransporters.length > 0 ? (
+                  availableTransporters.map(t => (
+                    <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
+                  ))
+                ) : (
+                  <div className="p-4 text-sm text-muted-foreground">No approved transporters available.</div>
+                )}
+              </SelectContent>
+            </Select>
+          </div>
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button type="button" variant="outline">Cancel</Button>
+            </DialogClose>
+            <Button 
+              type="button" 
+              onClick={handleAssignTransporter} 
+              disabled={!selectedTransporter || assigningTransporterOrderId === currentOrderToAssign.id}
+            >
+              {assigningTransporterOrderId === currentOrderToAssign.id && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Assign
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    )}
+    </>
   );
 }

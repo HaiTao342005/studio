@@ -15,6 +15,7 @@ import type { Product as ProductType, StoredProduct } from '@/types/product';
 import { db } from '@/lib/firebase/config';
 import { doc, getDoc, addDoc, collection, serverTimestamp, Timestamp } from 'firebase/firestore';
 import { Loader2, Info, ShoppingBag, UserCircle, ArrowLeft, CheckCircle, XCircle } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 
 interface NegotiationPageContentProps {
   productId: string;
@@ -107,18 +108,16 @@ function NegotiationPageContent({ productId, supplierId }: NegotiationPageConten
         quantity: desiredQuantity,
         pricePerUnit: product.price,
         totalAmount: totalPrice,
-        currency: 'USD', // Assuming USD for now
+        currency: 'USD', 
         unit: product.unit,
-        status: 'Awaiting Payment', // Default status
+        status: 'Awaiting Supplier Confirmation', // Updated initial status
         orderDate: serverTimestamp(),
+        shipmentStatus: undefined, // Explicitly undefined initially
+        podSubmitted: false,
       };
       await addDoc(collection(db, "orders"), orderData);
 
-      // Optionally update product stock quantity in Firestore (if implementing inventory management)
-      // const productRef = doc(db, "products", product.id);
-      // await updateDoc(productRef, { stockQuantity: product.stockQuantity - desiredQuantity });
-
-      toast({ title: "Order Placed!", description: `Your order for ${desiredQuantity} ${product.unit}(s) of ${product.name} has been placed.`, });
+      toast({ title: "Order Placed!", description: `Your order for ${desiredQuantity} ${product.unit}(s) of ${product.name} has been placed and is awaiting supplier confirmation.`, });
       router.push('/dashboard/my-orders');
     } catch (err) {
       console.error("Error placing order:", err);
@@ -272,8 +271,6 @@ function NegotiationPageInternal() {
   const supplierId = searchParams.get('supplierId');
 
   if (!productId || !supplierId) {
-    // Handle missing params, e.g., redirect or show an error message
-    // This could be a redirect to /dashboard/find-products or an error component
     return (
         <div className="flex flex-1 flex-col justify-center items-center min-h-screen p-6">
             <Header title="Error" />
@@ -294,7 +291,6 @@ function NegotiationPageInternal() {
   return <NegotiationPageContent productId={productId} supplierId={supplierId} />;
 }
 
-// Helper function for AI hint, can be defined here or imported
 const generateAiHint = (name: string, category?: string): string => {
   if (category) {
     const categoryWords = category.split(' ').map(word => word.toLowerCase().replace(/[^a-z0-9]/gi, '')).filter(Boolean);
