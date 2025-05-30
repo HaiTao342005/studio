@@ -15,7 +15,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
-import { Trash2, Wallet, Loader2, Eye, ThumbsUp, Truck, CheckSquare } from 'lucide-react';
+import { Trash2, Wallet, Loader2, Eye, ThumbsUp, Truck, CheckSquare, AlertTriangle, ThumbsDown } from 'lucide-react';
 import type { OrderStatus, StoredOrder, OrderShipmentStatus } from '@/types/transaction';
 import { AppleIcon, BananaIcon, OrangeIcon, GrapeIcon, MangoIcon, FruitIcon } from '@/components/icons/FruitIcons';
 import { format } from 'date-fns';
@@ -41,24 +41,29 @@ import { calculateDistance, type CalculateDistanceOutput } from '@/ai/flows/calc
 const GANACHE_RECIPIENT_ADDRESS = "0x83491285C0aC3dd64255A5D68f0C3e919A5Eacf2";
 const FALLBACK_SIMULATED_ETH_USD_PRICE = 2000;
 
-const getStatusBadgeVariant = (status: OrderStatus): "default" | "secondary" | "destructive" | "outline" => {
+const getStatusBadgeVariant = (status: OrderStatus | OrderShipmentStatus): "default" | "secondary" | "destructive" | "outline" => {
   switch (status) {
     case 'Paid': return 'default';
     case 'Delivered': return 'default';
     case 'Receipt Confirmed': return 'default';
     case 'Shipped': return 'secondary';
     case 'Ready for Pickup': return 'secondary';
+    case 'In Transit': return 'secondary';
+    case 'Out for Delivery': return 'secondary';
     case 'Awaiting Supplier Confirmation': return 'outline';
     case 'Awaiting Transporter Assignment': return 'outline';
     case 'Awaiting Payment': return 'outline';
     case 'Pending': return 'outline';
     case 'Cancelled': return 'destructive';
+    case 'Delivery Failed': return 'destructive';
+    case 'Shipment Cancelled': return 'destructive';
+    case 'Disputed': return 'destructive'; // New status
     default: return 'secondary';
   }
 };
 
 const getFruitIcon = (fruitTypeInput?: string): ElementType<SVGProps<SVGSVGElement>> => {
-  const fruitType = fruitTypeInput || "";
+  const fruitType = fruitTypeInput || ""; // Ensure fruitType is always a string
   const lowerFruitType = fruitType.toLowerCase();
   if (lowerFruitType.includes('apple')) return AppleIcon;
   if (lowerFruitType.includes('banana')) return BananaIcon;
@@ -80,6 +85,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
   const [confirmingOrderId, setConfirmingOrderId] = useState<string | null>(null);
   const [assigningTransporterOrderId, setAssigningTransporterOrderId] = useState<string | null>(null);
   const [confirmingReceiptOrderId, setConfirmingReceiptOrderId] = useState<string | null>(null);
+  const [denyingReceiptOrderId, setDenyingReceiptOrderId] = useState<string | null>(null); // New state
   const [isAssignTransporterDialogOpen, setIsAssignTransporterDialogOpen] = useState(false);
   const [currentOrderToAssign, setCurrentOrderToAssign] = useState<StoredOrder | null>(null);
   const [selectedTransporter, setSelectedTransporter] = useState<string | null>(null);
@@ -91,18 +97,16 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
 
   useEffect(() => {
     if (isCustomerView && initialOrders) {
+      console.log("[TransactionHistoryTable] Customer View - Initial orders received:", initialOrders);
       const mappedOrders: StoredOrder[] = initialOrders.map(order => ({
         ...order,
         FruitIcon: getFruitIcon(order.productName || (order as any).fruitType),
       }));
-      // Client-side sorting for customer view if `orderBy` not used in parent query
-      if (initialOrders.length > 0 && !initialOrders.every(o => o.orderDate)) {
-         console.warn("[TransactionHistoryTable] Some initialOrders missing orderDate, client sorting might be affected.");
-      }
+      // Client-side sorting for customer view (ensure dates are valid Timestamps)
       mappedOrders.sort((a, b) => {
-        const dateA = (a.orderDate || (a as any).date) as Timestamp | undefined;
-        const dateB = (b.orderDate || (b as any).date) as Timestamp | undefined;
-        return (dateB?.toMillis() || 0) - (dateA?.toMillis() || 0);
+        const dateA = (a.orderDate as Timestamp)?.toMillis() || 0;
+        const dateB = (b.orderDate as Timestamp)?.toMillis() || 0;
+        return dateB - dateA;
       });
       setOrders(mappedOrders);
       setIsLoading(false);
@@ -110,6 +114,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
     }
 
     if (!user || !user.id) {
+      console.log("[TransactionHistoryTable] No user or user.id, clearing orders.");
       setOrders([]);
       setIsLoading(false);
       return;
@@ -125,11 +130,14 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
       ordersQuery = query(
         collection(db, "orders"),
         where("supplierId", "==", user.id),
-        // orderBy("orderDate", "desc") // Ensure Firestore index is created for this
+        orderBy("orderDate", "desc") // Requires Firestore index
       );
+      console.log("[TransactionHistoryTable] Supplier query:", user.id);
     } else if (currentRole === 'manager') {
       ordersQuery = query(collection(db, "orders"), orderBy("orderDate", "desc"));
+      console.log("[TransactionHistoryTable] Manager query");
     } else {
+      console.log("[TransactionHistoryTable] Role not supplier or manager, clearing orders.");
       setOrders([]);
       setIsLoading(false);
       return;
@@ -146,14 +154,10 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
         });
       });
       
-      // Client-side sorting for supplier if index is not used/available
       if (currentRole === 'supplier') {
-        fetchedOrders.sort((a, b) => {
-            const dateA = (a.orderDate || (a as any).date) as Timestamp | undefined;
-            const dateB = (b.orderDate || (b as any).date) as Timestamp | undefined;
-            return (dateB?.toMillis() || 0) - (dateA?.toMillis() || 0);
-        });
-        console.log("[TransactionHistoryTable] Supplier - Raw orders from Firestore for supplier", user.id, ":", fetchedOrders);
+         console.log(`[TransactionHistoryTable] Supplier ${user.id} fetched ${fetchedOrders.length} orders:`, fetchedOrders);
+      } else if (currentRole === 'manager') {
+         console.log(`[TransactionHistoryTable] Manager fetched ${fetchedOrders.length} orders:`, fetchedOrders);
       }
 
       setOrders(fetchedOrders);
@@ -171,6 +175,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
     });
 
     return () => {
+      console.log("[TransactionHistoryTable] Unsubscribing from Firestore listener.");
       unsubscribe();
     };
   }, [user, isCustomerView, initialOrders, toast]);
@@ -427,8 +432,8 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
       const updateData: Partial<StoredOrder> = {
         transporterId: selectedTransporter,
         transporterName: transporterUser.name,
-        status: 'Ready for Pickup' as OrderStatus,
-        shipmentStatus: 'Ready for Pickup' as OrderShipmentStatus,
+        status: 'Ready for Pickup' as OrderStatus, // Main order status
+        shipmentStatus: 'Ready for Pickup' as OrderShipmentStatus, // Specific shipment status
         pickupAddress: supplierAddress,
         deliveryAddress: customerAddress,
       };
@@ -454,7 +459,6 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
       const orderRef = doc(db, "orders", orderId);
       await updateDoc(orderRef, { status: 'Receipt Confirmed' as OrderStatus });
       toast({ title: "Receipt Confirmed", description: "Thank you! Please proceed with payment if outstanding." });
-      // No automatic payment trigger here anymore, customer needs to click pay.
     } catch (error) {
       toast({ title: "Error", description: "Could not confirm receipt.", variant: "destructive" });
       console.error("Error confirming receipt:", error);
@@ -462,6 +466,21 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
       setConfirmingReceiptOrderId(null);
     }
   };
+
+  const handleDenyReceipt = async (orderId: string) => {
+    setDenyingReceiptOrderId(orderId);
+    try {
+      const orderRef = doc(db, "orders", orderId);
+      await updateDoc(orderRef, { status: 'Disputed' as OrderStatus });
+      toast({ title: "Receipt Denied", description: "Delivery issue reported for order. Please contact support or the supplier." });
+    } catch (error) {
+      toast({ title: "Error", description: "Could not deny receipt.", variant: "destructive" });
+      console.error("Error denying receipt:", error);
+    } finally {
+      setDenyingReceiptOrderId(null);
+    }
+  };
+
 
   if (isLoading) {
     return <div className="flex justify-center items-center py-8"><Loader2 className="h-8 w-8 animate-spin mr-2" /> Loading order history...</div>;
@@ -486,7 +505,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
             <TableHead className="text-right">Quantity</TableHead>
             <TableHead>Status</TableHead>
             <TableHead>Shipment Status</TableHead>
-            <TableHead>Predicted Delivery</TableHead> {/* New Column */}
+            <TableHead>Predicted Delivery</TableHead>
             <TableHead className="w-[200px] text-center">Actions</TableHead>
           </TableRow>
         </TableHeader>
@@ -494,6 +513,9 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
           {orders.map((order) => {
             const displayDate = order.orderDate || (order as any).date;
             const productName = order.productName || (order as any).fruitType;
+            const canConfirmOrDeny = isCustomerView && order.shipmentStatus === 'Delivered' && order.status !== 'Paid' && order.status !== 'Receipt Confirmed' && order.status !== 'Disputed';
+            const canPay = isCustomerView && (order.status === 'Awaiting Payment' || order.status === 'Receipt Confirmed') && order.status !== 'Paid' && order.status !== 'Disputed';
+
             return (
             <TableRow key={order.id}>
               <TableCell>
@@ -511,27 +533,36 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
               <TableCell>
                 {order.shipmentStatus ? <Badge variant={getStatusBadgeVariant(order.shipmentStatus)}>{order.shipmentStatus}</Badge> : <span className="text-xs text-muted-foreground">N/A</span>}
               </TableCell>
-              <TableCell> {/* New Cell for Predicted Delivery */}
+              <TableCell>
                 {order.predictedDeliveryDate ? format((order.predictedDeliveryDate as Timestamp).toDate(), "MMM d, yyyy") : <span className="text-xs text-muted-foreground">N/A</span>}
               </TableCell>
               <TableCell className="space-x-1 text-center">
-                {isCustomerView && (order.status === 'Awaiting Payment' || order.status === 'Receipt Confirmed') && order.status !== 'Paid' && (
+                {canPay && (
                   <Button
                     variant="outline" size="sm" onClick={() => handlePayWithMetamask(order.id)}
-                    disabled={payingOrderId === order.id || !!payingOrderId} className="h-8 px-2" title="Pay with Metamask"
+                    disabled={payingOrderId === order.id || !!payingOrderId || !!confirmingReceiptOrderId || !!denyingReceiptOrderId} className="h-8 px-2" title="Pay with Metamask"
                   >
                     {payingOrderId === order.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wallet className="h-4 w-4" />}
                     <span className={payingOrderId === order.id ? "sr-only" : "ml-1"}>Pay</span>
                   </Button>
                 )}
-                {isCustomerView && order.shipmentStatus === 'Delivered' && order.status !== 'Paid' && order.status !== 'Receipt Confirmed' && (
-                  <Button
-                    variant="outline" size="sm" onClick={() => handleCustomerConfirmReceipt(order.id)}
-                    disabled={confirmingReceiptOrderId === order.id || !!confirmingReceiptOrderId} className="h-8 px-2" title="Confirm Receipt"
-                  >
-                    {confirmingReceiptOrderId === order.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckSquare className="h-4 w-4" />}
-                    <span className="ml-1">Confirm Receipt</span>
-                  </Button>
+                {canConfirmOrDeny && (
+                  <>
+                    <Button
+                      variant="outline" size="sm" onClick={() => handleCustomerConfirmReceipt(order.id)}
+                      disabled={confirmingReceiptOrderId === order.id || !!confirmingReceiptOrderId || !!denyingReceiptOrderId || !!payingOrderId} className="h-8 px-2 text-green-600 border-green-600 hover:text-green-700" title="Confirm Receipt"
+                    >
+                      {confirmingReceiptOrderId === order.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <ThumbsUp className="h-4 w-4" />}
+                      <span className="ml-1">Confirm</span>
+                    </Button>
+                    <Button
+                      variant="outline" size="sm" onClick={() => handleDenyReceipt(order.id)}
+                      disabled={denyingReceiptOrderId === order.id || !!denyingReceiptOrderId || !!confirmingReceiptOrderId || !!payingOrderId} className="h-8 px-2 text-red-600 border-red-600 hover:text-red-700" title="Deny Receipt / Report Issue"
+                    >
+                      {denyingReceiptOrderId === order.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <ThumbsDown className="h-4 w-4" />}
+                      <span className="ml-1">Deny</span>
+                    </Button>
+                  </>
                 )}
 
                 {!isCustomerView && user?.role === 'supplier' && order.status === 'Awaiting Supplier Confirmation' && (
@@ -558,7 +589,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
                     <Trash2 className="h-4 w-4 text-destructive" />
                   </Button>
                 )}
-                {isCustomerView && order.status !== 'Awaiting Payment' && order.status !== 'Receipt Confirmed' && !(order.shipmentStatus === 'Delivered' && order.status !== 'Paid' && order.status !== 'Receipt Confirmed') && (
+                {isCustomerView && !canConfirmOrDeny && !canPay && (
                     <Button variant="ghost" size="icon" onClick={() => alert(`Viewing order ${order.id} - details would show here.`)} aria-label="View order" className="h-8 w-8">
                         <Eye className="h-4 w-4 text-primary" />
                     </Button>

@@ -12,7 +12,8 @@ export type OrderStatus =
   | 'Shipped'
   | 'Delivered'
   | 'Receipt Confirmed'
-  | 'Cancelled';
+  | 'Cancelled'
+  | 'Disputed'; // New status for denied receipt
 
 export type OrderShipmentStatus = 'Ready for Pickup' | 'In Transit' | 'Out for Delivery' | 'Delivered' | 'Delivery Failed' | 'Shipment Cancelled';
 
@@ -40,7 +41,7 @@ export interface StoredOrder {
   paymentTransactionHash?: string;
   pickupAddress?: string;
   deliveryAddress?: string;
-  predictedDeliveryDate?: Timestamp; // New field
+  predictedDeliveryDate?: Timestamp;
 }
 
 export interface Order extends Omit<StoredOrder, 'orderDate'> {
