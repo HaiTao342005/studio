@@ -9,8 +9,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { useAuth, type User as AuthUser } from '@/contexts/AuthContext';
 import type { Product as ProductType, StoredProduct } from '@/types/product';
 import { db } from '@/lib/firebase/config';
-import { collection, getDocs, query, Timestamp } from 'firebase/firestore';
-import { Loader2, Search, Package, ShoppingBag, Info, ImageOff, MessageSquare, CalendarDays, Home, Landmark, AlertCircle, Star } from 'lucide-react';
+import { collection, getDocs, query, Timestamp, where } from 'firebase/firestore'; // Added where
+import { Loader2, Search, Package, ShoppingBag, Info, ImageOff, MessageSquare, CalendarDays, Home, Landmark, AlertCircle, Star, HistoryIcon } from 'lucide-react';
 import Image from 'next/image';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
@@ -20,6 +20,7 @@ import { format } from 'date-fns';
 interface SupplierWithProducts {
   supplier: AuthUser;
   products: ProductType[];
+  purchaseCount: number; // How many times the current customer bought from this supplier
 }
 
 interface FindProductsPageProps {
@@ -40,15 +41,22 @@ export default function FindProductsPage({ params, searchParams }: FindProductsP
   const [searchTerm, setSearchTerm] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [results, setResults] = useState<SupplierWithProducts[]>([]);
-  const { allUsersList, isLoadingUsers } = useAuth();
+  const { user: currentUser, allUsersList, isLoadingUsers } = useAuth(); // Renamed user to currentUser for clarity
   const { toast } = useToast();
   const router = useRouter();
 
   const performSearch = useCallback(async (currentSearchTerm: string) => {
+    if (!currentUser || currentUser.role !== 'customer') {
+      setResults([]);
+      setIsLoading(false);
+      return;
+    }
+
     setIsLoading(true);
     setResults([]);
 
     try {
+      // Fetch all products
       const productsQuery = query(collection(db, "products"));
       const productsSnapshot = await getDocs(productsQuery);
       const fetchedProducts: ProductType[] = [];
@@ -63,9 +71,20 @@ export default function FindProductsPage({ params, searchParams }: FindProductsP
         });
       });
 
+      // Fetch current customer's order history
+      const customerOrdersQuery = query(collection(db, "orders"), where("customerId", "==", currentUser.id));
+      const customerOrdersSnapshot = await getDocs(customerOrdersQuery);
+      const purchaseFrequencyMap = new Map<string, number>();
+      customerOrdersSnapshot.forEach(orderDoc => {
+        const supplierId = orderDoc.data().supplierId as string;
+        if (supplierId) {
+          purchaseFrequencyMap.set(supplierId, (purchaseFrequencyMap.get(supplierId) || 0) + 1);
+        }
+      });
+
+      // Filter products based on search term
       let matchingProducts = fetchedProducts;
       const lowerSearchTerm = currentSearchTerm.toLowerCase().trim();
-
       if (lowerSearchTerm) {
         matchingProducts = fetchedProducts.filter(product =>
           product.name.toLowerCase().includes(lowerSearchTerm) ||
@@ -73,22 +92,34 @@ export default function FindProductsPage({ params, searchParams }: FindProductsP
         );
       }
 
+      // Group products by supplier and include purchase count
       const suppliersMap = new Map<string, SupplierWithProducts>();
       matchingProducts.forEach(product => {
-        const supplier = allUsersList.find(u => u.id === product.supplierId && u.role === 'supplier' && !u.isSuspended && u.isApproved); // Filter out suspended suppliers
+        const supplier = allUsersList.find(u => u.id === product.supplierId && u.role === 'supplier' && !u.isSuspended && u.isApproved);
         if (supplier) {
           if (!suppliersMap.has(supplier.id)) {
-            suppliersMap.set(supplier.id, { supplier, products: [] });
+            suppliersMap.set(supplier.id, {
+              supplier,
+              products: [],
+              purchaseCount: purchaseFrequencyMap.get(supplier.id) || 0,
+            });
           }
           suppliersMap.get(supplier.id)!.products.push(product);
         }
       });
       
+      // Sort products within each supplier's list
       suppliersMap.forEach(supplierWithProducts => {
         supplierWithProducts.products.sort((a, b) => a.name.localeCompare(b.name));
       });
 
-      const sortedResults = Array.from(suppliersMap.values()).sort((a,b) => a.supplier.name.localeCompare(b.supplier.name));
+      // Sort suppliers: 1. by purchaseCount (desc), 2. by name (asc)
+      const sortedResults = Array.from(suppliersMap.values()).sort((a, b) => {
+        if (a.purchaseCount !== b.purchaseCount) {
+          return b.purchaseCount - a.purchaseCount; // Higher purchase count first
+        }
+        return a.supplier.name.localeCompare(b.supplier.name); // Then by name
+      });
       setResults(sortedResults);
 
     } catch (error) {
@@ -97,16 +128,22 @@ export default function FindProductsPage({ params, searchParams }: FindProductsP
     } finally {
       setIsLoading(false);
     }
-  }, [allUsersList, toast]);
+  }, [allUsersList, toast, currentUser]); // Added currentUser to dependencies
 
   useEffect(() => {
-    if (!isLoadingUsers) {
+    // Ensure currentUser and allUsersList are loaded before searching
+    if (!isLoadingUsers && currentUser) {
       performSearch(searchTerm); 
+    } else if (!isLoadingUsers && !currentUser) {
+      // Handle case where user is not logged in or not a customer (though page should be role-gated)
+      setIsLoading(false);
+      setResults([]);
     }
-  }, [isLoadingUsers, performSearch, searchTerm]); 
+  }, [isLoadingUsers, performSearch, searchTerm, currentUser]); 
 
   const handleSearchFormSubmit = (e: FormEvent) => {
     e.preventDefault();
+    // performSearch is already called by useEffect when searchTerm changes
   };
   
   const handleContactSupplier = (productId: string, supplierId: string) => {
@@ -165,18 +202,23 @@ export default function FindProductsPage({ params, searchParams }: FindProductsP
             <h2 className="text-2xl font-semibold text-primary">
               {searchTerm.trim() ? `Suppliers Found for "${searchTerm}"` : "All Available Products"}
             </h2>
-            {results.map(({ supplier, products }) => (
+            {results.map(({ supplier, products, purchaseCount }) => (
               <Card key={supplier.id} className="shadow-md">
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
                     <ShoppingBag className="h-6 w-6 text-primary" />
                     Supplier: {supplier.name}
-                    {supplier.averageSupplierRating !== undefined && supplier.supplierRatingCount !== undefined ? (
+                    {supplier.averageSupplierRating !== undefined && supplier.supplierRatingCount !== undefined && supplier.supplierRatingCount > 0 ? (
                       <Badge variant="outline" className="ml-2 text-xs font-normal py-0.5">
                         <Star className="h-3 w-3 mr-1 text-yellow-500 fill-yellow-500" /> 
                         {supplier.averageSupplierRating.toFixed(1)} ({supplier.supplierRatingCount} ratings)
                       </Badge>
                     ) : null}
+                    {purchaseCount > 0 && (
+                      <Badge variant="secondary" className="ml-2 text-xs font-normal py-0.5 bg-blue-100 text-blue-700 border-blue-300">
+                        <HistoryIcon className="h-3 w-3 mr-1" /> Previously purchased ({purchaseCount} {purchaseCount === 1 ? 'time' : 'times'})
+                      </Badge>
+                    )}
                   </CardTitle>
                   <CardDescription>Products matching your criteria from this supplier.</CardDescription>
                 </CardHeader>
@@ -264,5 +306,6 @@ export default function FindProductsPage({ params, searchParams }: FindProductsP
     </>
   );
 }
+    
 
     
