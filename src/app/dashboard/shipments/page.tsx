@@ -12,7 +12,7 @@ import { db } from '@/lib/firebase/config';
 import { collection, onSnapshot, query, where, doc, updateDoc, Timestamp } from 'firebase/firestore';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
-import { Truck, Loader2, Info } from 'lucide-react';
+import { Truck, Loader2, Info, DollarSign } from 'lucide-react';
 import { format } from 'date-fns';
 import { Badge } from '@/components/ui/badge';
 import { calculateDistance, type CalculateDistanceOutput } from '@/ai/flows/calculate-distance-flow';
@@ -38,7 +38,11 @@ const getStatusBadgeVariant = (status: OrderStatus | OrderShipmentStatus): "defa
 interface ShipmentWithDistance extends StoredOrder {
     distanceInfo?: CalculateDistanceOutput | null;
     isLoadingDistance?: boolean;
+    shippingPrice?: number;
 }
+
+const BASE_FARE = 2.00; // USD
+const RATE_PER_KM = 0.50; // USD per km
 
 
 export default function ManageShipmentsPage({ params, searchParams }: ManageShipmentsPageProps) {
@@ -48,20 +52,26 @@ export default function ManageShipmentsPage({ params, searchParams }: ManageShip
   const [isLoading, setIsLoading] = useState(true);
   const [updatingShipmentId, setUpdatingShipmentId] = useState<string | null>(null);
 
-  const fetchDistanceForShipment = useCallback(async (shipment: StoredOrder): Promise<ShipmentWithDistance> => {
+  const fetchDistanceAndPriceForShipment = useCallback(async (shipment: StoredOrder): Promise<ShipmentWithDistance> => {
+    let updatedShipment: ShipmentWithDistance = { ...shipment, isLoadingDistance: true };
+
     if (shipment.pickupAddress && shipment.deliveryAddress && shipment.pickupAddress !== 'N/A' && shipment.deliveryAddress !== 'N/A') {
       try {
         const distanceResult = await calculateDistance({
           originAddress: shipment.pickupAddress,
           destinationAddress: shipment.deliveryAddress,
         });
-        return { ...shipment, distanceInfo: distanceResult, isLoadingDistance: false };
+        updatedShipment.distanceInfo = distanceResult;
+        if (distanceResult.distanceKm && typeof distanceResult.distanceKm === 'number') {
+          updatedShipment.shippingPrice = BASE_FARE + (distanceResult.distanceKm * RATE_PER_KM);
+        }
       } catch (error) {
         console.error(`Error calculating distance for order ${shipment.id}:`, error);
-        return { ...shipment, distanceInfo: { distanceText: 'Error', durationText: 'Error', note: 'Failed to calculate distance.' }, isLoadingDistance: false };
+        updatedShipment.distanceInfo = { distanceText: 'Error', durationText: 'Error', note: 'Failed to calculate distance.' };
       }
     }
-    return { ...shipment, isLoadingDistance: false };
+    updatedShipment.isLoadingDistance = false;
+    return updatedShipment;
   }, []);
 
 
@@ -88,19 +98,18 @@ export default function ManageShipmentsPage({ params, searchParams }: ManageShip
         fetchedOrdersData.push({ id: orderDoc.id, ...orderDoc.data() } as StoredOrder);
       });
       
-      // Client-side sorting as orderBy in query might require an index
       fetchedOrdersData.sort((a, b) => {
         const dateA = (a.orderDate || (a as any).date) as Timestamp | undefined;
         const dateB = (b.orderDate || (b as any).date) as Timestamp | undefined;
         return (dateB?.toMillis() || 0) - (dateA?.toMillis() || 0);
       });
       
-      const shipmentsWithDistancePromises = fetchedOrdersData.map(order => 
-        fetchDistanceForShipment(order)
+      const shipmentsWithDetailsPromises = fetchedOrdersData.map(order => 
+        fetchDistanceAndPriceForShipment(order)
       );
-      const shipmentsWithDistances = await Promise.all(shipmentsWithDistancePromises);
+      const shipmentsWithDetails = await Promise.all(shipmentsWithDetailsPromises);
 
-      setAssignedShipments(shipmentsWithDistances);
+      setAssignedShipments(shipmentsWithDetails);
       setIsLoading(false);
     }, (error) => {
       console.error("Error fetching shipments:", error);
@@ -109,7 +118,7 @@ export default function ManageShipmentsPage({ params, searchParams }: ManageShip
     });
 
     return () => unsubscribe();
-  }, [user, toast, fetchDistanceForShipment]);
+  }, [user, toast, fetchDistanceAndPriceForShipment]);
 
   const handleStatusUpdate = async (orderId: string, newStatus: OrderShipmentStatus) => {
     if (!user || user.role !== 'transporter') return;
@@ -122,17 +131,16 @@ export default function ManageShipmentsPage({ params, searchParams }: ManageShip
       if (newStatus === 'Shipment Cancelled') {
         updateData = {
           ...updateData,
-          status: 'Awaiting Transporter Assignment', // Main order status reverts
+          status: 'Awaiting Transporter Assignment', 
           transporterId: null,
           transporterName: null,
-          // podSubmitted and podNotes could be cleared if needed
         };
         toast({ title: "Shipment Cancelled", description: `Order ${orderId} is now awaiting re-assignment by the supplier.` });
       } else if (newStatus === 'Delivered') {
-        updateData.status = 'Delivered'; // Main order status reflects delivery
+        updateData.status = 'Delivered'; 
         toast({ title: "Success", description: `Shipment status updated to ${newStatus}. Customer will be prompted to confirm receipt.` });
       } else if (newStatus === 'In Transit' || newStatus === 'Out for Delivery' || newStatus === 'Ready for Pickup') {
-        updateData.status = 'Shipped'; // Main order status reflects it's on its way
+        updateData.status = 'Shipped'; 
         toast({ title: "Success", description: `Shipment status updated to ${newStatus}.` });
       } else {
          toast({ title: "Success", description: `Shipment status updated to ${newStatus}.` });
@@ -171,7 +179,7 @@ export default function ManageShipmentsPage({ params, searchParams }: ManageShip
               Your Shipment Assignments
             </CardTitle>
             <CardDescription>
-              View, update status, and see estimated travel for your assigned shipments.
+              View, update status, see estimated travel, and estimated shipping price for your assignments.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -191,10 +199,11 @@ export default function ManageShipmentsPage({ params, searchParams }: ManageShip
                       <TableHead>Order Date</TableHead>
                       <TableHead>Product</TableHead>
                       <TableHead>Customer</TableHead>
-                      <TableHead>Pickup Address</TableHead>
-                      <TableHead>Delivery Address</TableHead>
-                      <TableHead>Est. Distance/Time</TableHead>
-                      <TableHead>Predicted Delivery</TableHead> {/* New Column */}
+                      <TableHead>Pickup</TableHead>
+                      <TableHead>Delivery</TableHead>
+                      <TableHead>Est. Dist./Time</TableHead>
+                      <TableHead>Predicted Delivery</TableHead>
+                      <TableHead className="text-right">Est. Shipping Price</TableHead>
                       <TableHead>Shipment Status</TableHead>
                       <TableHead className="w-[200px]">Update Status</TableHead>
                     </TableRow>
@@ -212,8 +221,8 @@ export default function ManageShipmentsPage({ params, searchParams }: ManageShip
                           </TableCell>
                           <TableCell>{shipment.productName || (shipment as any).fruitType || 'N/A'}</TableCell>
                           <TableCell>{shipment.customerName}</TableCell>
-                          <TableCell className="text-xs max-w-xs truncate" title={shipment.pickupAddress || 'N/A'}>{shipment.pickupAddress || 'N/A'}</TableCell>
-                          <TableCell className="text-xs max-w-xs truncate" title={shipment.deliveryAddress || 'N/A'}>{shipment.deliveryAddress || 'N/A'}</TableCell>
+                          <TableCell className="text-xs max-w-[150px] truncate" title={shipment.pickupAddress || 'N/A'}>{shipment.pickupAddress || 'N/A'}</TableCell>
+                          <TableCell className="text-xs max-w-[150px] truncate" title={shipment.deliveryAddress || 'N/A'}>{shipment.deliveryAddress || 'N/A'}</TableCell>
                           <TableCell className="text-xs">
                             {shipment.isLoadingDistance ? <Loader2 className="h-4 w-4 animate-spin" /> :
                              shipment.distanceInfo ? (
@@ -227,8 +236,17 @@ export default function ManageShipmentsPage({ params, searchParams }: ManageShip
                              )
                             }
                           </TableCell>
-                          <TableCell> {/* New Cell for Predicted Delivery */}
+                          <TableCell>
                             {shipment.predictedDeliveryDate ? format((shipment.predictedDeliveryDate as Timestamp).toDate(), "MMM d, yyyy") : <span className="text-xs text-muted-foreground">N/A</span>}
+                          </TableCell>
+                          <TableCell className="text-right font-medium">
+                            {shipment.isLoadingDistance ? <Loader2 className="h-4 w-4 animate-spin mx-auto" /> :
+                             shipment.shippingPrice !== undefined ? (
+                                `$${shipment.shippingPrice.toFixed(2)}`
+                             ) : (
+                                <span className="text-muted-foreground">N/A</span>
+                             )
+                            }
                           </TableCell>
                           <TableCell>
                             <Badge variant={getStatusBadgeVariant(shipment.shipmentStatus || shipment.status)} className="whitespace-nowrap">

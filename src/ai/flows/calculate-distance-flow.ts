@@ -19,6 +19,7 @@ export type CalculateDistanceInput = z.infer<typeof CalculateDistanceInputSchema
 
 const CalculateDistanceOutputSchema = z.object({
   distanceText: z.string().describe("The estimated distance as a string (e.g., 'Approx. 500 km')."),
+  distanceKm: z.number().optional().describe("The estimated distance in kilometers as a number (e.g., 500)."),
   durationText: z.string().describe("The estimated travel duration as a string (e.g., 'Approx. 5 hours')."),
   predictedDeliveryIsoDate: z.string().optional().describe("The predicted delivery date and time in ISO 8601 format (e.g., 'YYYY-MM-DDTHH:mm:ss.sssZ'), assuming travel starts immediately after calculation based on estimated duration."),
   note: z.string().optional().describe('A note indicating the source of the data (AI Estimation) or if there was an issue.'),
@@ -32,7 +33,7 @@ export async function calculateDistance(input: CalculateDistanceInput): Promise<
 const distanceEstimationPrompt = ai.definePrompt({
   name: 'distanceEstimationPrompt',
   input: {schema: CalculateDistanceInputSchema},
-  output: {schema: CalculateDistanceOutputSchema.pick({distanceText: true, durationText: true, predictedDeliveryIsoDate: true })},
+  output: {schema: CalculateDistanceOutputSchema.pick({distanceText: true, distanceKm: true, durationText: true, predictedDeliveryIsoDate: true })},
   prompt: `Based on general knowledge, provide an estimated driving distance and travel time between the following origin and destination.
 Present the distance in kilometers (km) and the duration in hours and minutes.
 Also, provide a predicted delivery date and time in ISO 8601 format (e.g., 'YYYY-MM-DDTHH:mm:ss.sssZ'), assuming travel starts now.
@@ -41,8 +42,9 @@ Be concise.
 Origin: {{{originAddress}}}
 Destination: {{{destinationAddress}}}
 
-Estimated Distance:
-Estimated Duration:
+Estimated Distance (text):
+Estimated Distance (km, number only):
+Estimated Duration (text):
 Predicted Delivery ISO Date:
 `,
 });
@@ -61,6 +63,7 @@ const calculateDistanceFlow = ai.defineFlow(
       if (output && output.distanceText && output.durationText) { // Check if core fields are present
         return {
           distanceText: output.distanceText,
+          distanceKm: output.distanceKm,
           durationText: output.durationText,
           predictedDeliveryIsoDate: output.predictedDeliveryIsoDate,
           note: 'Distance, duration, and predicted delivery date estimated by AI. Actual travel may vary.',
@@ -75,9 +78,11 @@ const calculateDistanceFlow = ai.defineFlow(
       const randomHours = Math.floor(Math.random() * 72) + 8; // 8 to 80 hours
       const deliveryDate = new Date();
       deliveryDate.setHours(deliveryDate.getHours() + randomHours);
+      const randomKm = Math.floor(Math.random() * 500) + 100;
 
       return {
-        distanceText: `Approx. ${Math.floor(Math.random() * 500) + 100} km (Simulated Fallback)`,
+        distanceText: `Approx. ${randomKm} km (Simulated Fallback)`,
+        distanceKm: randomKm,
         durationText: `Approx. ${Math.floor(randomHours / 24)} days ${randomHours % 24} hours (Simulated Fallback)`,
         predictedDeliveryIsoDate: deliveryDate.toISOString(),
         note: 'AI estimation for distance and duration failed. Displaying simulated fallback values. Please try again or check addresses.',
