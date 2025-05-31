@@ -8,6 +8,7 @@ import { Header } from '@/components/dashboard/Header';
 import { ArrowRight, CandlestickChart, ShieldCheck, History, CreditCard, Truck, Users, PackageSearch, ClipboardList, FileText, UserCheck, PackagePlus, Activity, Search, MessageSquare, Route, UserCircle } from 'lucide-react';
 import { useAuth, type UserRole } from '@/contexts/AuthContext';
 import { AIProjectMonitor } from '@/components/dashboard/AIProjectMonitor';
+import { cn } from '@/lib/utils';
 
 const managerFeatures = [
   { title: "User Approvals", description: "Approve supplier & transporter accounts.", link: "/dashboard/user-approvals", icon: UserCheck, color: "text-teal-500" },
@@ -118,7 +119,14 @@ export default function DashboardOverviewPage({ params, searchParams }: Dashboar
                 <CardDescription>{feature.description}</CardDescription>
               </CardContent>
               <CardFooter className="pt-0 mt-auto">
-                <Button asChild variant="outline" className="w-full text-primary border-primary hover:bg-primary/10">
+                <Button 
+                  asChild 
+                  variant="outline" 
+                  className={cn(
+                    "text-primary border-primary hover:bg-primary/10",
+                    feature.link !== '/dashboard/risk-assessment' && 'w-full'
+                  )}
+                >
                   <Link href={feature.link}>
                     <>
                       Go to {feature.title} <ArrowRight className="ml-2 h-4 w-4" />
@@ -141,5 +149,3 @@ export default function DashboardOverviewPage({ params, searchParams }: Dashboar
     </>
   );
 }
-
-    
