@@ -7,11 +7,12 @@ export type OrderStatus =
   | 'Awaiting Supplier Confirmation'
   | 'Awaiting Transporter Assignment'
   | 'Awaiting Payment'
-  | 'Paid'
-  | 'Ready for Pickup' // Main order status can be this, then shipmentStatus tracks specifics
-  | 'Shipped' // Main order status can be this
-  | 'Delivered' // Main order status implies shipment was delivered, awaiting customer confirmation
-  | 'Receipt Confirmed'
+  | 'Paid' // Signifies funds are in simulated escrow
+  | 'Ready for Pickup'
+  | 'Shipped'
+  | 'Delivered'
+  | 'Receipt Confirmed' // Customer has confirmed, pending payout/finalization
+  | 'Completed' // Order successfully completed and payouts simulated
   | 'Cancelled'
   | 'Disputed';
 
@@ -49,14 +50,23 @@ export interface StoredOrder {
   transporterRating?: number;
   transporterFeedback?: string;
   assessmentSubmitted?: boolean;
+
+  // Escrow and Payout Simulation Fields
+  estimatedTransporterFee?: number;
+  supplierPayoutAmount?: number;
+  transporterPayoutAmount?: number;
+  payoutTimestamp?: Timestamp;
+  refundTimestamp?: Timestamp;
 }
 
 // This Order type might be legacy or used for specific UI transformations.
 // Ensure it aligns with StoredOrder or is used consciously.
-export interface Order extends Omit<StoredOrder, 'orderDate' | 'predictedDeliveryDate' | 'createdAt' | 'updatedAt'> {
+export interface Order extends Omit<StoredOrder, 'orderDate' | 'predictedDeliveryDate' | 'createdAt' | 'updatedAt' | 'payoutTimestamp' | 'refundTimestamp'> {
   date: Date; // This seems to be a client-side transformed date
   FruitIcon?: ElementType<SVGProps<SVGSVGElement>>;
   predictedDeliveryDate?: Date; // Client-side transformed
+  payoutTimestamp?: Date;
+  refundTimestamp?: Date;
   createdAt?: Date; // Client-side transformed
   updatedAt?: Date; // Client-side transformed
 }
