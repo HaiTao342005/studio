@@ -14,7 +14,7 @@ const managerFeatures = [
   { title: "User Approvals", description: "Approve supplier & transporter accounts.", link: "/dashboard/user-approvals", icon: UserCheck, color: "text-teal-500" },
   { title: "Manage Users", description: "View all users and create managers.", link: "/dashboard/manage-users", icon: Users, color: "text-sky-500" },
   { title: "Market Data", description: "View global fruit market data.", link: "/dashboard/market-data", icon: CandlestickChart, color: "text-primary" },
-  { title: "Customer Risk", description: "Assess payment risks for customers.", link: "/dashboard/risk-assessment", icon: ShieldCheck, color: "text-accent" },
+  { title: "Risk Assessment", description: "Assess payment risks for customers.", link: "/dashboard/risk-assessment", icon: ShieldCheck, color: "text-accent" },
   { title: "Order History", description: "View all customer orders.", link: "/dashboard/transactions/history", icon: History, color: "text-purple-500" },
   { title: "Payment Tracking", description: "Track payment statuses for all orders.", link: "/dashboard/payment-flows", icon: CreditCard, color: "text-green-500" },
 ];
@@ -22,7 +22,7 @@ const managerFeatures = [
 const supplierFeatures = [
   { title: "Market Data", description: "View real-time global fruit market data.", link: "/dashboard/market-data", icon: CandlestickChart, color: "text-primary" },
   { title: "My Products", description: "Manage your product listings.", link: "/dashboard/my-products", icon: PackagePlus, color: "text-orange-500" },
-  { title: "Customer Payment Risk", description: "Assess payment risks for your customers.", link: "/dashboard/risk-assessment", icon: ShieldCheck, color: "text-accent" },
+  { title: "Risk Assessment", description: "Assess payment risks for your customers.", link: "/dashboard/risk-assessment", icon: ShieldCheck, color: "text-accent" },
   { title: "Order History", description: "Browse historical order records.", link: "/dashboard/transactions/history", icon: History, color: "text-purple-500" },
   { title: "Payment Tracking", description: "Visualize and track payment statuses.", link: "/dashboard/payment-flows", icon: CreditCard, color: "text-green-500" },
   { title: "My Profile", description: "Update your contact address.", link: "/dashboard/profile", icon: UserCircle, color: "text-indigo-500" },
