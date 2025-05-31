@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { calculateDistance, type CalculateDistanceOutput, type CalculateDistanceInput } from '@/ai/flows/calculate-distance-flow';
-import { Loader2, MapPin, Route, Info } from 'lucide-react';
+import { Loader2, MapPin, Route, Info, DollarSign } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
@@ -18,11 +18,15 @@ interface DistanceCalculatorPageProps {
   searchParams: { [key: string]: string | string[] | undefined };
 }
 
+const BASE_FARE = 2.00; // USD
+const RATE_PER_KM = 0.50; // USD per km
+
 export default function DistanceCalculatorPage({ params, searchParams }: DistanceCalculatorPageProps) {
   const [originAddress, setOriginAddress] = useState('');
   const [destinationAddress, setDestinationAddress] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [result, setResult] = useState<CalculateDistanceOutput | null>(null);
+  const [shippingPrice, setShippingPrice] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const { toast } = useToast();
 
@@ -35,12 +39,21 @@ export default function DistanceCalculatorPage({ params, searchParams }: Distanc
 
     setIsLoading(true);
     setResult(null);
+    setShippingPrice(null);
     setError(null);
 
     try {
       const input: CalculateDistanceInput = { originAddress, destinationAddress };
       const distanceResult = await calculateDistance(input);
       setResult(distanceResult);
+
+      if (distanceResult.distanceKm && typeof distanceResult.distanceKm === 'number') {
+        const calculatedPrice = BASE_FARE + (distanceResult.distanceKm * RATE_PER_KM);
+        setShippingPrice(calculatedPrice);
+      } else {
+        setShippingPrice(null);
+      }
+
       if (distanceResult.note && (distanceResult.note.toLowerCase().includes('error') || distanceResult.note.toLowerCase().includes('failed'))) {
         toast({
           title: "Calculation Info",
@@ -67,10 +80,10 @@ export default function DistanceCalculatorPage({ params, searchParams }: Distanc
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Route className="h-6 w-6 text-primary" />
-              Estimate Trip Distance
+              Estimate Trip Details
             </CardTitle>
             <CardDescription>
-              Enter pickup and customer addresses to get an AI-powered estimation of travel distance and duration.
+              Enter pickup and customer addresses to get an AI-powered estimation of travel distance, duration, and potential shipping price.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -97,7 +110,7 @@ export default function DistanceCalculatorPage({ params, searchParams }: Distanc
               </div>
               <Button type="submit" disabled={isLoading} className="w-full">
                 {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                Estimate Distance
+                Estimate Details
               </Button>
             </form>
           </CardContent>
@@ -114,7 +127,7 @@ export default function DistanceCalculatorPage({ params, searchParams }: Distanc
                  <Badge variant="outline" className="text-blue-600 border-blue-400">AI Estimated</Badge>
               </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-2 text-sm">
+            <CardContent className="space-y-3 text-sm">
               <p>
                 <span className="font-medium">From:</span> {originAddress}
               </p>
@@ -123,14 +136,26 @@ export default function DistanceCalculatorPage({ params, searchParams }: Distanc
               </p>
               <p className="text-lg">
                 <strong>Distance:</strong> <span className="font-semibold text-primary">{result.distanceText}</span>
+                {result.distanceKm && ` (${result.distanceKm.toFixed(1)} km)`}
               </p>
               <p className="text-lg">
                 <strong>Est. Duration:</strong> <span className="font-semibold text-primary">{result.durationText}</span>
               </p>
+              {shippingPrice !== null && (
+                <p className="text-lg flex items-center">
+                  <DollarSign className="h-5 w-5 mr-1 text-green-600" />
+                  <strong>Est. Shipping Price:</strong> <span className="font-semibold text-green-600">${shippingPrice.toFixed(2)}</span>
+                </p>
+              )}
+               {result.predictedDeliveryIsoDate && (
+                <p className="text-sm">
+                  <strong>Predicted Delivery:</strong> {new Date(result.predictedDeliveryIsoDate).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                </p>
+              )}
               {result.note && (
-                <Alert className={`mt-4 ${result.note.toLowerCase().includes('failed') ? 'border-destructive text-destructive dark:text-destructive-foreground' : 'border-blue-400 text-blue-700 dark:text-blue-300'}`}>
+                <Alert className={`mt-4 ${result.note.toLowerCase().includes('failed') || result.note.toLowerCase().includes('error') ? 'border-destructive text-destructive dark:text-destructive-foreground' : 'border-blue-400 text-blue-700 dark:text-blue-300'}`}>
                   <Info className="h-4 w-4" />
-                  <AlertTitle>{result.note.toLowerCase().includes('failed') ? 'Estimation Error' : 'Estimation Info'}</AlertTitle>
+                  <AlertTitle>{result.note.toLowerCase().includes('failed') || result.note.toLowerCase().includes('error') ? 'Estimation Error' : 'Estimation Info'}</AlertTitle>
                   <AlertDescription>{result.note}</AlertDescription>
                 </Alert>
               )}
