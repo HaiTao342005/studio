@@ -3,16 +3,15 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { useAuth, type UserRole, type User as AuthUser } from '@/contexts/AuthContext'; // Changed StoredUser to User
+import { useAuth, type UserRole, type User as AuthUser } from '@/contexts/AuthContext';
 import { Header } from '@/components/dashboard/Header';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { CheckCircle, Loader2, Info } from 'lucide-react';
+import { CheckCircle, Loader2, Info, Star } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
-// Using AuthUser which has id from Firestore
 interface UserForDisplay extends AuthUser {}
 
 interface UserApprovalsPageProps {
@@ -43,14 +42,12 @@ export default function UserApprovalsPage({ params, searchParams }: UserApproval
     }
   }, [user, authLoading, router]);
 
-  // Refresh lists when allUsersList from context changes
   useEffect(() => {
     refreshUserLists();
   }, [allUsersList, refreshUserLists]); 
 
   const handleApprove = async (userId: string) => {
     await approveUser(userId);
-    // Real-time listener in AuthContext will update allUsersList, which triggers refreshUserLists
   };
 
 
@@ -60,7 +57,7 @@ export default function UserApprovalsPage({ params, searchParams }: UserApproval
         <Header title="User Approvals" />
         <main className="flex-1 p-6 flex items-center justify-center">
           <Loader2 className="h-8 w-8 animate-spin text-primary mr-2" />
-          <p className="text-muted-foreground">Loading user data from Firestore...</p>
+          <p className="text-muted-foreground">Loading user data...</p>
         </main>
       </>
     );
@@ -76,6 +73,29 @@ export default function UserApprovalsPage({ params, searchParams }: UserApproval
       </>
     );
   }
+
+  const renderRatingBadge = (ratedUser: AuthUser) => {
+    let rating: number | undefined;
+    let count: number | undefined;
+
+    if (ratedUser.role === 'supplier') {
+      rating = ratedUser.averageSupplierRating;
+      count = ratedUser.supplierRatingCount;
+    } else if (ratedUser.role === 'transporter') {
+      rating = ratedUser.averageTransporterRating;
+      count = ratedUser.transporterRatingCount;
+    }
+
+    if (rating !== undefined && count !== undefined && count > 0) {
+      return (
+        <Badge variant="outline" className="ml-2 text-xs font-normal py-0.5">
+          <Star className="h-3 w-3 mr-1 text-yellow-500 fill-yellow-500" /> 
+          {rating.toFixed(1)} ({count})
+        </Badge>
+      );
+    }
+    return null;
+  };
 
   return (
     <>
@@ -108,7 +128,10 @@ export default function UserApprovalsPage({ params, searchParams }: UserApproval
                   <TableBody>
                     {pendingUsers.map((pendingUser) => (
                       <TableRow key={pendingUser.id}>
-                        <TableCell>{pendingUser.name}</TableCell>
+                        <TableCell>
+                          {pendingUser.name}
+                          {renderRatingBadge(pendingUser)}
+                        </TableCell>
                         <TableCell>
                            <Badge variant={pendingUser.role === 'supplier' ? 'default' : pendingUser.role === 'transporter' ? 'secondary' : 'outline'}>
                             {pendingUser.role ? pendingUser.role.charAt(0).toUpperCase() + pendingUser.role.slice(1) : 'N/A'}
@@ -159,7 +182,10 @@ export default function UserApprovalsPage({ params, searchParams }: UserApproval
                   <TableBody>
                     {approvedUsers.map((approvedUser) => (
                       <TableRow key={approvedUser.id}>
-                        <TableCell>{approvedUser.name}</TableCell>
+                        <TableCell>
+                          {approvedUser.name}
+                          {renderRatingBadge(approvedUser)}
+                        </TableCell>
                         <TableCell>
                           <Badge variant={approvedUser.role === 'supplier' ? 'default' : approvedUser.role === 'transporter' ? 'secondary' : 'outline'}>
                             {approvedUser.role ? approvedUser.role.charAt(0).toUpperCase() + approvedUser.role.slice(1) : 'N/A'}
@@ -183,5 +209,3 @@ export default function UserApprovalsPage({ params, searchParams }: UserApproval
     </>
   );
 }
-
-    

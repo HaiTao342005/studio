@@ -17,6 +17,7 @@ import {
   setDoc,
   getDoc
 } from 'firebase/firestore';
+import type { StoredOrder } from '@/types/transaction'; // Import StoredOrder
 
 export type UserRole = 'supplier' | 'transporter' | 'customer' | 'manager' | null;
 
@@ -25,13 +26,17 @@ export interface User {
   name: string;
   role: UserRole;
   isApproved: boolean;
-  address?: string; // New field for address
+  address?: string;
+  averageSupplierRating?: number;
+  supplierRatingCount?: number;
+  averageTransporterRating?: number;
+  transporterRatingCount?: number;
 }
 
 // StoredUser now represents the structure in Firestore
-export interface StoredUser extends Omit<User, 'id'> {
+export interface StoredUser extends Omit<User, 'id' | 'averageSupplierRating' | 'supplierRatingCount' | 'averageTransporterRating' | 'transporterRatingCount'> {
   mockPassword?: string;
-  address?: string; // New field for address
+  address?: string;
 }
 
 interface AuthContextType {
@@ -42,7 +47,7 @@ interface AuthContextType {
   isLoading: boolean;
   approveUser: (userId: string) => void;
   addManager: (newManagerUsername: string, newManagerPassword: string) => Promise<boolean>;
-  updateUserAddress: (userId: string, address: string) => Promise<boolean>; // New function
+  updateUserAddress: (userId: string, address: string) => Promise<boolean>;
   allUsersList: User[];
   isLoadingUsers: boolean;
 }
@@ -71,7 +76,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         mockPassword: DEFAULT_MANAGER_PASSWORD,
         role: 'manager',
         isApproved: true,
-        address: '1 Management Plaza, Admin City, AC 10001' // Example address
+        address: '1 Management Plaza, Admin City, AC 10001'
       };
       const managerDocRef = doc(db, "users", DEFAULT_MANAGER_USERNAME.toLowerCase());
       await setDoc(managerDocRef, defaultManagerData);
@@ -93,8 +98,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  // Define logoutCallback BEFORE the useEffect that might use it.
+  const logoutCallback = useCallback(() => {
+    setUser(null);
+    localStorage.removeItem(CURRENT_USER_STORAGE_KEY);
+    toast({ title: "Logged Out", description: "You have been successfully logged out." });
+  }, [toast]);
+
   useEffect(() => {
     setIsLoading(true);
+    setIsLoadingUsers(true);
     let storedUser: User | null = null;
     try {
       const storedCurrentUserJson = localStorage.getItem(CURRENT_USER_STORAGE_KEY);
@@ -106,33 +119,66 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       localStorage.removeItem(CURRENT_USER_STORAGE_KEY);
     }
 
-    seedDefaultManager(); // Seed or update manager
+    seedDefaultManager();
 
     const usersQuery = query(collection(db, "users"));
-    const unsubscribeUsers = onSnapshot(usersQuery, (querySnapshot) => {
-      const users: User[] = [];
+    const unsubscribeUsers = onSnapshot(usersQuery, async (querySnapshot) => {
+      const baseUsers: User[] = [];
       querySnapshot.forEach((doc) => {
-        users.push({ id: doc.id, ...(doc.data() as Omit<StoredUser, 'id'>) });
+        baseUsers.push({ id: doc.id, ...(doc.data() as Omit<StoredUser, 'id'>) });
       });
-      setAllUsersList(users);
+
+      const ordersRef = collection(db, "orders");
+      const assessedOrdersQuery = query(ordersRef, where("assessmentSubmitted", "==", true));
+      const assessedOrdersSnap = await getDocs(assessedOrdersQuery);
+
+      const supplierRatingsMap: Record<string, { total: number; count: number }> = {};
+      const transporterRatingsMap: Record<string, { total: number; count: number }> = {};
+
+      assessedOrdersSnap.forEach(orderDoc => {
+        const orderData = orderDoc.data() as StoredOrder;
+        if (orderData.supplierId && typeof orderData.supplierRating === 'number') {
+          supplierRatingsMap[orderData.supplierId] = supplierRatingsMap[orderData.supplierId] || { total: 0, count: 0 };
+          supplierRatingsMap[orderData.supplierId].total += orderData.supplierRating;
+          supplierRatingsMap[orderData.supplierId].count += 1;
+        }
+        if (orderData.transporterId && typeof orderData.transporterRating === 'number') {
+          transporterRatingsMap[orderData.transporterId] = transporterRatingsMap[orderData.transporterId] || { total: 0, count: 0 };
+          transporterRatingsMap[orderData.transporterId].total += orderData.transporterRating;
+          transporterRatingsMap[orderData.transporterId].count += 1;
+        }
+      });
+
+      const enrichedUsers = baseUsers.map(u => {
+        const sRatingData = supplierRatingsMap[u.id];
+        const tRatingData = transporterRatingsMap[u.id];
+        return {
+          ...u,
+          averageSupplierRating: sRatingData && sRatingData.count > 0 ? sRatingData.total / sRatingData.count : undefined,
+          supplierRatingCount: sRatingData ? sRatingData.count : undefined,
+          averageTransporterRating: tRatingData && tRatingData.count > 0 ? tRatingData.total / tRatingData.count : undefined,
+          transporterRatingCount: tRatingData ? tRatingData.count : undefined,
+        };
+      });
+
+      setAllUsersList(enrichedUsers);
       setIsLoadingUsers(false);
 
-      // If there was a stored user, check if their details (like address) have updated in allUsersList
-      // and update the local user state and localStorage if necessary.
       if (storedUser) {
-        const latestUserData = users.find(u => u.id === storedUser!.id);
+        const latestUserData = enrichedUsers.find(u => u.id === storedUser!.id);
         if (latestUserData && JSON.stringify(latestUserData) !== JSON.stringify(storedUser)) {
           setUser(latestUserData);
           localStorage.setItem(CURRENT_USER_STORAGE_KEY, JSON.stringify(latestUserData));
         } else if (latestUserData) {
-            setUser(latestUserData); // ensure user state is set if matches
-        } else { // Stored user no longer exists in DB
-            logout();
+            setUser(latestUserData);
+        } else {
+            // Use the correctly defined logoutCallback
+            logoutCallback();
         }
       } else {
-        setUser(null); // No stored user
+        setUser(null);
       }
-      setIsLoading(false); // Overall loading false after users list and potential stored user sync
+      setIsLoading(false);
     }, (error) => {
       console.error("Error fetching users from Firestore:", error);
       toast({ title: "Error Loading Users", description: error.message, variant: "destructive"});
@@ -143,7 +189,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => {
       unsubscribeUsers();
     };
-  }, [seedDefaultManager, toast]);
+  // Depend on logoutCallback instead of an undefined `logout`
+  }, [seedDefaultManager, toast, logoutCallback]);
 
 
   const signup = useCallback(async (username: string, mockPasswordNew: string, role: UserRole) => {
@@ -174,13 +221,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       name: username,
       role,
       mockPassword: mockPasswordNew,
-      isApproved: isCustomer, // Customers auto-approved
-      address: '', // Initialize with empty address
+      isApproved: isCustomer,
+      address: '',
     };
 
     try {
       const docRef = await addDoc(usersRef, newUserFirestoreData);
-      const newUser: User = { id: docRef.id, ...newUserFirestoreData };
+      const newUser: User = { 
+        id: docRef.id, 
+        name: newUserFirestoreData.name,
+        role: newUserFirestoreData.role,
+        isApproved: newUserFirestoreData.isApproved,
+        address: newUserFirestoreData.address,
+      };
 
       if (isCustomer) {
         setUser(newUser);
@@ -203,48 +256,62 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
     setIsLoading(true);
-    const usersRef = collection(db, "users");
-    const q = query(usersRef, where("name", "==", username));
+    
+    const potentialUser = allUsersList.find(u => u.name === username);
+    const storedUserDocData = potentialUser ? (await getDoc(doc(db, "users", potentialUser.id))).data() as StoredUser : null;
 
-    try {
-      const querySnapshot = await getDocs(q);
-      if (querySnapshot.empty) {
-        toast({ title: "Login Failed", description: "Invalid username or password.", variant: "destructive" });
-        setIsLoading(false);
-        return;
-      }
-
-      const userDoc = querySnapshot.docs[0];
-      const userData = userDoc.data() as StoredUser;
-
-      if (userData.mockPassword === mockPasswordAttempt) {
-        const loggedInUser: User = { id: userDoc.id, name: userData.name, role: userData.role, isApproved: userData.isApproved, address: userData.address || '' };
-
-        if ((loggedInUser.role === 'supplier' || loggedInUser.role === 'transporter') && !loggedInUser.isApproved) {
-          toast({ title: "Login Blocked", description: "Your account as a " + loggedInUser.role + " is awaiting manager approval.", variant: "destructive", duration: 7000 });
+    if (potentialUser && storedUserDocData && storedUserDocData.mockPassword === mockPasswordAttempt) {
+        if ((potentialUser.role === 'supplier' || potentialUser.role === 'transporter') && !potentialUser.isApproved) {
+          toast({ title: "Login Blocked", description: "Your account as a " + potentialUser.role + " is awaiting manager approval.", variant: "destructive", duration: 7000 });
           setUser(null);
           localStorage.removeItem(CURRENT_USER_STORAGE_KEY);
         } else {
-          setUser(loggedInUser);
-          localStorage.setItem(CURRENT_USER_STORAGE_KEY, JSON.stringify(loggedInUser));
+          setUser(potentialUser); 
+          localStorage.setItem(CURRENT_USER_STORAGE_KEY, JSON.stringify(potentialUser));
           toast({ title: "Login Successful!", description: `Welcome back, ${username}!` });
         }
-      } else {
-        toast({ title: "Login Failed", description: "Invalid username or password.", variant: "destructive" });
-      }
-    } catch (error) {
-      console.error("Error during login: ", error);
-      toast({ title: "Login Error", description: "An error occurred. Please try again.", variant: "destructive"});
-    } finally {
-      setIsLoading(false);
-    }
-  }, [toast]);
+    } else {
+        const usersRef = collection(db, "users");
+        const q = query(usersRef, where("name", "==", username));
+        try {
+            const querySnapshot = await getDocs(q);
+            if (querySnapshot.empty) {
+                toast({ title: "Login Failed", description: "Invalid username or password.", variant: "destructive" });
+                setIsLoading(false);
+                return;
+            }
+            const userDoc = querySnapshot.docs[0];
+            const userDataFromDB = userDoc.data() as StoredUser;
 
-  const logout = useCallback(() => {
-    setUser(null);
-    localStorage.removeItem(CURRENT_USER_STORAGE_KEY);
-    toast({ title: "Logged Out", description: "You have been successfully logged out." });
-  }, [toast]);
+            if (userDataFromDB.mockPassword === mockPasswordAttempt) {
+                const loggedInUserEnriched = allUsersList.find(u => u.id === userDoc.id) || { 
+                    id: userDoc.id, 
+                    name: userDataFromDB.name, 
+                    role: userDataFromDB.role, 
+                    isApproved: userDataFromDB.isApproved, 
+                    address: userDataFromDB.address || '' 
+                };
+
+                if ((loggedInUserEnriched.role === 'supplier' || loggedInUserEnriched.role === 'transporter') && !loggedInUserEnriched.isApproved) {
+                    toast({ title: "Login Blocked", description: "Your account as a " + loggedInUserEnriched.role + " is awaiting manager approval.", variant: "destructive", duration: 7000 });
+                    setUser(null);
+                    localStorage.removeItem(CURRENT_USER_STORAGE_KEY);
+                } else {
+                    setUser(loggedInUserEnriched);
+                    localStorage.setItem(CURRENT_USER_STORAGE_KEY, JSON.stringify(loggedInUserEnriched));
+                    toast({ title: "Login Successful!", description: `Welcome back, ${username}!` });
+                }
+            } else {
+                toast({ title: "Login Failed", description: "Invalid username or password.", variant: "destructive" });
+            }
+        } catch (error) {
+            console.error("Error during login: ", error);
+            toast({ title: "Login Error", description: "An error occurred. Please try again.", variant: "destructive"});
+        }
+    }
+    setIsLoading(false);
+  }, [toast, allUsersList]);
+
 
   const approveUser = useCallback(async (userId: string) => {
     if (user?.role !== 'manager') {
@@ -285,10 +352,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       mockPassword: newManagerPassword,
       role: 'manager',
       isApproved: true,
-      address: '1 Admin Way, Suite M, Management City', // Default address for new managers
+      address: '1 Admin Way, Suite M, Management City',
     };
     try {
-      const managerDocRef = doc(db, "users", newManagerUsername.toLowerCase());
+      // Use the username as the document ID for managers for predictability
+      const managerDocRef = doc(db, "users", newManagerUsername.toLowerCase()); 
       await setDoc(managerDocRef, newManagerData);
       toast({ title: "Manager Created", description: `Manager account for ${newManagerUsername} created successfully.` });
       return true;
@@ -307,17 +375,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const userDocRef = doc(db, "users", userId);
     try {
         await updateDoc(userDocRef, { address: address });
-        // Update local user state as well so UI reflects change immediately
-        setUser(prevUser => prevUser ? { ...prevUser, address: address } : null);
-        // Update localStorage
-        const storedUser = localStorage.getItem(CURRENT_USER_STORAGE_KEY);
-        if (storedUser) {
-            const parsedUser: User = JSON.parse(storedUser);
-            if (parsedUser.id === userId) {
-                parsedUser.address = address;
-                localStorage.setItem(CURRENT_USER_STORAGE_KEY, JSON.stringify(parsedUser));
-            }
-        }
+        const updatedUser = { ...user, address: address };
+        setUser(updatedUser);
+        localStorage.setItem(CURRENT_USER_STORAGE_KEY, JSON.stringify(updatedUser));
+        
+        setAllUsersList(prevList => prevList.map(u => u.id === userId ? updatedUser : u));
+
         toast({ title: "Address Updated", description: "Your address has been successfully updated." });
         return true;
     } catch (error) {
@@ -333,11 +396,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       user,
       login,
       signup,
-      logout,
+      logout: logoutCallback,
       isLoading,
       approveUser,
       addManager,
-      updateUserAddress, // Add new function
+      updateUserAddress,
       allUsersList,
       isLoadingUsers
     }}>
@@ -353,5 +416,3 @@ export function useAuth() {
   }
   return context;
 }
-
-    

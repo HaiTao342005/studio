@@ -16,7 +16,7 @@ import type { Product as ProductType, StoredProduct } from '@/types/product';
 import { OrderStatus } from '@/types/transaction'; 
 import { db } from '@/lib/firebase/config';
 import { doc, getDoc, addDoc, collection, serverTimestamp, Timestamp } from 'firebase/firestore';
-import { Loader2, Info, ShoppingBag, UserCircle, ArrowLeft, CheckCircle, XCircle, CalendarDays, Home, Landmark, AlertCircle, Pin } from 'lucide-react';
+import { Loader2, Info, ShoppingBag, UserCircle, ArrowLeft, CheckCircle, XCircle, CalendarDays, Home, Landmark, AlertCircle, Pin, Star } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
 import { calculateDistance, type CalculateDistanceOutput } from '@/ai/flows/calculate-distance-flow';
@@ -28,7 +28,7 @@ interface NegotiationPageContentProps {
 
 function NegotiationPageContent({ productId, supplierId }: NegotiationPageContentProps) {
   const router = useRouter();
-  const { user: customer, isLoading: isLoadingAuth } = useAuth();
+  const { user: customer, isLoading: isLoadingAuth, allUsersList } = useAuth(); // Added allUsersList
   const { toast } = useToast();
 
   const [product, setProduct] = useState<ProductType | null>(null);
@@ -42,7 +42,7 @@ function NegotiationPageContent({ productId, supplierId }: NegotiationPageConten
   const [isLoadingDistance, setIsLoadingDistance] = useState(false);
   const [distanceError, setDistanceError] = useState<string | null>(null);
 
-  const { allUsersList } = useAuth();
+  // const { allUsersList } = useAuth(); // Already destructured above
 
   useEffect(() => {
     console.log("[NegotiatePage] useEffect triggered. productId:", productId, "supplierId:", supplierId);
@@ -80,6 +80,7 @@ function NegotiationPageContent({ productId, supplierId }: NegotiationPageConten
           console.error("[NegotiatePage] Product not found in Firestore with id:", productId);
         }
 
+        // Use the supplier from allUsersList which includes rating info
         const foundSupplier = allUsersList.find(u => u.id === supplierId && u.role === 'supplier');
         if (foundSupplier) {
           setSupplier(foundSupplier);
@@ -89,13 +90,13 @@ function NegotiationPageContent({ productId, supplierId }: NegotiationPageConten
           console.error("[NegotiatePage] Supplier not found in allUsersList with id:", supplierId);
         }
         
-        if (fetchedProduct && fetchedProduct.producedArea && customer?.address) { // Use customer.address for destination
+        if (fetchedProduct && fetchedProduct.producedArea && customer?.address) {
           setIsLoadingDistance(true);
           setDistanceError(null);
           try {
             const distanceResult = await calculateDistance({ 
               originAddress: fetchedProduct.producedArea, 
-              destinationAddress: customer.address // Use actual customer address
+              destinationAddress: customer.address
             });
             setShippingDistanceResult(distanceResult);
             if (distanceResult.note && distanceResult.note.toLowerCase().includes('failed')) {
@@ -190,10 +191,10 @@ function NegotiationPageContent({ productId, supplierId }: NegotiationPageConten
         totalAmount: totalPrice,
         currency: 'USD', 
         unit: product.unit,
-        status: 'Awaiting Supplier Confirmation' as OrderStatus, // Initial status
+        status: 'Awaiting Supplier Confirmation' as OrderStatus,
         orderDate: serverTimestamp(),
         podSubmitted: false,
-        // shipmentStatus will be omitted initially
+        assessmentSubmitted: false, // Initialize assessment status
       };
       console.log("[NegotiatePage] OrderData to be sent to Firestore:", orderData);
       console.log("[NegotiatePage] Saving order with supplierId:", orderData.supplierId, "and customerId:", orderData.customerId);
@@ -308,6 +309,12 @@ function NegotiationPageContent({ productId, supplierId }: NegotiationPageConten
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-xl">
               <ShoppingBag className="h-5 w-5 text-primary" /> Supplier: {supplier.name}
+              {supplier.averageSupplierRating !== undefined && supplier.supplierRatingCount !== undefined ? (
+                <Badge variant="outline" className="ml-2 text-xs font-normal py-0.5">
+                  <Star className="h-3 w-3 mr-1 text-yellow-500 fill-yellow-500" /> 
+                  {supplier.averageSupplierRating.toFixed(1)} ({supplier.supplierRatingCount} ratings)
+                </Badge>
+              ) : null}
             </CardTitle>
           </CardHeader>
         </Card>
@@ -464,4 +471,3 @@ const generateAiHint = (name: string, category?: string): string => {
   const nameWords = name.split(' ').map(word => word.toLowerCase().replace(/[^a-z0-9]/gi, '')).filter(Boolean);
   return nameWords.slice(0, 2).join(' ');
 };
-

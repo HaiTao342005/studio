@@ -3,7 +3,7 @@
 
 import { useEffect, useState, type FormEvent, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { useAuth, type UserRole, type User as AuthUser } from '@/contexts/AuthContext'; // Changed StoredUser to User
+import { useAuth, type UserRole, type User as AuthUser } from '@/contexts/AuthContext';
 import { Header } from '@/components/dashboard/Header';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -11,10 +11,9 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Loader2, Info, Users, CheckCircle, XCircle, UserPlus } from 'lucide-react';
+import { Loader2, Info, Users, CheckCircle, XCircle, UserPlus, Star } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
-// Using AuthUser which has id from Firestore
 interface UserForDisplay extends AuthUser {}
 
 interface ManageUsersPageProps {
@@ -47,10 +46,8 @@ export default function ManageUsersPage({ params, searchParams }: ManageUsersPag
     if (success) {
         setNewManagerUsername('');
         setNewManagerPassword('');
-        // Real-time listener in AuthContext will update allUsersList, triggering UI refresh.
         toast({ title: "Manager Created", description: `Manager account for ${newManagerUsername} created successfully.` });
     }
-    // Toast for failure is handled within addManager in AuthContext
     setIsCreatingManager(false);
   };
 
@@ -61,7 +58,7 @@ export default function ManageUsersPage({ params, searchParams }: ManageUsersPag
         <Header title="Manage Users" />
         <main className="flex-1 p-6 flex items-center justify-center">
           <Loader2 className="h-8 w-8 animate-spin text-primary mr-2" />
-          <p className="text-muted-foreground">Loading user data from Firestore...</p>
+          <p className="text-muted-foreground">Loading user data...</p>
         </main>
       </>
     );
@@ -89,7 +86,7 @@ export default function ManageUsersPage({ params, searchParams }: ManageUsersPag
   };
   
   const getApprovalBadge = (isApproved: boolean, role: UserRole) => {
-    if (role === 'customer' || role === 'manager') { // Customers and Managers are auto-approved
+    if (role === 'customer' || role === 'manager') {
          return (
             <Badge variant="default" className="bg-green-500 hover:bg-green-600 text-white">
                 <CheckCircle className="h-4 w-4 mr-1.5" />
@@ -110,6 +107,29 @@ export default function ManageUsersPage({ params, searchParams }: ManageUsersPag
     );
   };
 
+  const renderRatingBadge = (listedUser: AuthUser) => {
+    let rating: number | undefined;
+    let count: number | undefined;
+
+    if (listedUser.role === 'supplier') {
+      rating = listedUser.averageSupplierRating;
+      count = listedUser.supplierRatingCount;
+    } else if (listedUser.role === 'transporter') {
+      rating = listedUser.averageTransporterRating;
+      count = listedUser.transporterRatingCount;
+    }
+
+    if (rating !== undefined && count !== undefined && count > 0) {
+      return (
+        <Badge variant="outline" className="ml-2 text-xs font-normal py-0.5">
+          <Star className="h-3 w-3 mr-1 text-yellow-500 fill-yellow-500" /> 
+          {rating.toFixed(1)} ({count})
+        </Badge>
+      );
+    }
+    return null;
+  };
+
 
   return (
     <>
@@ -122,7 +142,7 @@ export default function ManageUsersPage({ params, searchParams }: ManageUsersPag
               All Registered Users
             </CardTitle>
             <CardDescription>
-              View all users in the system, their roles, and approval status. Managers can also create new manager accounts.
+              View all users in the system, their roles, approval status, and average ratings. Managers can also create new manager accounts.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -130,14 +150,14 @@ export default function ManageUsersPage({ params, searchParams }: ManageUsersPag
               <div className="flex flex-col items-center justify-center py-10 text-center">
                 <Info className="h-12 w-12 text-muted-foreground mb-4" />
                 <p className="text-lg font-semibold text-muted-foreground">No Users Found</p>
-                <p className="text-sm text-muted-foreground">There are no registered users in the system yet (or still loading).</p>
+                <p className="text-sm text-muted-foreground">There are no registered users in the system yet.</p>
               </div>
             ) : (
               <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Username</TableHead>
+                      <TableHead>Username & Rating</TableHead>
                       <TableHead>Role</TableHead>
                       <TableHead className="text-center">Approval Status</TableHead>
                     </TableRow>
@@ -145,7 +165,10 @@ export default function ManageUsersPage({ params, searchParams }: ManageUsersPag
                   <TableBody>
                     {allUsersList.map((listedUser) => (
                       <TableRow key={listedUser.id}>
-                        <TableCell className="font-medium">{listedUser.name}</TableCell>
+                        <TableCell className="font-medium">
+                          {listedUser.name}
+                          {renderRatingBadge(listedUser)}
+                        </TableCell>
                         <TableCell>
                           <Badge variant={getRoleBadgeVariant(listedUser.role)}>
                             {listedUser.role ? listedUser.role.charAt(0).toUpperCase() + listedUser.role.slice(1) : 'N/A'}
@@ -204,5 +227,3 @@ export default function ManageUsersPage({ params, searchParams }: ManageUsersPag
     </>
   );
 }
-
-    

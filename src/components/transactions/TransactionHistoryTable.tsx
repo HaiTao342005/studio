@@ -46,19 +46,19 @@ const FALLBACK_SIMULATED_ETH_USD_PRICE = 2000;
 const getStatusBadgeVariant = (status: OrderStatus | OrderShipmentStatus): "default" | "secondary" | "destructive" | "outline" => {
   switch (status) {
     case 'Paid': return 'default';
-    case 'Delivered': return 'default'; // Main status when shipment is delivered
+    case 'Delivered': return 'default'; 
     case 'Receipt Confirmed': return 'default';
-    case 'Shipped': return 'secondary'; // Main status when shipment is in progress
-    case 'Ready for Pickup': return 'secondary'; // Shipment status
-    case 'In Transit': return 'secondary'; // Shipment status
-    case 'Out for Delivery': return 'secondary'; // Shipment status
+    case 'Shipped': return 'secondary'; 
+    case 'Ready for Pickup': return 'secondary'; 
+    case 'In Transit': return 'secondary'; 
+    case 'Out for Delivery': return 'secondary'; 
     case 'Awaiting Supplier Confirmation': return 'outline';
     case 'Awaiting Transporter Assignment': return 'outline';
     case 'Awaiting Payment': return 'outline';
     case 'Pending': return 'outline';
     case 'Cancelled': return 'destructive';
-    case 'Delivery Failed': return 'destructive'; // Shipment status
-    case 'Shipment Cancelled': return 'destructive'; // Shipment status
+    case 'Delivery Failed': return 'destructive'; 
+    case 'Shipment Cancelled': return 'destructive'; 
     case 'Disputed': return 'destructive';
     default: return 'secondary';
   }
@@ -92,7 +92,6 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
   const [currentOrderToAssign, setCurrentOrderToAssign] = useState<StoredOrder | null>(null);
   const [selectedTransporter, setSelectedTransporter] = useState<string | null>(null);
 
-  // State for Assessment Dialog
   const [isAssessmentDialogOpen, setIsAssessmentDialogOpen] = useState(false);
   const [currentOrderForAssessment, setCurrentOrderForAssessment] = useState<StoredOrder | null>(null);
   const [supplierRating, setSupplierRating] = useState('');
@@ -102,7 +101,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
   const [isSubmittingAssessment, setIsSubmittingAssessment] = useState(false);
 
   const { toast } = useToast();
-  const { user, allUsersList } = useAuth();
+  const { user, allUsersList } = useAuth(); // allUsersList now contains rating info
 
   const availableTransporters = allUsersList.filter(u => u.role === 'transporter' && u.isApproved);
 
@@ -138,7 +137,6 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
       ordersQuery = query(
         collection(db, "orders"),
         where("supplierId", "==", user.id)
-        // orderBy("orderDate", "desc") // Temporarily removed for client-side sort
       );
     } else if (currentRole === 'manager') {
       ordersQuery = query(collection(db, "orders"), orderBy("orderDate", "desc"));
@@ -159,7 +157,6 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
         });
       });
       
-      // Client-side sorting for supplier view if orderBy is removed from query
       if (currentRole === 'supplier') {
         fetchedOrders.sort((a, b) => {
             const dateA = (a.orderDate as Timestamp)?.toMillis() || 0;
@@ -251,15 +248,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
       toast({ title: "Payment Error", description: "Order amount must be greater than zero to pay.", variant: "destructive" });
       return false;
     }
-    if (GANACHE_RECIPIENT_ADDRESS === "YOUR_GANACHE_ACCOUNT_ADDRESS_HERE") {
-      toast({
-        title: "Configuration Needed",
-        description: "Please set your Ganache recipient address in TransactionHistoryTable.tsx.",
-        variant: "destructive",
-        duration: 10000,
-      });
-      return false;
-    }
+
     if (typeof window.ethereum === 'undefined') {
       toast({ title: "Metamask Not Found", description: "Please install Metamask to use this feature.", variant: "destructive" });
       return false;
@@ -405,16 +394,14 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
     let predictedDeliveryTimestamp: Timestamp | null = null;
 
     try {
-        const supplierDocRef = doc(db, "users", currentOrderToAssign.supplierId);
-        const supplierDocSnap = await getDoc(supplierDocRef);
-        if (supplierDocSnap.exists() && supplierDocSnap.data().address) {
-            supplierAddress = supplierDocSnap.data().address;
+        const supplierDetails = allUsersList.find(u => u.id === currentOrderToAssign.supplierId);
+        if (supplierDetails?.address) {
+            supplierAddress = supplierDetails.address;
         }
 
-        const customerDocRef = doc(db, "users", currentOrderToAssign.customerId);
-        const customerDocSnap = await getDoc(customerDocRef);
-        if (customerDocSnap.exists() && customerDocSnap.data().address) {
-            customerAddress = customerDocSnap.data().address;
+        const customerDetails = allUsersList.find(u => u.id === currentOrderToAssign.customerId);
+        if (customerDetails?.address) {
+            customerAddress = customerDetails.address;
         }
 
         if (supplierAddress !== 'N/A' && customerAddress !== 'N/A') {
@@ -469,8 +456,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
     try {
       const orderRef = doc(db, "orders", orderId);
       await updateDoc(orderRef, { status: 'Receipt Confirmed' as OrderStatus });
-      toast({ title: "Receipt Confirmed", description: "Thank you! Please proceed with payment if outstanding." });
-      // Note: handlePayWithMetamask is NOT called here anymore, payment is now a separate explicit step by customer
+      toast({ title: "Receipt Confirmed", description: "Thank you! Please proceed with payment if outstanding, or evaluate the service." });
     } catch (error) {
       toast({ title: "Error", description: "Could not confirm receipt.", variant: "destructive" });
       console.error("Error confirming receipt:", error);
@@ -484,7 +470,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
     try {
       const orderRef = doc(db, "orders", orderId);
       await updateDoc(orderRef, { status: 'Disputed' as OrderStatus });
-      toast({ title: "Receipt Denied", description: "Delivery issue reported for order. Please contact support or the supplier." });
+      toast({ title: "Receipt Denied", description: "Delivery issue reported for order. You can evaluate the service or contact support." });
     } catch (error) {
       toast({ title: "Error", description: "Could not deny receipt.", variant: "destructive" });
       console.error("Error denying receipt:", error);
@@ -493,7 +479,6 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
     }
   };
 
-  // Assessment Dialog Handlers
   const handleOpenAssessmentDialog = (order: StoredOrder) => {
     setCurrentOrderForAssessment(order);
     setSupplierRating(order.supplierRating?.toString() || '');
@@ -506,7 +491,6 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
   const handleCloseAssessmentDialog = () => {
     setIsAssessmentDialogOpen(false);
     setCurrentOrderForAssessment(null);
-    // Reset form fields
     setSupplierRating('');
     setSupplierFeedback('');
     setTransporterRating('');
@@ -573,6 +557,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
             <TableHead>Product</TableHead>
             {!isCustomerView && <TableHead>Customer</TableHead>}
             {isCustomerView && <TableHead>Supplier</TableHead>}
+            <TableHead>Transporter</TableHead>
             <TableHead className="text-right">Amount</TableHead>
             <TableHead className="text-right">Quantity</TableHead>
             <TableHead>Status</TableHead>
@@ -588,7 +573,9 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
             const canConfirmOrDeny = isCustomerView && order.shipmentStatus === 'Delivered' && order.status !== 'Paid' && order.status !== 'Receipt Confirmed' && order.status !== 'Disputed';
             const canPay = isCustomerView && (order.status === 'Awaiting Payment' || order.status === 'Receipt Confirmed') && order.status !== 'Paid' && order.status !== 'Disputed';
             const canEvaluate = isCustomerView && (order.status === 'Receipt Confirmed' || order.status === 'Disputed') && !order.assessmentSubmitted;
-
+            
+            const supplierForOrder = allUsersList.find(u => u.id === order.supplierId);
+            const transporterForOrder = order.transporterId ? allUsersList.find(u => u.id === order.transporterId) : null;
 
             return (
             <TableRow key={order.id}>
@@ -598,7 +585,26 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
               <TableCell>{displayDate ? format((displayDate as Timestamp).toDate(), "MMM d, yyyy") : 'N/A'}</TableCell>
               <TableCell className="font-medium">{productName}</TableCell>
               {!isCustomerView && <TableCell>{order.customerName}</TableCell>}
-              {isCustomerView && <TableCell>{order.supplierName}</TableCell>}
+              {isCustomerView && (
+                <TableCell>
+                  {order.supplierName}
+                  {supplierForOrder?.averageSupplierRating !== undefined && (
+                    <Badge variant="outline" className="ml-1 text-xs font-normal py-0.5">
+                      <Star className="h-3 w-3 mr-1 text-yellow-400 fill-yellow-400" />
+                      {supplierForOrder.averageSupplierRating.toFixed(1)}
+                    </Badge>
+                  )}
+                </TableCell>
+              )}
+              <TableCell>
+                {order.transporterName || 'N/A'}
+                {transporterForOrder?.averageTransporterRating !== undefined && (
+                  <Badge variant="outline" className="ml-1 text-xs font-normal py-0.5">
+                    <Star className="h-3 w-3 mr-1 text-yellow-400 fill-yellow-400" />
+                    {transporterForOrder.averageTransporterRating.toFixed(1)}
+                  </Badge>
+                )}
+              </TableCell>
               <TableCell className="text-right">{order.currency} {order.totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</TableCell>
               <TableCell className="text-right">{order.quantity.toLocaleString()} {order.unit}</TableCell>
               <TableCell>
@@ -712,7 +718,15 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
               <SelectContent>
                 {availableTransporters.length > 0 ? (
                   availableTransporters.map(t => (
-                    <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
+                    <SelectItem key={t.id} value={t.id}>
+                      {t.name}
+                      {t.averageTransporterRating !== undefined && t.transporterRatingCount !== undefined ? (
+                        <span className="ml-2 text-xs text-muted-foreground">
+                          ( <Star className="inline-block h-3 w-3 mr-0.5 text-yellow-400 fill-yellow-400" />
+                          {t.averageTransporterRating.toFixed(1)} - {t.transporterRatingCount} ratings )
+                        </span>
+                      ) : <span className="ml-2 text-xs text-muted-foreground">(No ratings yet)</span>}
+                    </SelectItem>
                   ))
                 ) : (
                   <div className="p-4 text-sm text-muted-foreground">No approved transporters available.</div>
@@ -748,7 +762,6 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
             </DialogDescription>
           </DialogHeader>
           <div className="py-4 space-y-6">
-            {/* Supplier Assessment */}
             <div className="space-y-2 p-4 border rounded-md">
               <h3 className="text-md font-semibold">Supplier: {currentOrderForAssessment.supplierName}</h3>
               <div>
@@ -774,7 +787,6 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
               </div>
             </div>
 
-            {/* Transporter Assessment (Conditional) */}
             {currentOrderForAssessment.transporterId && (
               <div className="space-y-2 p-4 border rounded-md">
                 <h3 className="text-md font-semibold">Transporter: {currentOrderForAssessment.transporterName}</h3>

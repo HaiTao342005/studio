@@ -10,7 +10,7 @@ import { useAuth, type User as AuthUser } from '@/contexts/AuthContext';
 import type { Product as ProductType, StoredProduct } from '@/types/product';
 import { db } from '@/lib/firebase/config';
 import { collection, getDocs, query, Timestamp } from 'firebase/firestore';
-import { Loader2, Search, Package, ShoppingBag, Info, ImageOff, MessageSquare, CalendarDays, Home, Landmark, AlertCircle } from 'lucide-react';
+import { Loader2, Search, Package, ShoppingBag, Info, ImageOff, MessageSquare, CalendarDays, Home, Landmark, AlertCircle, Star } from 'lucide-react';
 import Image from 'next/image';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
@@ -171,6 +171,12 @@ export default function FindProductsPage({ params, searchParams }: FindProductsP
                   <CardTitle className="flex items-center gap-2">
                     <ShoppingBag className="h-6 w-6 text-primary" />
                     Supplier: {supplier.name}
+                    {supplier.averageSupplierRating !== undefined && supplier.supplierRatingCount !== undefined ? (
+                      <Badge variant="outline" className="ml-2 text-xs font-normal py-0.5">
+                        <Star className="h-3 w-3 mr-1 text-yellow-500 fill-yellow-500" /> 
+                        {supplier.averageSupplierRating.toFixed(1)} ({supplier.supplierRatingCount} ratings)
+                      </Badge>
+                    ) : null}
                   </CardTitle>
                   <CardDescription>Products matching your criteria from this supplier.</CardDescription>
                 </CardHeader>
