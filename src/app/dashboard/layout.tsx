@@ -36,6 +36,7 @@ import {
   Search,
   UserCircle, 
   Route,
+  AlertTriangle, // For suspension
 } from 'lucide-react';
 import { useAuth, type UserRole } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
@@ -51,7 +52,7 @@ type NavItem = {
 
 const allNavItems: NavItem[] = [
   { href: '/dashboard', label: 'Overview', icon: LayoutDashboard, roles: ['supplier', 'transporter', 'customer', 'manager'] },
-  { href: '/dashboard/profile', label: 'My Profile', icon: UserCircle, roles: ['supplier', 'customer'] }, // New Profile Link
+  { href: '/dashboard/profile', label: 'My Profile', icon: UserCircle, roles: ['supplier', 'customer'] }, 
   // Manager specific
   { href: '/dashboard/user-approvals', label: 'User Approvals', icon: UserCheck, roles: ['manager'] },
   { href: '/dashboard/manage-users', label: 'Manage Users', icon: Users, roles: ['manager'] },
@@ -77,7 +78,7 @@ function AppSidebarNav() {
   const { open } = useSidebar();
   const { user } = useAuth();
 
-  if (!user || !user.role) {
+  if (!user || !user.role || user.isSuspended) { // Hide nav if suspended
     return null;
   }
 
@@ -106,7 +107,7 @@ function AppSidebarNav() {
 }
 
 export default function DashboardLayout({ children }: { children: ReactNode }) {
-  const { user, isLoading } = useAuth();
+  const { user, isLoading, logout } = useAuth(); // Added logout
   const router = useRouter();
 
   useEffect(() => {
@@ -124,6 +125,28 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
     );
   }
 
+  if (user.isSuspended) {
+    return (
+      <div className="flex min-h-screen w-full flex-col items-center justify-center bg-destructive/10 p-6 text-center">
+        <AlertTriangle className="h-16 w-16 text-destructive mb-6" />
+        <h1 className="text-2xl font-semibold text-destructive mb-2">Account Suspended</h1>
+        <p className="text-muted-foreground mb-4">Your account has been suspended due to consistently low ratings.</p>
+        <p className="text-sm text-muted-foreground">Please contact support for further assistance.</p>
+        <Button 
+          onClick={() => {
+            logout(); // Call logout from AuthContext
+            router.push('/login');
+          }} 
+          className="mt-6"
+          variant="destructive"
+        >
+          Logout
+        </Button>
+      </div>
+    );
+  }
+
+
   if (!user.isApproved && (user.role === 'supplier' || user.role === 'transporter')) {
     return (
       <div className="flex min-h-screen w-full flex-col items-center justify-center bg-secondary/50 p-6 text-center">
@@ -131,7 +154,15 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
         <h1 className="text-2xl font-semibold text-primary mb-2">Account Pending Approval</h1>
         <p className="text-muted-foreground mb-4">Your account as a {user.role} is currently awaiting manager approval.</p>
         <p className="text-sm text-muted-foreground">Please check back later or contact support if you have questions.</p>
-        <Button onClick={() => router.push('/login')} className="mt-6">Go to Login</Button>
+        <Button 
+         onClick={() => {
+            logout(); // Call logout from AuthContext
+            router.push('/login');
+          }} 
+        className="mt-6"
+        >
+            Logout
+        </Button>
       </div>
     );
   }

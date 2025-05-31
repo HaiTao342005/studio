@@ -12,7 +12,7 @@ import { db } from '@/lib/firebase/config';
 import { collection, onSnapshot, query, where, doc, updateDoc, Timestamp } from 'firebase/firestore';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
-import { Truck, Loader2, Info, DollarSign } from 'lucide-react';
+import { Truck, Loader2, Info, DollarSign, Ban } from 'lucide-react'; // Added Ban
 import { format } from 'date-fns';
 import { Badge } from '@/components/ui/badge';
 import { calculateDistance, type CalculateDistanceOutput } from '@/ai/flows/calculate-distance-flow';
@@ -27,10 +27,10 @@ interface ManageShipmentsPageProps {
 
 const getStatusBadgeVariant = (status: OrderStatus | OrderShipmentStatus): "default" | "secondary" | "destructive" | "outline" => {
   switch (status) {
-    case 'Paid': case 'Delivered': case 'Receipt Confirmed': return 'default';
+    case 'Paid': case 'Delivered': case 'Receipt Confirmed': case 'Completed': return 'default';
     case 'Shipped': case 'Ready for Pickup': case 'In Transit': case 'Out for Delivery': return 'secondary';
     case 'Awaiting Supplier Confirmation': case 'Awaiting Transporter Assignment': case 'Awaiting Payment': case 'Pending': return 'outline';
-    case 'Cancelled': case 'Delivery Failed': case 'Shipment Cancelled': return 'destructive';
+    case 'Cancelled': case 'Delivery Failed': case 'Shipment Cancelled': case 'Disputed': return 'destructive';
     default: return 'secondary';
   }
 };
@@ -41,8 +41,8 @@ interface ShipmentWithDistance extends StoredOrder {
     shippingPrice?: number;
 }
 
-const BASE_FARE = 2.00; // USD
-const RATE_PER_KM = 0.50; // USD per km
+const BASE_FARE = 2.00; 
+const RATE_PER_KM = 0.50; 
 
 
 export default function ManageShipmentsPage({ params, searchParams }: ManageShipmentsPageProps) {
@@ -85,11 +85,7 @@ export default function ManageShipmentsPage({ params, searchParams }: ManageShip
     setIsLoading(true);
     const q = query(
       collection(db, "orders"),
-      where("transporterId", "==", user.id),
-      // Transporter should see orders they are actively managing or have completed.
-      // No longer filtering by main status, as shipmentStatus is more relevant for transporter.
-      // orderBy("orderDate", "desc") // Requires Firestore index: transporterId ASC, orderDate DESC
-      // Link: https://console.firebase.google.com/v1/r/project/newtech-be296/firestore/indexes?create_composite=Ckxwcm9qZWN0cy9uZXd0ZWNoLWJlMjk2L2RhdGFiYXNlcy8oZGVmYXVsdCkvY29sbGVjdGlvbkdyb3Vwcy9vcmRlcnMvaW5kZXhlcy9fEAEaEQoNdHJhbnNwb3J0ZXJJZBABGg0KCW9yZGVyRGF0ZRACGgwKCF9fbmFtZV9fEAI
+      where("transporterId", "==", user.id)
     );
 
     const unsubscribe = onSnapshot(q, async (querySnapshot) => {
@@ -121,7 +117,10 @@ export default function ManageShipmentsPage({ params, searchParams }: ManageShip
   }, [user, toast, fetchDistanceAndPriceForShipment]);
 
   const handleStatusUpdate = async (orderId: string, newStatus: OrderShipmentStatus) => {
-    if (!user || user.role !== 'transporter') return;
+    if (!user || user.role !== 'transporter' || user.isSuspended) {
+      toast({ title: "Action Denied", description: user?.isSuspended ? "Your account is suspended." : "Invalid user.", variant: "destructive" });
+      return;
+    }
     setUpdatingShipmentId(orderId);
     const orderRef = doc(db, "orders", orderId);
 
@@ -137,10 +136,23 @@ export default function ManageShipmentsPage({ params, searchParams }: ManageShip
         };
         toast({ title: "Shipment Cancelled", description: `Order ${orderId} is now awaiting re-assignment by the supplier.` });
       } else if (newStatus === 'Delivered') {
-        updateData.status = 'Delivered'; 
+        // Main status is 'Paid' until customer confirms receipt. Shipment status is 'Delivered'.
+        // No change to main 'status' here, only 'shipmentStatus'.
+        // The main 'status' changes to 'Delivered' when customer confirms or 'Disputed' if denied.
+        // For simplicity here, we will update main status if it makes sense.
+        // If order status was 'Paid' or 'Shipped', it now becomes 'Delivered' at a high level for supplier view.
+        const currentOrder = assignedShipments.find(s => s.id === orderId);
+        if (currentOrder && (currentOrder.status === 'Paid' || currentOrder.status === 'Shipped')) {
+            updateData.status = 'Delivered';
+        }
         toast({ title: "Success", description: `Shipment status updated to ${newStatus}. Customer will be prompted to confirm receipt.` });
+
       } else if (newStatus === 'In Transit' || newStatus === 'Out for Delivery' || newStatus === 'Ready for Pickup') {
-        updateData.status = 'Shipped'; 
+         // If the main order status was 'Paid' or 'Ready for Pickup', update it to 'Shipped'
+        const currentOrder = assignedShipments.find(s => s.id === orderId);
+        if (currentOrder && (currentOrder.status === 'Paid' || currentOrder.status === 'Ready for Pickup')) {
+             updateData.status = 'Shipped'; 
+        }
         toast({ title: "Success", description: `Shipment status updated to ${newStatus}.` });
       } else {
          toast({ title: "Success", description: `Shipment status updated to ${newStatus}.` });
@@ -167,6 +179,28 @@ export default function ManageShipmentsPage({ params, searchParams }: ManageShip
       </>
     );
   }
+  
+  if (user?.isSuspended) {
+    return (
+      <>
+        <Header title="Manage Shipments" />
+        <main className="flex-1 p-6">
+          <Card className="shadow-lg">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-destructive">
+                <Ban className="h-6 w-6" />
+                Account Suspended
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-muted-foreground">Your account is currently suspended. You cannot manage shipments.</p>
+            </CardContent>
+          </Card>
+        </main>
+      </>
+    );
+  }
+
 
   return (
     <>
@@ -258,7 +292,7 @@ export default function ManageShipmentsPage({ params, searchParams }: ManageShip
                               <Select
                                 value={shipment.shipmentStatus || ''}
                                 onValueChange={(value) => handleStatusUpdate(shipment.id, value as OrderShipmentStatus)}
-                                disabled={updatingShipmentId === shipment.id || shipment.shipmentStatus === 'Delivered' || shipment.shipmentStatus === 'Shipment Cancelled'}
+                                disabled={updatingShipmentId === shipment.id || shipment.shipmentStatus === 'Delivered' || shipment.shipmentStatus === 'Shipment Cancelled' || user?.isSuspended}
                               >
                                 <SelectTrigger className="w-[180px] h-9 text-xs">
                                   <SelectValue placeholder="Select status" />
@@ -289,3 +323,5 @@ export default function ManageShipmentsPage({ params, searchParams }: ManageShip
     </>
   );
 }
+
+    

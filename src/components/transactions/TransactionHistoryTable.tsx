@@ -17,7 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
-import { Trash2, Wallet, Loader2, Eye, ThumbsUp, Truck, AlertTriangle, ThumbsDown, Star, CheckCircle } from 'lucide-react';
+import { Trash2, Wallet, Loader2, Eye, ThumbsUp, Truck, AlertTriangle, ThumbsDown, Star, CheckCircle, Ban } from 'lucide-react';
 import type { OrderStatus, StoredOrder, OrderShipmentStatus } from '@/types/transaction';
 import { AppleIcon, BananaIcon, OrangeIcon, GrapeIcon, MangoIcon, FruitIcon } from '@/components/icons/FruitIcons';
 import { format } from 'date-fns';
@@ -43,27 +43,27 @@ import { calculateDistance, type CalculateDistanceOutput } from '@/ai/flows/calc
 
 const GANACHE_RECIPIENT_ADDRESS = "0x83491285C0aC3dd64255A5D68f0C3e919A5Eacf2";
 const FALLBACK_SIMULATED_ETH_USD_PRICE = 2000;
-const BASE_FARE = 2.00; // USD - For transporter fee calculation
-const RATE_PER_KM = 0.50; // USD per km - For transporter fee calculation
+const BASE_FARE = 2.00; 
+const RATE_PER_KM = 0.50; 
 
 const getStatusBadgeVariant = (status: OrderStatus | OrderShipmentStatus): "default" | "secondary" | "destructive" | "outline" => {
   switch (status) {
-    case 'Paid': return 'default'; // Greenish, or primary
-    case 'Delivered': return 'secondary'; // Use secondary for in-progress shipment states
+    case 'Paid': return 'default'; 
+    case 'Delivered': return 'secondary'; 
     case 'Receipt Confirmed': return 'default';
-    case 'Completed': return 'default'; // Success status, usually green
+    case 'Completed': return 'default'; 
     case 'Shipped': return 'secondary';
     case 'Ready for Pickup': return 'secondary';
     case 'In Transit': return 'secondary';
     case 'Out for Delivery': return 'secondary';
     case 'Awaiting Supplier Confirmation': return 'outline';
     case 'Awaiting Transporter Assignment': return 'outline';
-    case 'Awaiting Payment': return 'outline'; // Yellow/Orange outline
+    case 'Awaiting Payment': return 'outline'; 
     case 'Pending': return 'outline';
     case 'Cancelled': return 'destructive';
     case 'Delivery Failed': return 'destructive';
     case 'Shipment Cancelled': return 'destructive';
-    case 'Disputed': return 'destructive'; // Red for issues
+    case 'Disputed': return 'destructive'; 
     default: return 'secondary';
   }
 };
@@ -107,7 +107,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
   const { toast } = useToast();
   const { user, allUsersList } = useAuth();
 
-  const availableTransporters = allUsersList.filter(u => u.role === 'transporter' && u.isApproved);
+  const availableTransporters = allUsersList.filter(u => u.role === 'transporter' && u.isApproved && !u.isSuspended);
 
   useEffect(() => {
     if (isCustomerView && initialOrders) {
@@ -185,6 +185,10 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
 
 
   const handleDeleteOrder = async (orderId: string) => {
+    if (user?.isSuspended) {
+      toast({ title: "Action Denied", description: "Your account is suspended.", variant: "destructive" });
+      return;
+    }
     if (user?.role === 'customer') {
         toast({ title: "Action Not Allowed", description: "Customers cannot delete orders.", variant: "destructive"});
         return;
@@ -253,10 +257,10 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
       }) as string;
       toast({ title: "Transaction Submitted", description: `Tx Hash: ${txHash.substring(0,10)}... Simulating confirmation.` });
 
-      await new Promise(resolve => setTimeout(resolve, 4000)); // Simulate confirmation time
+      await new Promise(resolve => setTimeout(resolve, 4000)); 
       const orderRef = doc(db, "orders", orderId);
       await updateDoc(orderRef, {
-        status: 'Paid' as OrderStatus, // Funds now in "escrow"
+        status: 'Paid' as OrderStatus, 
         paymentTransactionHash: txHash
       });
       toast({ title: "Payment Confirmed (Simulated Escrow)", description: `Order marked as Paid. Funds are now held.`, variant: "default" });
@@ -281,10 +285,14 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
   }, [orders, toast]);
 
   const handleSupplierConfirmOrder = async (orderId: string) => {
+    if (user?.isSuspended) {
+      toast({ title: "Action Denied", description: "Your account is suspended.", variant: "destructive" });
+      return;
+    }
     setConfirmingOrderId(orderId);
     try {
       const orderRef = doc(db, "orders", orderId);
-      await updateDoc(orderRef, { status: 'Awaiting Payment' as OrderStatus }); // Changed to Awaiting Payment
+      await updateDoc(orderRef, { status: 'Awaiting Payment' as OrderStatus }); 
       toast({ title: "Order Confirmed", description: "Order confirmed. Customer will be prompted to pay." });
     } catch (error) {
       toast({ title: "Error", description: "Could not confirm order.", variant: "destructive" });
@@ -294,12 +302,21 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
   };
 
   const handleOpenAssignTransporterDialog = (order: StoredOrder) => {
+    if (user?.isSuspended) {
+      toast({ title: "Action Denied", description: "Your account is suspended.", variant: "destructive" });
+      return;
+    }
     setCurrentOrderToAssign(order);
     setSelectedTransporter(null);
     setIsAssignTransporterDialogOpen(true);
   };
 
   const handleAssignTransporter = async () => {
+    if (user?.isSuspended) {
+      toast({ title: "Action Denied", description: "Your account is suspended.", variant: "destructive" });
+      setIsAssignTransporterDialogOpen(false);
+      return;
+    }
     if (!currentOrderToAssign || !selectedTransporter || !user) {
       toast({ title: "Error", description: "Select transporter or order details missing.", variant: "destructive" });
       return;
@@ -342,7 +359,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
       const updateData: Partial<StoredOrder> = {
         transporterId: selectedTransporter,
         transporterName: transporterUser.name,
-        status: 'Ready for Pickup' as OrderStatus, // This should be main order status for supplier
+        status: 'Ready for Pickup' as OrderStatus, 
         shipmentStatus: 'Ready for Pickup' as OrderShipmentStatus,
         pickupAddress: supplierAddress,
         deliveryAddress: customerAddress,
@@ -375,7 +392,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
       const transporterPayout = order.estimatedTransporterFee || 0;
 
       await updateDoc(orderRef, {
-        status: 'Completed' as OrderStatus, // Order is now fully completed
+        status: 'Completed' as OrderStatus, 
         supplierPayoutAmount: supplierPayout,
         transporterPayoutAmount: transporterPayout,
         payoutTimestamp: serverTimestamp()
@@ -394,7 +411,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
       const orderRef = doc(db, "orders", orderId);
       await updateDoc(orderRef, {
         status: 'Disputed' as OrderStatus,
-        refundTimestamp: serverTimestamp() // Simulate refund
+        refundTimestamp: serverTimestamp() 
       });
       toast({ title: "Receipt Denied", description: "Delivery issue reported. Funds returned to customer (simulated)." });
     } catch (error) {
@@ -482,6 +499,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
             
             const supplierForOrder = allUsersList.find(u => u.id === order.supplierId);
             const transporterForOrder = order.transporterId ? allUsersList.find(u => u.id === order.transporterId) : null;
+            const isCurrentUserSupplierSuspended = user?.role === 'supplier' && user?.isSuspended;
 
             return (
             <TableRow key={order.id}>
@@ -526,21 +544,23 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
                   </Button>
                 )}
                 {!isCustomerView && user?.role === 'supplier' && order.status === 'Awaiting Supplier Confirmation' && (
-                  <Button variant="outline" size="sm" onClick={() => handleSupplierConfirmOrder(order.id)} disabled={confirmingOrderId === order.id || !!confirmingOrderId} className="h-8 px-2 text-green-600 border-green-600 hover:text-green-700 hover:bg-green-50" title="Confirm Order">
+                  <Button variant="outline" size="sm" onClick={() => handleSupplierConfirmOrder(order.id)} disabled={confirmingOrderId === order.id || !!confirmingOrderId || isCurrentUserSupplierSuspended} className="h-8 px-2 text-green-600 border-green-600 hover:text-green-700 hover:bg-green-50" title="Confirm Order">
                     {confirmingOrderId === order.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <ThumbsUp className="h-4 w-4" />} <span className="ml-1">Confirm Order</span>
                   </Button>
                 )}
                 {!isCustomerView && user?.role === 'supplier' && order.status === 'Awaiting Transporter Assignment' && (
-                  <Button variant="outline" size="sm" onClick={() => handleOpenAssignTransporterDialog(order)} disabled={assigningTransporterOrderId === order.id || !!assigningTransporterOrderId} className="h-8 px-2 text-blue-600 border-blue-600 hover:text-blue-700 hover:bg-blue-50" title="Assign Transporter">
+                  <Button variant="outline" size="sm" onClick={() => handleOpenAssignTransporterDialog(order)} disabled={assigningTransporterOrderId === order.id || !!assigningTransporterOrderId || isCurrentUserSupplierSuspended} className="h-8 px-2 text-blue-600 border-blue-600 hover:text-blue-700 hover:bg-blue-50" title="Assign Transporter">
                     {assigningTransporterOrderId === order.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Truck className="h-4 w-4" />} <span className="ml-1">Assign Transporter</span>
                   </Button>
                 )}
                 {user?.role !== 'customer' && (
-                  <Button variant="ghost" size="icon" onClick={() => handleDeleteOrder(order.id)} aria-label="Delete order" className="h-8 w-8">
+                  <Button variant="ghost" size="icon" onClick={() => handleDeleteOrder(order.id)} aria-label="Delete order" className="h-8 w-8" disabled={isCurrentUserSupplierSuspended && user?.role === 'supplier'}>
                     <Trash2 className="h-4 w-4 text-destructive" />
                   </Button>
                 )}
-                {/* Fallback view button or message if no actions */}
+                {isCurrentUserSupplierSuspended && !isCustomerView && user?.role === 'supplier' && (order.status === 'Awaiting Supplier Confirmation' || order.status === 'Awaiting Transporter Assignment') && (
+                    <Badge variant="destructive" className="text-xs"><Ban className="h-3 w-3 mr-1"/> Suspended</Badge>
+                )}
                 {isCustomerView && !canPay && !canConfirmOrDeny && !canEvaluate && order.status !== 'Completed' && order.status !== 'Disputed' && (
                      <Badge variant={getStatusBadgeVariant(order.status)} className="text-xs">Awaiting Action</Badge>
                 )}
@@ -587,3 +607,5 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
     </>
   );
 }
+
+    

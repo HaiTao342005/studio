@@ -11,7 +11,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { db } from '@/lib/firebase/config';
 import { collection, query, where, onSnapshot, doc, deleteDoc, Timestamp, getDoc } from 'firebase/firestore';
 import type { Product as ProductType, StoredProduct } from '@/types/product';
-import { PackagePlus, Trash2, Loader2, Info, ImageOff, Edit3, Package, CalendarDays, Home, Landmark, AlertCircle } from 'lucide-react';
+import { PackagePlus, Trash2, Loader2, Info, ImageOff, Edit3, Package, CalendarDays, Home, Landmark, AlertCircle, Ban } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import Image from 'next/image';
 import { Badge } from '@/components/ui/badge';
@@ -26,12 +26,12 @@ const generateAiHint = (name: string, category?: string): string => {
   return nameWords.slice(0, 2).join(' ');
 };
 
-function ProductCard({ product, onDelete, onEdit }: { product: ProductType, onDelete: (productId: string, productName: string) => void, onEdit: (product: ProductType) => void }) {
+function ProductCard({ product, onDelete, onEdit, isSuspended }: { product: ProductType, onDelete: (productId: string, productName: string) => void, onEdit: (product: ProductType) => void, isSuspended?: boolean }) {
   const aiHint = generateAiHint(product.name, product.category);
   const isOutOfStock = product.stockQuantity !== undefined && product.stockQuantity <= 0;
 
   return (
-    <Card className={`flex flex-col shadow-lg hover:shadow-xl transition-shadow duration-300 ${isOutOfStock ? 'opacity-70' : ''}`}>
+    <Card className={`flex flex-col shadow-lg hover:shadow-xl transition-shadow duration-300 ${isOutOfStock ? 'opacity-70' : ''} ${isSuspended ? 'opacity-50 cursor-not-allowed' : ''}`}>
       <CardHeader className="pb-2">
         {product.imageUrl ? (
           <div className="relative w-full h-48 rounded-t-md overflow-hidden">
@@ -90,10 +90,10 @@ function ProductCard({ product, onDelete, onEdit }: { product: ProductType, onDe
             Listed: {product.createdAt ? format(product.createdAt, "MMM d, yyyy") : 'N/A'}
           </p>
         <div className="flex gap-1">
-          <Button variant="outline" size="icon" onClick={() => onEdit(product)} aria-label="Edit product">
+          <Button variant="outline" size="icon" onClick={() => !isSuspended && onEdit(product)} aria-label="Edit product" disabled={isSuspended}>
             <Edit3 className="h-5 w-5 text-primary" />
           </Button>
-          <Button variant="ghost" size="icon" onClick={() => onDelete(product.id, product.name)} aria-label={`Delete product ${product.name}`}>
+          <Button variant="ghost" size="icon" onClick={() => !isSuspended && onDelete(product.id, product.name)} aria-label={`Delete product ${product.name}`} disabled={isSuspended}>
             <Trash2 className="h-5 w-5 text-destructive" />
           </Button>
         </div>
@@ -149,6 +149,10 @@ export default function MyProductsPage({ params, searchParams }: MyProductsPageP
   }, [user, toast]);
 
   const handleDeleteProduct = async (productId: string, productName: string) => {
+    if (user?.isSuspended) {
+      toast({ title: "Action Denied", description: "Your account is suspended. You cannot delete products.", variant: "destructive" });
+      return;
+    }
     if (!user || !user.id) {
       toast({ title: "Authentication Error", description: "You must be logged in to delete products.", variant: "destructive" });
       console.log("[MyProductsPage] Delete cancelled: User not authenticated.");
@@ -191,6 +195,10 @@ export default function MyProductsPage({ params, searchParams }: MyProductsPageP
   };
 
   const handleOpenAddProductForm = () => {
+    if (user?.isSuspended) {
+      toast({ title: "Action Denied", description: "Your account is suspended. You cannot add new products.", variant: "destructive" });
+      return;
+    }
     if (!user?.address) {
       toast({
         title: "Address Required",
@@ -205,6 +213,10 @@ export default function MyProductsPage({ params, searchParams }: MyProductsPageP
   };
 
   const handleOpenEditProductForm = (product: ProductType) => {
+    if (user?.isSuspended) {
+       toast({ title: "Action Denied", description: "Your account is suspended. You cannot edit products.", variant: "destructive" });
+      return;
+    }
     setEditingProduct(product);
     setIsFormOpen(true);
   };
@@ -222,10 +234,16 @@ export default function MyProductsPage({ params, searchParams }: MyProductsPageP
           <CardHeader className="flex flex-row items-center p-6">
             <div className="flex-grow">
               <CardTitle>Manage Your Products</CardTitle>
-              <CardDescription>Add new products you offer or manage existing ones. Ensure your profile address is up-to-date for pickup locations.</CardDescription>
+              <CardDescription>
+                {user?.isSuspended 
+                  ? "Your account is currently suspended. You cannot add or manage products." 
+                  : "Add new products you offer or manage existing ones. Ensure your profile address is up-to-date for pickup locations."
+                }
+              </CardDescription>
             </div>
-            <Button onClick={handleOpenAddProductForm} className="ml-4">
-              <PackagePlus className="mr-2 h-5 w-5" /> Add New Product
+            <Button onClick={handleOpenAddProductForm} className="ml-4" disabled={user?.isSuspended}>
+              {user?.isSuspended ? <Ban className="mr-2 h-5 w-5" /> : <PackagePlus className="mr-2 h-5 w-5" />}
+              {user?.isSuspended ? "Account Suspended" : "Add New Product"}
             </Button>
           </CardHeader>
           <CardContent>
@@ -239,7 +257,9 @@ export default function MyProductsPage({ params, searchParams }: MyProductsPageP
               <div className="text-center py-10">
                 <Info className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
                 <h3 className="text-xl font-semibold text-muted-foreground">No Products Listed Yet</h3>
-                <p className="text-sm text-muted-foreground">Click "Add New Product" to get started.</p>
+                <p className="text-sm text-muted-foreground">
+                  {user?.isSuspended ? "Your account is suspended." : "Click \"Add New Product\" to get started."}
+                </p>
               </div>
             )}
             {!isLoading && products.length > 0 && (
@@ -250,6 +270,7 @@ export default function MyProductsPage({ params, searchParams }: MyProductsPageP
                     product={product}
                     onDelete={handleDeleteProduct}
                     onEdit={handleOpenEditProductForm}
+                    isSuspended={user?.isSuspended}
                   />
                 ))}
               </div>
@@ -257,7 +278,11 @@ export default function MyProductsPage({ params, searchParams }: MyProductsPageP
           </CardContent>
         </Card>
 
-        <Dialog open={isFormOpen} onOpenChange={(isOpen) => {
+        <Dialog open={isFormOpen && !user?.isSuspended} onOpenChange={(isOpen) => {
+          if (user?.isSuspended) {
+            setIsFormOpen(false);
+            return;
+          }
           setIsFormOpen(isOpen);
           if (!isOpen) setEditingProduct(null); 
         }}>
@@ -276,3 +301,4 @@ export default function MyProductsPage({ params, searchParams }: MyProductsPageP
   );
 }
 
+    

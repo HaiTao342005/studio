@@ -75,7 +75,7 @@ export default function FindProductsPage({ params, searchParams }: FindProductsP
 
       const suppliersMap = new Map<string, SupplierWithProducts>();
       matchingProducts.forEach(product => {
-        const supplier = allUsersList.find(u => u.id === product.supplierId && u.role === 'supplier');
+        const supplier = allUsersList.find(u => u.id === product.supplierId && u.role === 'supplier' && !u.isSuspended && u.isApproved); // Filter out suspended suppliers
         if (supplier) {
           if (!suppliersMap.has(supplier.id)) {
             suppliersMap.set(supplier.id, { supplier, products: [] });
@@ -264,3 +264,5 @@ export default function FindProductsPage({ params, searchParams }: FindProductsP
     </>
   );
 }
+
+    

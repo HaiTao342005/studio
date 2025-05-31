@@ -17,7 +17,7 @@ import {
   setDoc,
   getDoc
 } from 'firebase/firestore';
-import type { StoredOrder } from '@/types/transaction'; // Import StoredOrder
+import type { StoredOrder } from '@/types/transaction';
 
 export type UserRole = 'supplier' | 'transporter' | 'customer' | 'manager' | null;
 
@@ -31,12 +31,13 @@ export interface User {
   supplierRatingCount?: number;
   averageTransporterRating?: number;
   transporterRatingCount?: number;
+  isSuspended?: boolean; // New field
 }
 
-// StoredUser now represents the structure in Firestore
-export interface StoredUser extends Omit<User, 'id' | 'averageSupplierRating' | 'supplierRatingCount' | 'averageTransporterRating' | 'transporterRatingCount'> {
+export interface StoredUser extends Omit<User, 'id' | 'averageSupplierRating' | 'supplierRatingCount' | 'averageTransporterRating' | 'transporterRatingCount' | 'isSuspended'> {
   mockPassword?: string;
   address?: string;
+  isSuspended?: boolean; // New field
 }
 
 interface AuthContextType {
@@ -57,6 +58,8 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 const CURRENT_USER_STORAGE_KEY = 'fruitflow-currentUser';
 const DEFAULT_MANAGER_USERNAME = 'Nhom1';
 const DEFAULT_MANAGER_PASSWORD = '123';
+const MIN_RATINGS_FOR_SUSPENSION = 10;
+const RATING_THRESHOLD_FOR_SUSPENSION = 1.5;
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -76,6 +79,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         mockPassword: DEFAULT_MANAGER_PASSWORD,
         role: 'manager',
         isApproved: true,
+        isSuspended: false,
         address: '1 Management Plaza, Admin City, AC 10001'
       };
       const managerDocRef = doc(db, "users", DEFAULT_MANAGER_USERNAME.toLowerCase());
@@ -91,6 +95,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!managerData.address) {
         updates.address = '1 Management Plaza, Admin City, AC 10001';
       }
+      if (managerData.isSuspended === undefined) {
+        updates.isSuspended = false;
+      }
       if (Object.keys(updates).length > 0) {
         await updateDoc(managerDoc.ref, updates);
         console.log("Default manager details updated in Firestore.");
@@ -98,7 +105,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  // Define logoutCallback BEFORE the useEffect that might use it.
   const logoutCallback = useCallback(() => {
     setUser(null);
     localStorage.removeItem(CURRENT_USER_STORAGE_KEY);
@@ -125,7 +131,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const unsubscribeUsers = onSnapshot(usersQuery, async (querySnapshot) => {
       const baseUsers: User[] = [];
       querySnapshot.forEach((doc) => {
-        baseUsers.push({ id: doc.id, ...(doc.data() as Omit<StoredUser, 'id'>) });
+        const data = doc.data() as StoredUser;
+        baseUsers.push({ 
+            id: doc.id, 
+            name: data.name,
+            role: data.role,
+            isApproved: data.isApproved,
+            address: data.address,
+            isSuspended: data.isSuspended ?? false 
+        });
       });
 
       const ordersRef = collection(db, "orders");
@@ -149,18 +163,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       });
 
-      const enrichedUsers = baseUsers.map(u => {
+      const enrichedUsersPromises = baseUsers.map(async (u) => {
+        let userWithRatings = { ...u };
         const sRatingData = supplierRatingsMap[u.id];
         const tRatingData = transporterRatingsMap[u.id];
-        return {
-          ...u,
-          averageSupplierRating: sRatingData && sRatingData.count > 0 ? sRatingData.total / sRatingData.count : undefined,
-          supplierRatingCount: sRatingData ? sRatingData.count : undefined,
-          averageTransporterRating: tRatingData && tRatingData.count > 0 ? tRatingData.total / tRatingData.count : undefined,
-          transporterRatingCount: tRatingData ? tRatingData.count : undefined,
-        };
+
+        userWithRatings.averageSupplierRating = sRatingData && sRatingData.count > 0 ? sRatingData.total / sRatingData.count : undefined;
+        userWithRatings.supplierRatingCount = sRatingData ? sRatingData.count : 0;
+        userWithRatings.averageTransporterRating = tRatingData && tRatingData.count > 0 ? tRatingData.total / tRatingData.count : undefined;
+        userWithRatings.transporterRatingCount = tRatingData ? tRatingData.count : 0;
+        
+        let shouldSuspend = false;
+        if (u.role === 'supplier' && userWithRatings.supplierRatingCount >= MIN_RATINGS_FOR_SUSPENSION && userWithRatings.averageSupplierRating !== undefined && userWithRatings.averageSupplierRating < RATING_THRESHOLD_FOR_SUSPENSION) {
+          shouldSuspend = true;
+        }
+        if (u.role === 'transporter' && userWithRatings.transporterRatingCount >= MIN_RATINGS_FOR_SUSPENSION && userWithRatings.averageTransporterRating !== undefined && userWithRatings.averageTransporterRating < RATING_THRESHOLD_FOR_SUSPENSION) {
+          shouldSuspend = true;
+        }
+
+        if (shouldSuspend && !userWithRatings.isSuspended) {
+          userWithRatings.isSuspended = true;
+          try {
+            await updateDoc(doc(db, "users", u.id), { isSuspended: true });
+            console.log(`User ${u.name} (${u.id}) automatically suspended due to low ratings.`);
+            toast({ title: "Account Suspended", description: `User ${u.name} has been automatically suspended due to consistently low ratings.`, variant: "destructive", duration: 10000});
+          } catch (error) {
+            console.error(`Failed to update suspension status for user ${u.id}:`, error);
+          }
+        }
+        return userWithRatings;
       });
 
+      const enrichedUsers = await Promise.all(enrichedUsersPromises);
       setAllUsersList(enrichedUsers);
       setIsLoadingUsers(false);
 
@@ -172,7 +206,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         } else if (latestUserData) {
             setUser(latestUserData);
         } else {
-            // Use the correctly defined logoutCallback
             logoutCallback();
         }
       } else {
@@ -189,7 +222,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => {
       unsubscribeUsers();
     };
-  // Depend on logoutCallback instead of an undefined `logout`
   }, [seedDefaultManager, toast, logoutCallback]);
 
 
@@ -222,6 +254,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       role,
       mockPassword: mockPasswordNew,
       isApproved: isCustomer,
+      isSuspended: false, // New users are not suspended
       address: '',
     };
 
@@ -232,6 +265,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         name: newUserFirestoreData.name,
         role: newUserFirestoreData.role,
         isApproved: newUserFirestoreData.isApproved,
+        isSuspended: newUserFirestoreData.isSuspended,
         address: newUserFirestoreData.address,
       };
 
@@ -261,7 +295,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const storedUserDocData = potentialUser ? (await getDoc(doc(db, "users", potentialUser.id))).data() as StoredUser : null;
 
     if (potentialUser && storedUserDocData && storedUserDocData.mockPassword === mockPasswordAttempt) {
-        if ((potentialUser.role === 'supplier' || potentialUser.role === 'transporter') && !potentialUser.isApproved) {
+        if (potentialUser.isSuspended) {
+          toast({ title: "Account Suspended", description: "Your account has been suspended due to low ratings. Please contact support.", variant: "destructive", duration: 10000 });
+          setUser(null);
+          localStorage.removeItem(CURRENT_USER_STORAGE_KEY);
+        } else if ((potentialUser.role === 'supplier' || potentialUser.role === 'transporter') && !potentialUser.isApproved) {
           toast({ title: "Login Blocked", description: "Your account as a " + potentialUser.role + " is awaiting manager approval.", variant: "destructive", duration: 7000 });
           setUser(null);
           localStorage.removeItem(CURRENT_USER_STORAGE_KEY);
@@ -271,6 +309,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           toast({ title: "Login Successful!", description: `Welcome back, ${username}!` });
         }
     } else {
+        // Fallback if allUsersList wasn't fully populated yet or user not found in it.
         const usersRef = collection(db, "users");
         const q = query(usersRef, where("name", "==", username));
         try {
@@ -289,10 +328,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                     name: userDataFromDB.name, 
                     role: userDataFromDB.role, 
                     isApproved: userDataFromDB.isApproved, 
+                    isSuspended: userDataFromDB.isSuspended ?? false,
                     address: userDataFromDB.address || '' 
                 };
 
-                if ((loggedInUserEnriched.role === 'supplier' || loggedInUserEnriched.role === 'transporter') && !loggedInUserEnriched.isApproved) {
+                if (loggedInUserEnriched.isSuspended) {
+                    toast({ title: "Account Suspended", description: "Your account has been suspended due to low ratings. Please contact support.", variant: "destructive", duration: 10000 });
+                    setUser(null);
+                    localStorage.removeItem(CURRENT_USER_STORAGE_KEY);
+                } else if ((loggedInUserEnriched.role === 'supplier' || loggedInUserEnriched.role === 'transporter') && !loggedInUserEnriched.isApproved) {
                     toast({ title: "Login Blocked", description: "Your account as a " + loggedInUserEnriched.role + " is awaiting manager approval.", variant: "destructive", duration: 7000 });
                     setUser(null);
                     localStorage.removeItem(CURRENT_USER_STORAGE_KEY);
@@ -352,10 +396,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       mockPassword: newManagerPassword,
       role: 'manager',
       isApproved: true,
+      isSuspended: false,
       address: '1 Admin Way, Suite M, Management City',
     };
     try {
-      // Use the username as the document ID for managers for predictability
       const managerDocRef = doc(db, "users", newManagerUsername.toLowerCase()); 
       await setDoc(managerDocRef, newManagerData);
       toast({ title: "Manager Created", description: `Manager account for ${newManagerUsername} created successfully.` });
@@ -416,3 +460,5 @@ export function useAuth() {
   }
   return context;
 }
+
+    
