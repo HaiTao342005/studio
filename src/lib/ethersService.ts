@@ -42,12 +42,12 @@ export async function getEscrowContract(signer?: ethers.Signer | null): Promise<
   }
 
   if (!contractAddress) {
-    toast({ title: "Contract Error", description: "Escrow contract address is not configured. Please set NEXT_PUBLIC_ESCROW_CONTRACT_ADDRESS in your .env file.", variant: "destructive", duration: 7000 });
-    return null; // Changed from throw new Error
+    toast({ title: "Contract Error", description: "Escrow contract address is not configured. Please set NEXT_PUBLIC_ESCROW_CONTRACT_ADDRESS in your .env or .env.local file.", variant: "destructive", duration: 7000 });
+    return null; 
   }
   if (!FruitFlowEscrowABI || FruitFlowEscrowABI.length === 0) {
     toast({ title: "Contract Error", description: "Escrow contract ABI is not loaded. Ensure src/contracts/FruitFlowEscrow.json exists and is correctly populated.", variant: "destructive", duration: 7000 });
-    return null; // Changed from throw new Error
+    return null; 
   }
 
   return new ethers.Contract(contractAddress, FruitFlowEscrowABI, currentSigner);
