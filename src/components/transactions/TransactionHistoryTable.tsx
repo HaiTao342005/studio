@@ -468,11 +468,17 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
 
 
   const handleOpenAssignTransporterDialog = (order: StoredOrder) => {
-    if (user?.isSuspended) {
-      toast({ title: "Action Denied", description: "Your account is suspended.", variant: "destructive" });
+    const customerForOrder = allUsersList.find(u => u.id === order.customerId);
+
+    if (!user?.ethereumAddress) {
+      toast({ title: "Supplier ETH Address Missing", description: "Please set your Ethereum address in 'My Profile' before finalizing.", variant: "destructive", duration: 7000 });
       return;
     }
-    // Removed pre-checks for supplier/customer ETH here, they will be checked inside the dialog or when enabling the final button.
+    if (!customerForOrder?.ethereumAddress) {
+      toast({ title: "Customer ETH Address Missing", description: `Customer ${customerForOrder?.name || order.customerName} needs to set their Ethereum address in their profile.`, variant: "destructive", duration: 7000 });
+      return;
+    }
+
     setCurrentOrderToAssign(order);
     setSelectedTransporter(null);
     setIsAssignTransporterDialogOpen(true);
@@ -708,13 +714,11 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
             const displayDate = order.orderDate || (order as any).date;
             const productName = order.productName || (order as any).fruitType;
 
-            const canCreateOnChain = user?.role === 'supplier' && order.status === 'AwaitingSupplierConfirmation' && !user.isSuspended;
+            const canCreateOnChain = user?.role === 'supplier' && user.id === order.supplierId && order.status === 'AwaitingSupplierConfirmation' && !user.isSuspended;
             const canPayOnChain = isCustomerView && order.status === 'AwaitingOnChainFunding' && !user?.isSuspended;
             const canConfirmOrDenyOnChain = isCustomerView && order.status === 'FundedOnChain' && order.shipmentStatus === 'Delivered' && !order.assessmentSubmitted && !user?.isSuspended;
             const canEvaluate = isCustomerView && (order.status === 'CompletedOnChain' || order.status === 'DisputedOnChain') && !order.assessmentSubmitted && !user?.isSuspended;
             
-            const isCurrentUserSupplierSuspended = user?.role === 'supplier' && user?.isSuspended;
-
             const displayAmount = order.finalTotalAmount ?? order.totalAmount;
 
             return (
@@ -770,7 +774,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
               {isManagerView && <TableCell className="text-xs" title={order.contractConfirmationTxHash || undefined}>{truncateText(order.contractConfirmationTxHash, 12)}</TableCell>}
               <TableCell className="space-x-1 text-center">
                 {canCreateOnChain && (
-                  <Button variant="outline" size="sm" onClick={() => handleOpenAssignTransporterDialog(order)} disabled={actionOrderId === order.id || !!actionOrderId || isCurrentUserSupplierSuspended} className="h-8 px-2 text-blue-600 border-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                  <Button variant="outline" size="sm" onClick={() => handleOpenAssignTransporterDialog(order)} disabled={actionOrderId === order.id || !!actionOrderId} className="h-8 px-2 text-blue-600 border-blue-600 hover:text-blue-700 hover:bg-blue-50"
                     title="Finalize order, assign transporter, and create the order on the smart contract">
                      {actionOrderId === order.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSignature className="h-4 w-4" />} <span className="ml-1">Finalize & Create</span>
                   </Button>
@@ -796,11 +800,11 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
                   </Button>
                 )}
                 {user?.role !== 'customer' && order.status !== 'AwaitingSupplierConfirmation' && order.status !== 'AwaitingOnChainFunding' && order.status !== 'FundedOnChain' && order.status !== 'CompletedOnChain' && order.status !== 'DisputedOnChain' && (
-                  <Button variant="ghost" size="icon" onClick={() => handleDeleteOrder(order.id)} aria-label="Delete order" className="h-8 w-8" disabled={isCurrentUserSupplierSuspended && user?.role === 'supplier'}>
+                  <Button variant="ghost" size="icon" onClick={() => handleDeleteOrder(order.id)} aria-label="Delete order" className="h-8 w-8" disabled={user?.isSuspended && user?.role === 'supplier'}>
                     <Trash2 className="h-4 w-4 text-destructive" />
                   </Button>
                 )}
-                {isCurrentUserSupplierSuspended && user?.role === 'supplier' && canCreateOnChain && (
+                {user?.isSuspended && user?.role === 'supplier' && canCreateOnChain && (
                     <Badge variant="destructive" className="text-xs"><Ban className="h-3 w-3 mr-1"/> Suspended</Badge>
                 )}
                 {isCustomerView && (user?.isSuspended || (order.status !== 'AwaitingOnChainFunding' && order.status !== 'FundedOnChain' && !canEvaluate && !canConfirmOrDenyOnChain)) && order.status !== 'CompletedOnChain' && order.status !== 'DisputedOnChain' && (
