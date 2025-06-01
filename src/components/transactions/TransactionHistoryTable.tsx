@@ -17,7 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
-import { Trash2, Wallet, Loader2, Eye, ThumbsUp, Truck, AlertTriangle, ThumbsDown, Star, CheckCircle, Ban, Edit, Info } from 'lucide-react';
+import { Trash2, Wallet, Loader2, Eye, ThumbsUp, Truck, AlertTriangle, ThumbsDown, Star, CheckCircle, Ban, Edit, Info, Hash, KeyRound } from 'lucide-react'; // Added Hash, KeyRound
 import type { OrderStatus, StoredOrder, OrderShipmentStatus } from '@/types/transaction';
 import { AppleIcon, BananaIcon, OrangeIcon, GrapeIcon, MangoIcon, FruitIcon } from '@/components/icons/FruitIcons';
 import { format } from 'date-fns';
@@ -76,7 +76,7 @@ const calculateTieredShippingPrice = (distanceKm: number, rates?: UserShippingRa
 const getStatusBadgeVariant = (status: OrderStatus | OrderShipmentStatus): "default" | "secondary" | "destructive" | "outline" => {
   switch (status) {
     case 'Paid': return 'default';
-    case 'Delivered': return 'secondary';
+    case 'Delivered': return 'secondary'; // Kept secondary as payment is still pending confirmation by customer
     case 'Receipt Confirmed': return 'default';
     case 'Completed': return 'default';
     case 'Shipped': return 'secondary';
@@ -389,7 +389,6 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
             finalTotalOrderAmount = currentOrderToAssign.totalAmount + calculatedTransporterFee;
             toast({ title: "Logistics Estimated", description: `Delivery: ${predictedDeliveryTimestamp ? format(predictedDeliveryTimestamp.toDate(), "MMM d, yyyy") : 'N/A'}. Fee: $${calculatedTransporterFee.toFixed(2)}. New Total: $${finalTotalOrderAmount.toFixed(2)}. Note: ${distanceInfo.note || ''}`});
           } else {
-             // This case should be less likely now due to the check above, but kept as a safeguard
              toast({title: "Transporter Rates Missing", description: `${transporterUser.name} has not set their shipping rates. Cannot calculate shipping fee. Using product total.`, variant: "destructive", duration: 8000});
           }
         } else {
@@ -514,9 +513,18 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
       setIsSubmittingAssessment(false);
     }
   };
+  
+  const truncateText = (text: string | undefined | null, length: number = 10) => {
+    if (!text) return 'N/A';
+    if (text.length <= length) return text;
+    return text.substring(0, length) + '...';
+  };
+
 
   if (isLoading) return <div className="flex justify-center items-center py-8"><Loader2 className="h-8 w-8 animate-spin mr-2" /> Loading...</div>;
   if (orders.length === 0 && !isLoading) return <p className="text-center text-muted-foreground py-8">No orders yet.</p>;
+
+  const isManagerView = user?.role === 'manager';
 
   return (
     <>
@@ -530,11 +538,16 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
             {!isCustomerView && <TableHead>Customer</TableHead>}
             {isCustomerView && <TableHead>Supplier</TableHead>}
             <TableHead>Transporter</TableHead>
+            {isManagerView && <TableHead>Customer ID</TableHead>}
+            {isManagerView && <TableHead>Supplier ID</TableHead>}
+            {isManagerView && <TableHead>Transporter ID</TableHead>}
             <TableHead className="text-right">Amount</TableHead>
             <TableHead className="text-right">Quantity</TableHead>
             <TableHead>Status</TableHead>
             <TableHead>Shipment Status</TableHead>
             <TableHead>Predicted Delivery</TableHead>
+            {isManagerView && <TableHead title="Payment Transaction Hash"><Hash className="inline-block h-4 w-4 mr-1"/>Hash</TableHead>}
+            {isManagerView && <TableHead title="Simulated Recipient Address"><KeyRound className="inline-block h-4 w-4 mr-1"/>Recipient</TableHead>}
             <TableHead className="w-[200px] text-center">Actions</TableHead>
           </TableRow>
         </TableHeader>
@@ -571,11 +584,16 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
                 {order.transporterName || 'N/A'}
                 {transporterForOrder?.averageTransporterRating !== undefined && (<Badge variant="outline" className="ml-1 text-xs font-normal py-0.5"><Star className="h-3 w-3 mr-1 text-yellow-400 fill-yellow-400" />{transporterForOrder.averageTransporterRating.toFixed(1)}</Badge>)}
               </TableCell>
+              {isManagerView && <TableCell className="text-xs" title={order.customerId}>{truncateText(order.customerId, 8)}</TableCell>}
+              {isManagerView && <TableCell className="text-xs" title={order.supplierId}>{truncateText(order.supplierId, 8)}</TableCell>}
+              {isManagerView && <TableCell className="text-xs" title={order.transporterId || undefined}>{truncateText(order.transporterId, 8)}</TableCell>}
               <TableCell className="text-right">{order.currency} {displayAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</TableCell>
               <TableCell className="text-right">{order.quantity.toLocaleString()} {order.unit}</TableCell>
               <TableCell><Badge variant={getStatusBadgeVariant(order.status)}>{order.status}</Badge></TableCell>
               <TableCell>{order.shipmentStatus ? <Badge variant={getStatusBadgeVariant(order.shipmentStatus)}>{order.shipmentStatus}</Badge> : <span className="text-xs text-muted-foreground">N/A</span>}</TableCell>
               <TableCell>{order.predictedDeliveryDate ? format((order.predictedDeliveryDate as Timestamp).toDate(), "MMM d, yyyy") : <span className="text-xs text-muted-foreground">N/A</span>}</TableCell>
+              {isManagerView && <TableCell className="text-xs" title={order.paymentTransactionHash || undefined}>{truncateText(order.paymentTransactionHash, 12)}</TableCell>}
+              {isManagerView && <TableCell className="text-xs" title={GANACHE_RECIPIENT_ADDRESS}>{truncateText(GANACHE_RECIPIENT_ADDRESS, 12)}</TableCell>}
               <TableCell className="space-x-1 text-center">
                 {canPay && (
                   <Button variant="outline" size="sm" onClick={() => handlePayWithMetamask(order.id)} disabled={payingOrderId === order.id || !!payingOrderId} className="h-8 px-2" title="Pay with Metamask">
@@ -680,3 +698,5 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
     </>
   );
 }
+
+    
