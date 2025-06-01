@@ -1,5 +1,5 @@
 
-import React from 'react'; // Added
+import React from 'react';
 import { Header } from '@/components/dashboard/Header';
 import { MarketDataCard } from '@/components/dashboard/MarketDataCard';
 import { AppleIcon, BananaIcon, OrangeIcon, GrapeIcon, MangoIcon } from '@/components/icons/FruitIcons';
@@ -14,12 +14,13 @@ const mockMarketData = [
 ];
 
 interface MarketDataPageProps {
-  params: {}; // Static route
+  params: {}; // Static route, params is an empty object
   searchParams: { [key: string]: string | string[] | undefined };
 }
 
-export default function MarketDataPage({ params, searchParams: initialSearchParams }: MarketDataPageProps) {
-  const searchParams = React.use(initialSearchParams); // Unwrapped searchParams
+export default function MarketDataPage({ params: originalParams, searchParams: originalSearchParams }: MarketDataPageProps) {
+  const params = React.use(originalParams); // Unwrapping params
+  const searchParams = React.use(originalSearchParams); // Unwrapping searchParams
 
   return (
     <>
