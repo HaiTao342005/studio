@@ -17,7 +17,7 @@ import {
   setDoc,
   getDoc
 } from 'firebase/firestore';
-import type { StoredOrder } from '@/types/transaction';
+import type { StoredOrder, OrderStatus } from '@/types/transaction'; // Added OrderStatus
 
 export type UserRole = 'supplier' | 'transporter' | 'customer' | 'manager' | null;
 
@@ -33,19 +33,23 @@ export interface User {
   role: UserRole;
   isApproved: boolean;
   address?: string;
-  ethereumAddress?: string; 
-  averageSupplierRating?: number;
-  supplierRatingCount?: number;
+  ethereumAddress?: string;
+  // For Suppliers
+  averageSupplierRating?: number; // This will be the calculated weighted average
+  supplierRatingCount?: number;   // Total number of ratings received
+  supplierWeightedRatingSum?: number; // Sum of (rating * weight)
+  supplierTotalWeights?: number;    // Sum of all weights
+  // For Transporters
   averageTransporterRating?: number;
   transporterRatingCount?: number;
   isSuspended?: boolean;
   shippingRates?: UserShippingRates;
 }
 
-export interface StoredUser extends Omit<User, 'id' | 'averageSupplierRating' | 'supplierRatingCount' | 'averageTransporterRating' | 'transporterRatingCount' | 'isSuspended' | 'shippingRates' | 'ethereumAddress'> {
+export interface StoredUser extends Omit<User, 'id' | 'averageSupplierRating' | 'supplierRatingCount' | 'supplierWeightedRatingSum' | 'supplierTotalWeights' | 'averageTransporterRating' | 'transporterRatingCount' | 'isSuspended' | 'shippingRates' | 'ethereumAddress'> {
   mockPassword?: string;
   address?: string;
-  ethereumAddress?: string; 
+  ethereumAddress?: string;
   isSuspended?: boolean;
   shippingRates?: UserShippingRates;
 }
@@ -58,7 +62,7 @@ interface AuthContextType {
   isLoading: boolean;
   approveUser: (userId: string) => void;
   addManager: (newManagerUsername: string, newManagerPassword: string) => Promise<boolean>;
-  updateUserProfile: (userId: string, data: { address?: string; ethereumAddress?: string }) => Promise<boolean>; 
+  updateUserProfile: (userId: string, data: { address?: string; ethereumAddress?: string }) => Promise<boolean>;
   updateTransporterShippingRates: (userId: string, rates: UserShippingRates) => Promise<boolean>;
   allUsersList: User[];
   isLoadingUsers: boolean;
@@ -81,19 +85,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const seedDefaultManager = useCallback(async () => {
     const usersRef = collection(db, "users");
-    // Use .toLowerCase() for the document ID to ensure case-insensitivity for this default manager
     const managerDocRef = doc(db, "users", DEFAULT_MANAGER_USERNAME.toLowerCase());
     const managerSnap = await getDoc(managerDocRef);
 
     if (!managerSnap.exists()) {
       const defaultManagerData: StoredUser = {
-        name: DEFAULT_MANAGER_USERNAME, // Keep original casing for display name
+        name: DEFAULT_MANAGER_USERNAME,
         mockPassword: DEFAULT_MANAGER_PASSWORD,
         role: 'manager',
         isApproved: true,
         isSuspended: false,
         address: '1 Management Plaza, Admin City, AC 10001',
-        ethereumAddress: '0xManagerEthAddressPlaceholder', // Add a placeholder ETH address
+        ethereumAddress: '0xManagerEthAddressPlaceholder',
       };
       await setDoc(managerDocRef, defaultManagerData);
       console.log("Default manager seeded in Firestore with ID:", managerDocRef.id);
@@ -106,8 +109,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!managerData.address) {
         updates.address = '1 Management Plaza, Admin City, AC 10001';
       }
-       if (managerData.ethereumAddress === undefined || managerData.ethereumAddress === '') { // Check if undefined or empty
-        updates.ethereumAddress = '0xManagerEthAddressPlaceholder'; // Add a placeholder if missing
+       if (managerData.ethereumAddress === undefined || managerData.ethereumAddress === '') {
+        updates.ethereumAddress = '0xManagerEthAddressPlaceholder';
       }
       if (managerData.isSuspended === undefined) {
         updates.isSuspended = false;
@@ -141,10 +144,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     seedDefaultManager();
 
+    // Fetch all orders once to build purchase history.
+    // This could be further optimized if performance becomes an issue for very large order sets.
+    const allOrdersQuery = query(collection(db, "orders"));
+    let allOrderDocsForHistory: StoredOrder[] = [];
+    const customerSupplierPurchaseCount = new Map<string, Map<string, number>>();
+
+    const fetchAllOrdersForHistory = async () => {
+        const allOrdersSnap = await getDocs(allOrdersQuery);
+        allOrderDocsForHistory = [];
+        allOrdersSnap.forEach(doc => allOrderDocsForHistory.push({ id: doc.id, ...doc.data() } as StoredOrder));
+
+        customerSupplierPurchaseCount.clear();
+        allOrderDocsForHistory.forEach(order => {
+            const countableStatuses: OrderStatus[] = ['Paid', 'Shipped', 'Delivered', 'CompletedOnChain', 'FundedOnChain', 'Awaiting Payment', 'AwaitingOnChainFunding', 'AwaitingOnChainCreation', 'Pending', 'AwaitingSupplierConfirmation'];
+            if (order.customerId && order.supplierId && countableStatuses.includes(order.status) && order.status !== 'Cancelled' && order.status !== 'DisputedOnChain') {
+                if (!customerSupplierPurchaseCount.has(order.customerId)) {
+                    customerSupplierPurchaseCount.set(order.customerId, new Map<string, number>());
+                }
+                const supplierMap = customerSupplierPurchaseCount.get(order.customerId)!;
+                supplierMap.set(order.supplierId, (supplierMap.get(order.supplierId) || 0) + 1);
+            }
+        });
+    };
+
     const usersQuery = query(collection(db, "users"));
     const unsubscribeUsers = onSnapshot(usersQuery, async (querySnapshot) => {
+      await fetchAllOrdersForHistory(); // Refresh purchase history map when users change (or for the first time)
+
       const baseUsers: User[] = [];
-      querySnapshot.forEach((docSnapshot) => { // Renamed doc to docSnapshot to avoid conflict
+      querySnapshot.forEach((docSnapshot) => {
         const data = docSnapshot.data() as StoredUser;
         baseUsers.push({
             id: docSnapshot.id,
@@ -152,7 +181,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             role: data.role,
             isApproved: data.isApproved,
             address: data.address,
-            ethereumAddress: data.ethereumAddress || '', // Ensure ethereumAddress is always a string
+            ethereumAddress: data.ethereumAddress || '',
             isSuspended: data.isSuspended ?? false,
             shippingRates: data.shippingRates
         });
@@ -160,18 +189,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       const ordersRef = collection(db, "orders");
       const assessedOrdersQuery = query(ordersRef, where("assessmentSubmitted", "==", true));
-      const assessedOrdersSnap = await getDocs(assessedOrdersQuery);
+      const assessedOrdersSnap = await getDocs(assessedOrdersQuery); // This doesn't need to be onSnapshot if users snapshot triggers re-calc
 
-      const supplierRatingsMap: Record<string, { total: number; count: number }> = {};
+      const supplierWeightedRatingSumMap: Record<string, number> = {};
+      const supplierTotalWeightsMap: Record<string, number> = {};
+      const supplierRatingCountMap: Record<string, number> = {};
       const transporterRatingsMap: Record<string, { total: number; count: number }> = {};
+
 
       assessedOrdersSnap.forEach(orderDoc => {
         const orderData = orderDoc.data() as StoredOrder;
-        if (orderData.supplierId && typeof orderData.supplierRating === 'number') {
-          supplierRatingsMap[orderData.supplierId] = supplierRatingsMap[orderData.supplierId] || { total: 0, count: 0 };
-          supplierRatingsMap[orderData.supplierId].total += orderData.supplierRating;
-          supplierRatingsMap[orderData.supplierId].count += 1;
+
+        // Supplier Weighted Rating
+        if (orderData.supplierId && typeof orderData.supplierRating === 'number' && orderData.customerId) {
+          const purchaseCount = customerSupplierPurchaseCount.get(orderData.customerId)?.get(orderData.supplierId) || 0;
+          let weight = 0.05; // Default for first time (purchaseCount is 1 for the current order being assessed)
+          if (purchaseCount > 10) { // The current order is part of this count
+            weight = 0.80;
+          } else if (purchaseCount >= 2) { // This order makes it the 2nd to 10th
+            weight = 0.15;
+          }
+          // else if purchaseCount is 1 (this order), weight remains 0.05
+
+          supplierWeightedRatingSumMap[orderData.supplierId] = (supplierWeightedRatingSumMap[orderData.supplierId] || 0) + (orderData.supplierRating * weight);
+          supplierTotalWeightsMap[orderData.supplierId] = (supplierTotalWeightsMap[orderData.supplierId] || 0) + weight;
+          supplierRatingCountMap[orderData.supplierId] = (supplierRatingCountMap[orderData.supplierId] || 0) + 1;
         }
+
+        // Transporter Simple Average Rating (as per current design)
         if (orderData.transporterId && typeof orderData.transporterRating === 'number') {
           transporterRatingsMap[orderData.transporterId] = transporterRatingsMap[orderData.transporterId] || { total: 0, count: 0 };
           transporterRatingsMap[orderData.transporterId].total += orderData.transporterRating;
@@ -180,12 +225,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
 
       const enrichedUsersPromises = baseUsers.map(async (u) => {
-        let userWithRatings = { ...u };
-        const sRatingData = supplierRatingsMap[u.id];
-        const tRatingData = transporterRatingsMap[u.id];
+        let userWithRatings = { ...u } as User; // Ensure type compatibility
 
-        userWithRatings.averageSupplierRating = sRatingData && sRatingData.count > 0 ? sRatingData.total / sRatingData.count : undefined;
-        userWithRatings.supplierRatingCount = sRatingData ? sRatingData.count : 0;
+        const sWeightedRatingSum = supplierWeightedRatingSumMap[u.id] || 0;
+        const sTotalWeights = supplierTotalWeightsMap[u.id] || 0;
+        const sRatingCount = supplierRatingCountMap[u.id] || 0;
+
+        userWithRatings.supplierWeightedRatingSum = sWeightedRatingSum;
+        userWithRatings.supplierTotalWeights = sTotalWeights;
+        userWithRatings.averageSupplierRating = sTotalWeights > 0 ? sWeightedRatingSum / sTotalWeights : undefined;
+        userWithRatings.supplierRatingCount = sRatingCount;
+
+        const tRatingData = transporterRatingsMap[u.id];
         userWithRatings.averageTransporterRating = tRatingData && tRatingData.count > 0 ? tRatingData.total / tRatingData.count : undefined;
         userWithRatings.transporterRatingCount = tRatingData ? tRatingData.count : 0;
 
@@ -202,7 +253,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           try {
             await updateDoc(doc(db, "users", u.id), { isSuspended: true });
             console.log(`User ${u.name} (${u.id}) automatically suspended due to low ratings.`);
-            if (user?.id === u.id) { // If current user is suspended
+            if (user?.id === u.id) {
                  toast({ title: "Account Suspended", description: `Your account has been automatically suspended due to consistently low ratings.`, variant: "destructive", duration: 10000});
             } else {
                  toast({ title: "User Suspended", description: `User ${u.name} has been automatically suspended due to consistently low ratings.`, variant: "destructive", duration: 10000});
@@ -221,11 +272,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (storedUser) {
         const latestUserData = enrichedUsers.find(u => u.id === storedUser!.id);
         if (latestUserData && JSON.stringify(latestUserData) !== JSON.stringify(storedUser)) {
-          setUser(latestUserData); // Update with fresh data from DB (including ratings/suspension)
+          setUser(latestUserData);
           localStorage.setItem(CURRENT_USER_STORAGE_KEY, JSON.stringify(latestUserData));
         } else if (latestUserData) {
             setUser(latestUserData);
-        } else { // User in storage no longer exists in DB
+        } else {
             logoutCallback();
         }
       } else {
@@ -239,10 +290,94 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setIsLoading(false);
     });
 
+    // Also need a listener for assessed orders to trigger recalculation if an assessment is submitted
+    // after initial load.
+    const assessedOrdersListenerQuery = query(collection(db, "orders"), where("assessmentSubmitted", "==", true));
+    const unsubscribeAssessedOrders = onSnapshot(assessedOrdersListenerQuery, async (snapshot) => {
+        if (!isLoadingUsers && allUsersList.length > 0) { // Only re-calculate if users are already loaded
+            console.log("New assessment submitted, recalculating ratings...");
+            // This will re-trigger the user snapshot logic by causing a state change
+            // or we can explicitly call a recalculation function.
+            // For simplicity, we can trigger a re-fetch of users by making a superficial change
+            // or better, abstract the rating calculation to a function and call it.
+            // Let's try to simulate a re-evaluation for now, by just re-setting a dummy state,
+            // or more cleanly, re-fetch users or re-run parts of the user snapshot logic.
+            // The most robust way is to re-trigger the main effect or parts of it.
+            // For now, the user snapshot will run if any user doc changes.
+            // If only an order changes (new assessment), the user snapshot might not rerun.
+            // So, it's better to make the rating calculation part of the assessedOrders listener too.
+            // OR, have the assessment submission trigger a refresh of the user data.
+
+            // For now, let's assume the user snapshot will handle it, or make it more explicit.
+            // A simpler approach: if the user list exists, simulate a usersQuery snapshot to re-run its logic.
+            // This is a bit hacky. Better would be to lift rating calc into a shared func.
+            // For now, let's rely on the fact that changing an order for assessment
+            // will likely make the UI re-render and if `user` object changes, things refresh.
+            // This part might need further refinement if ratings don't update immediately after assessment.
+            // The most direct way is to re-run the user enrichment logic here.
+             await fetchAllOrdersForHistory(); // Re-fetch order history
+             // Re-process baseUsers with new ratings
+             const baseUsers = [...allUsersList]; // Use a copy of the current user list
+
+             const assessedOrdersSnap = await getDocs(assessedOrdersQuery); // Re-fetch assessed orders
+
+             const supplierWeightedRatingSumMap: Record<string, number> = {};
+             const supplierTotalWeightsMap: Record<string, number> = {};
+             const supplierRatingCountMap: Record<string, number> = {};
+             const transporterRatingsMap: Record<string, { total: number; count: number }> = {};
+
+             assessedOrdersSnap.forEach(orderDoc => {
+                const orderData = orderDoc.data() as StoredOrder;
+                if (orderData.supplierId && typeof orderData.supplierRating === 'number' && orderData.customerId) {
+                  const purchaseCount = customerSupplierPurchaseCount.get(orderData.customerId)?.get(orderData.supplierId) || 0;
+                  let weight = 0.05;
+                  if (purchaseCount > 10) weight = 0.80;
+                  else if (purchaseCount >= 2) weight = 0.15;
+                  supplierWeightedRatingSumMap[orderData.supplierId] = (supplierWeightedRatingSumMap[orderData.supplierId] || 0) + (orderData.supplierRating * weight);
+                  supplierTotalWeightsMap[orderData.supplierId] = (supplierTotalWeightsMap[orderData.supplierId] || 0) + weight;
+                  supplierRatingCountMap[orderData.supplierId] = (supplierRatingCountMap[orderData.supplierId] || 0) + 1;
+                }
+                if (orderData.transporterId && typeof orderData.transporterRating === 'number') {
+                  transporterRatingsMap[orderData.transporterId] = transporterRatingsMap[orderData.transporterId] || { total: 0, count: 0 };
+                  transporterRatingsMap[orderData.transporterId].total += orderData.transporterRating;
+                  transporterRatingsMap[orderData.transporterId].count += 1;
+                }
+              });
+
+              const reEnrichedUsersPromises = baseUsers.map(async (u) => {
+                let userWithRatings = { ...u };
+                const sWeightedRatingSum = supplierWeightedRatingSumMap[u.id] || 0;
+                const sTotalWeights = supplierTotalWeightsMap[u.id] || 0;
+                const sRatingCount = supplierRatingCountMap[u.id] || 0;
+                userWithRatings.supplierWeightedRatingSum = sWeightedRatingSum;
+                userWithRatings.supplierTotalWeights = sTotalWeights;
+                userWithRatings.averageSupplierRating = sTotalWeights > 0 ? sWeightedRatingSum / sTotalWeights : undefined;
+                userWithRatings.supplierRatingCount = sRatingCount;
+
+                const tRatingData = transporterRatingsMap[u.id];
+                userWithRatings.averageTransporterRating = tRatingData && tRatingData.count > 0 ? tRatingData.total / tRatingData.count : undefined;
+                userWithRatings.transporterRatingCount = tRatingData ? tRatingData.count : 0;
+                // Suspension logic remains the same
+                return userWithRatings;
+              });
+              const reEnrichedUsers = await Promise.all(reEnrichedUsersPromises);
+              setAllUsersList(reEnrichedUsers);
+              if (user) {
+                const updatedCurrentUser = reEnrichedUsers.find(ru => ru.id === user.id);
+                if (updatedCurrentUser) {
+                    setUser(updatedCurrentUser);
+                    localStorage.setItem(CURRENT_USER_STORAGE_KEY, JSON.stringify(updatedCurrentUser));
+                }
+              }
+        }
+    });
+
+
     return () => {
       unsubscribeUsers();
+      unsubscribeAssessedOrders();
     };
-  }, [seedDefaultManager, toast, logoutCallback, user?.id]); // Added user?.id to dependency for suspension toast
+  }, [seedDefaultManager, toast, logoutCallback, user?.id, isLoadingUsers]); // Added isLoadingUsers to dependencies to ensure rating calc runs after users are loaded
 
 
   const signup = useCallback(async (username: string, mockPasswordNew: string, role: UserRole) => {
@@ -257,7 +392,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     setIsLoading(true);
     const usersRef = collection(db, "users");
-    // Use .toLowerCase() for the document ID to ensure case-insensitivity for username checks and new user creation
     const userDocId = username.toLowerCase();
     const userDocRef = doc(db, "users", userDocId);
     const userDocSnap = await getDoc(userDocRef);
@@ -273,21 +407,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const isSupplierOrTransporter = role === 'supplier' || role === 'transporter';
 
     const newUserFirestoreData: StoredUser = {
-      name: username, // Store original casing for display name
+      name: username,
       role,
       mockPassword: mockPasswordNew,
       isApproved: isCustomer,
       isSuspended: false,
       address: '',
-      ethereumAddress: '', 
+      ethereumAddress: '',
       shippingRates: role === 'transporter' ? { tier1_0_100_km_price: 0, tier2_101_500_km_price_per_km: 0, tier3_501_1000_km_price_per_km: 0} : undefined,
     };
 
     try {
-      // Set document with the predetermined lowercase ID
       await setDoc(userDocRef, newUserFirestoreData);
       const newUser: User = {
-        id: userDocRef.id, // This is the lowercase ID
+        id: userDocRef.id,
         name: newUserFirestoreData.name,
         role: newUserFirestoreData.role,
         isApproved: newUserFirestoreData.isApproved,
@@ -295,6 +428,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         address: newUserFirestoreData.address,
         ethereumAddress: newUserFirestoreData.ethereumAddress,
         shippingRates: newUserFirestoreData.shippingRates,
+        // Initial rating fields
+        supplierWeightedRatingSum: 0,
+        supplierTotalWeights: 0,
+        supplierRatingCount: 0,
       };
 
       if (isCustomer) {
@@ -319,13 +456,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     setIsLoading(true);
 
-    // Use .toLowerCase() for lookup to match how IDs are created/queried
     const userDocId = username.toLowerCase();
-    const potentialUser = allUsersList.find(u => u.id === userDocId || u.name.toLowerCase() === userDocId); // Check by ID first, then name
+    const potentialUser = allUsersList.find(u => u.id === userDocId || u.name.toLowerCase() === userDocId);
 
     if (potentialUser) {
-        // Fetch the document directly to get the stored mockPassword
-        const userRef = doc(db, "users", potentialUser.id); // Use the actual ID from allUsersList
+        const userRef = doc(db, "users", potentialUser.id);
         const userSnap = await getDoc(userRef);
         if (userSnap.exists()) {
             const storedUserDocData = userSnap.data() as StoredUser;
@@ -339,7 +474,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                     setUser(null);
                     localStorage.removeItem(CURRENT_USER_STORAGE_KEY);
                 } else {
-                    setUser(potentialUser);
+                    setUser(potentialUser); // potentialUser already has rating data from allUsersList
                     localStorage.setItem(CURRENT_USER_STORAGE_KEY, JSON.stringify(potentialUser));
                     toast({ title: "Login Successful!", description: `Welcome back, ${potentialUser.name}!` });
                 }
@@ -350,9 +485,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             toast({ title: "Login Failed", description: "User data not found.", variant: "destructive" });
         }
     } else {
-        // Fallback: query by name if not found in allUsersList (e.g., if list is stale or user not there for some reason)
         const usersRef = collection(db, "users");
-        // This query might find multiple if names are not unique, but IDs should be. Better to rely on ID if possible.
         const q = query(usersRef, where("name", "==", username));
         try {
             const querySnapshot = await getDocs(q);
@@ -361,11 +494,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 setIsLoading(false);
                 return;
             }
-            const userDocFromQuery = querySnapshot.docs[0]; // Assuming username is unique for login purposes here.
+            const userDocFromQuery = querySnapshot.docs[0];
             const userDataFromDB = userDocFromQuery.data() as StoredUser;
 
             if (userDataFromDB.mockPassword === mockPasswordAttempt) {
-                 // Attempt to find the enriched user data from allUsersList if it now exists
                 const loggedInUserEnriched = allUsersList.find(u => u.id === userDocFromQuery.id) || {
                     id: userDocFromQuery.id,
                     name: userDataFromDB.name,
@@ -410,7 +542,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const userDocRef = doc(db, "users", userId);
     try {
       await updateDoc(userDocRef, { isApproved: true });
-      // No need to manually update allUsersList here; onSnapshot will refresh it.
       toast({ title: "User Approved", description: `User has been approved.` });
     } catch (error) {
       console.error("Error approving user: ", error);
@@ -438,17 +569,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     const newManagerData: StoredUser = {
-      name: newManagerUsername, // Original casing for display name
+      name: newManagerUsername,
       mockPassword: newManagerPassword,
       role: 'manager',
       isApproved: true,
       isSuspended: false,
       address: '1 Admin Way, Suite M, Management City',
-      ethereumAddress: `0xNewManager${Date.now().toString(16)}`, // Unique placeholder
+      ethereumAddress: `0xNewManager${Date.now().toString(16)}`,
     };
     try {
       await setDoc(managerDocRef, newManagerData);
-      // No need to manually update allUsersList; onSnapshot handles it.
       toast({ title: "Manager Created", description: `Manager account for ${newManagerUsername} created successfully.` });
       return true;
     } catch (error) {
@@ -467,29 +597,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
         const updatePayload: Partial<StoredUser> = {};
         if (data.address !== undefined) {
-            updatePayload.address = data.address.trim(); // Trim whitespace
+            updatePayload.address = data.address.trim();
         }
         if (data.ethereumAddress !== undefined) {
-            updatePayload.ethereumAddress = data.ethereumAddress.trim(); // Trim whitespace
+            updatePayload.ethereumAddress = data.ethereumAddress.trim();
         }
 
         if (Object.keys(updatePayload).length === 0) {
             toast({ title: "No Changes", description: "No new information to save."});
-            return true; 
+            return true;
         }
-        
+
         await updateDoc(userDocRef, updatePayload);
-        
-        // Update local state (user and allUsersList) after successful DB update
-        // This is optimistic but usually fine. onSnapshot will eventually catch up.
-        const updatedUserForState = { 
-            ...user, 
+
+        const updatedUserForState = {
+            ...user,
             ...(updatePayload.address !== undefined && { address: updatePayload.address }),
             ...(updatePayload.ethereumAddress !== undefined && { ethereumAddress: updatePayload.ethereumAddress })
         };
         setUser(updatedUserForState);
         localStorage.setItem(CURRENT_USER_STORAGE_KEY, JSON.stringify(updatedUserForState));
-        setAllUsersList(prevList => prevList.map(u => u.id === userId ? updatedUserForState : u));
+        setAllUsersList(prevList => prevList.map(u => u.id === userId ? { ...u, ...updatedUserForState} : u));
+
 
         toast({ title: "Profile Updated", description: "Your profile information has been successfully updated." });
         return true;
@@ -532,7 +661,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isLoading,
       approveUser,
       addManager,
-      updateUserProfile, 
+      updateUserProfile,
       updateTransporterShippingRates,
       allUsersList,
       isLoadingUsers
@@ -549,3 +678,4 @@ export function useAuth() {
   }
   return context;
 }
+
