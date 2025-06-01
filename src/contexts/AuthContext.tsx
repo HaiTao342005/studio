@@ -2,7 +2,7 @@
 "use client";
 
 import type { ReactNode} from 'react';
-import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { db } from '@/lib/firebase/config'; // db can be null if Firebase fails to init
 import {
@@ -88,7 +88,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const seedDefaultManager = useCallback(async () => {
     if (!db) { 
       console.info("AuthContext: Firestore (db) is not available for seedDefaultManager. Skipping.");
-      // A toast for this is handled in the main useEffect if db is null
       return;
     }
     const usersRef = collection(db, "users");
@@ -135,12 +134,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             toast({ title: "Network Issue", description: "Could not connect to Firebase to verify manager data. Some functions may be limited.", variant: "destructive", duration: 7000});
         } else {
             console.error("Error in seedDefaultManager (likely Firestore operation issue):", error); 
-            let description = "Could not verify default manager data. Please check your Firebase project console for issues with Firestore (e.g., database creation, rules, or billing).";
-            if (error.message) {
-                description += ` Error: ${error.message}`;
-            }
+            let description = `Could not verify default manager data. Please check your Firebase project console for issues with Firestore (e.g., database creation, rules, or billing). Specific error: ${error.message || 'Unknown error'}`;
             if (error.code) {
-                description += ` Code: ${error.code}`;
+                description += ` (Code: ${error.code})`;
             }
             toast({ 
                 title: "Setup Error", 
@@ -174,7 +170,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           title: "Firebase Unavailable",
           description: "The application cannot connect to Firebase. Core features are disabled. Please check your Firebase configuration and restart.",
           variant: "destructive",
-          duration: 0,
+          duration: 0, // Persist this toast
         });
         if (isMounted) {
           setUser(null);
@@ -200,8 +196,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const customerSupplierPurchaseCount = new Map<string, Map<string, number>>();
 
       const fetchAllOrdersForHistory = async () => {
-        // Intentionally simplified: if db is null, setupAuth already returned.
-        const allOrdersQuery = query(collection(db!, "orders"));
+        if (!db) { 
+          console.info("AuthContext: Firestore not available for fetchAllOrdersForHistory.");
+          return; // db check already done above, but good practice
+        }
+        const allOrdersQuery = query(collection(db, "orders"));
         let allOrderDocsForHistory: StoredOrder[] = [];
         try {
           const allOrdersSnap = await getDocs(allOrdersQuery);
@@ -220,6 +219,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               }
           });
         } catch (error: any) {
+          if (!isMounted) return;
           if (error instanceof FirestoreError && (error.code === 'unavailable' || (error.message && error.message.includes('client is offline')))) {
               console.info("AuthContext: fetchAllOrdersForHistory failed as Firestore client is offline.", error.message);
               toast({ title: "Network Issue", description: "Could not fetch order history for rating calculation. Firebase is offline.", variant: "destructive", duration: 7000});
@@ -302,7 +302,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 try {
                   await updateDoc(doc(db, "users", u.id), { isSuspended: true });
                   console.log(`User ${u.name} (${u.id}) automatically suspended due to low ratings.`);
-                  toast({ title: user?.id === u.id ? "Account Suspended" : "User Suspended", description: `${user?.id === u.id ? 'Your account has' : `User ${u.name} has`} been automatically suspended due to consistently low ratings.`, variant: "destructive", duration: 10000});
+                  toast({ title: userRef.current?.id === u.id ? "Account Suspended" : "User Suspended", description: `${userRef.current?.id === u.id ? 'Your account has' : `User ${u.name} has`} been automatically suspended due to consistently low ratings.`, variant: "destructive", duration: 10000});
                 } catch (suspendError) { console.error(`Failed to update suspension for user ${u.id}:`, suspendError); }
               }
               return userWithRatings;
@@ -362,7 +362,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const unsubscribeAssessedOrdersSnapshot = onSnapshot(assessedOrdersListenerQuery, async (snapshot) => {
           if (!isMounted) return;
           try {
-            const currentAllUsersList = allUsersListRef.current; // Use a ref for current allUsersList
+            const currentAllUsersList = allUsersListRef.current; 
             if (currentAllUsersList.length > 0) { 
                 console.log("Assessment update detected, recalculating ratings...");
                 await fetchAllOrdersForHistory(); 
@@ -421,7 +421,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 const reEnrichedUsers = await Promise.all(reEnrichedUsersPromises);
                 if(isMounted) {
                     setAllUsersList(reEnrichedUsers); 
-                    const currentUser = userRef.current; // Use ref for current user
+                    const currentUser = userRef.current; 
                     if (currentUser) { 
                     const updatedCurrentUser = reEnrichedUsers.find(ru => ru.id === currentUser.id);
                     if (updatedCurrentUser && JSON.stringify(updatedCurrentUser) !== JSON.stringify(currentUser)) { 
@@ -470,8 +470,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     }
     
-    const allUsersListRef = React.useRef(allUsersList);
-    const userRef = React.useRef(user);
+    const allUsersListRef = useRef(allUsersList);
+    const userRef = useRef(user);
 
     useEffect(() => {
         allUsersListRef.current = allUsersList;
@@ -487,7 +487,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isMounted = false;
       unsubscribers.forEach(unsub => unsub());
     };
-  }, [toast, logoutCallback]); // Removed allUsersList and user from here as they cause re-runs handled internally or by snapshot
+  }, [toast, logoutCallback]);
 
 
   const signup = useCallback(async (username: string, mockPasswordNew: string, role: UserRole) => {
@@ -574,18 +574,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsLoading(true);
 
     const userDocId = username.toLowerCase();
-    // Try finding in the locally cached allUsersList first for speed and to ensure consistency with displayed data
-    const potentialUserFromList = allUsersList.find(u => u.id === userDocId || u.name.toLowerCase() === userDocId);
     
-    if (isLoadingUsers && !potentialUserFromList) {
-        toast({ title: "Login Info", description: "User data is still loading, please try again shortly.", variant: "outline" });
+    const currentAllUsers = allUsersListRef.current; // Use the ref for current data
+    console.log("[LoginAttempt] Current allUsersList (from ref) count:", currentAllUsers.length);
+
+    if (currentAllUsers.length === 0 && !isLoadingUsers) {
+        toast({ title: "Login Error", description: "No user data loaded from the server. Possible connection issue or no users exist. Please try again later.", variant: "destructive", duration: 8000 });
         setIsLoading(false);
         return;
     }
     
-    console.log("[LoginAttempt] Current allUsersList count:", allUsersList.length);
-    if (allUsersList.length === 0 && !isLoadingUsers) {
-        toast({ title: "Login Error", description: "No user data loaded from the server. Possible connection issue or no users exist.", variant: "destructive" });
+    const potentialUserFromList = currentAllUsers.find(u => u.id === userDocId || u.name.toLowerCase() === userDocId);
+    
+    if (isLoadingUsers && !potentialUserFromList) {
+        toast({ title: "Login Info", description: "User data is still loading, please try again shortly.", variant: "outline" });
         setIsLoading(false);
         return;
     }
@@ -593,7 +595,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let userToVerify: User | undefined = potentialUserFromList;
     let userRefPath: string | undefined = potentialUserFromList ? potentialUserFromList.id : undefined;
 
-    // If not found in local list (e.g., list is stale or empty due to earlier error), try a direct query.
     if (!userToVerify) {
         console.log("[LoginAttempt] User not found in local list, attempting direct Firestore query for username:", username);
         const usersCollectionRef = collection(db, "users");
@@ -604,7 +605,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 const userDocFromQuery = querySnapshot.docs[0];
                 userRefPath = userDocFromQuery.id;
                 const userData = userDocFromQuery.data() as StoredUser;
-                // Construct a User object from StoredUser data to align with what allUsersList would have
                 userToVerify = {
                     id: userDocFromQuery.id,
                     name: userData.name,
@@ -614,7 +614,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                     ethereumAddress: userData.ethereumAddress,
                     isSuspended: userData.isSuspended,
                     shippingRates: userData.shippingRates,
-                    // Rating fields might be missing if not enriched, handle this or enrich here if necessary
                 };
                 console.log("[LoginAttempt] Found user via direct query:", userToVerify.name);
             } else {
@@ -640,14 +639,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
     }
     
-    // Now fetch the specific document to get the mockPassword (which is not in the 'User' type or allUsersList)
     const userRef = doc(db, "users", userRefPath);
     try {
         const userSnap = await getDoc(userRef);
         if (userSnap.exists()) {
             const storedUserDocData = userSnap.data() as StoredUser;
             if (storedUserDocData.mockPassword === mockPasswordAttempt) {
-                const userToLogin = { ...userToVerify, ...storedUserDocData }; // Combine for full data
+                let userToLogin: User = {
+                    id: userSnap.id,
+                    name: storedUserDocData.name,
+                    role: storedUserDocData.role,
+                    isApproved: storedUserDocData.isApproved,
+                    address: storedUserDocData.address,
+                    ethereumAddress: storedUserDocData.ethereumAddress,
+                    isSuspended: storedUserDocData.isSuspended,
+                    shippingRates: storedUserDocData.shippingRates
+                };
+                
+                // Enrich with possibly more up-to-date rating info from allUsersList
+                const fullUserFromList = currentAllUsers.find(u => u.id === userToLogin.id);
+                if (fullUserFromList) {
+                    userToLogin = { ...userToLogin, ...fullUserFromList };
+                }
+
                 if (userToLogin.isSuspended) {
                     toast({ title: "Account Suspended", description: "Your account has been suspended due to low ratings. Please contact support.", variant: "destructive", duration: 10000 });
                     setUser(null); localStorage.removeItem(CURRENT_USER_STORAGE_KEY);
@@ -655,14 +669,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                     toast({ title: "Login Blocked", description: "Your account as a " + userToLogin.role + " is awaiting manager approval.", variant: "destructive", duration: 7000 });
                     setUser(null); localStorage.removeItem(CURRENT_USER_STORAGE_KEY);
                 } else {
-                    // Update userToLogin with potentially more up-to-date rating info from allUsersList if it exists
-                    const fullUserFromList = allUsersList.find(u => u.id === userToLogin.id);
-                    const finalUserToSet = fullUserFromList ? { ...userToLogin, ...fullUserFromList } : userToLogin;
-
-                    setUser(finalUserToSet); 
-                    localStorage.setItem(CURRENT_USER_STORAGE_KEY, JSON.stringify(finalUserToSet));
-                    toast({ title: "Login Successful!", description: `Welcome back, ${finalUserToSet.name}!` });
-                    console.log("[LoginAttempt] Login successful for:", finalUserToSet.name);
+                    setUser(userToLogin); 
+                    localStorage.setItem(CURRENT_USER_STORAGE_KEY, JSON.stringify(userToLogin));
+                    toast({ title: "Login Successful!", description: `Welcome back, ${userToLogin.name}!` });
+                    console.log("[LoginAttempt] Login successful for:", userToLogin.name);
                 }
             } else {
                  toast({ title: "Login Failed", description: "Invalid username or password.", variant: "destructive" });
@@ -682,7 +692,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
     }
     setIsLoading(false);
-  }, [toast, allUsersList, isLoadingUsers]);
+  }, [toast, isLoadingUsers]);
 
 
   const approveUser = useCallback(async (userId: string) => {
@@ -828,4 +838,3 @@ export function useAuth() {
   }
   return context;
 }
-
