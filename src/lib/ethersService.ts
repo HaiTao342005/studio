@@ -2,27 +2,12 @@
 import { ethers } from 'ethers';
 import { toast } from '@/hooks/use-toast';
 
-// IMPORTANT: Replace this with the actual ABI from your compiled smart contract
-// You would typically import this from a JSON file:
-// import FruitFlowEscrowABIFile from '@/contracts/FruitFlowEscrow.json';
-// const FruitFlowEscrowABI = FruitFlowEscrowABIFile.abi;
-const PLACEHOLDER_ABI = [
-  "event OrderCreated(bytes32 indexed orderId, address indexed customer, address indexed supplier, uint256 totalAmount)",
-  "event OrderFunded(bytes32 indexed orderId, address indexed customer, uint256 amount)",
-  "event DeliveryConfirmed(bytes32 indexed orderId, address indexed customer)",
-  "event PayoutsMade(bytes32 indexed orderId, address indexed supplier, uint256 supplierAmount, address indexed transporter, uint256 transporterAmount)",
-  "event OrderDisputed(bytes32 indexed orderId, address indexed customer)",
-  "function orders(bytes32) view returns (address customer, address supplier, address transporter, uint256 productAmount, uint256 shippingFee, uint256 totalAmount, uint8 status, address token)",
-  "function createOrder(bytes32 orderId, address customer, address supplier, address transporter, uint256 productAmount, uint256 shippingFee, address token) external",
-  "function fundOrder(bytes32 orderId) external payable",
-  "function confirmDelivery(bytes32 orderId) external",
-  "function disputeOrder(bytes32 orderId) external",
-  "function resolveDispute(bytes32 orderId, bool refundCustomer) external",
-  "function getOrder(bytes32 orderId) external view returns (address, address, address, uint256, uint256, uint256, uint8, address)",
-  "receive() external payable"
-]; // THIS IS A VERY SIMPLIFIED PLACEHOLDER ABI. USE YOUR ACTUAL ABI.
+// Attempt to import the ABI from the contracts directory
+// The user needs to ensure this file exists and contains the correct ABI
+import FruitFlowEscrowABIFile from '@/contracts/FruitFlowEscrow.json'; 
 
 const contractAddress = process.env.NEXT_PUBLIC_ESCROW_CONTRACT_ADDRESS;
+const FruitFlowEscrowABI = FruitFlowEscrowABIFile.abi; // Assuming the ABI array is directly under the 'abi' key
 
 export async function getSignerAndProvider() {
   if (typeof window.ethereum === 'undefined') {
@@ -30,6 +15,9 @@ export async function getSignerAndProvider() {
     throw new Error('Metamask is not installed.');
   }
   const provider = new ethers.BrowserProvider(window.ethereum);
+  // Request accounts every time to ensure the user is prompted if not connected
+  // or if accounts have changed.
+  await provider.send("eth_requestAccounts", []); 
   const signer = await provider.getSigner();
   return { signer, provider };
 }
@@ -42,15 +30,15 @@ export async function getEscrowContract(signer?: ethers.Signer | null) {
   }
 
   if (!contractAddress) {
-    toast({ title: "Contract Error", description: "Escrow contract address is not configured. Please set NEXT_PUBLIC_ESCROW_CONTRACT_ADDRESS.", variant: "destructive", duration: 7000 });
+    toast({ title: "Contract Error", description: "Escrow contract address is not configured. Please set NEXT_PUBLIC_ESCROW_CONTRACT_ADDRESS in your .env.local file.", variant: "destructive", duration: 7000 });
     throw new Error('Escrow contract address not configured.');
   }
-  if (!PLACEHOLDER_ABI || PLACEHOLDER_ABI.length === 0) {
-    toast({ title: "Contract Error", description: "Escrow contract ABI is not loaded. Check src/lib/ethersService.ts and src/contracts/", variant: "destructive", duration: 7000 });
-    throw new Error('Escrow contract ABI not loaded.');
+  if (!FruitFlowEscrowABI || FruitFlowEscrowABI.length === 0) {
+    toast({ title: "Contract Error", description: "Escrow contract ABI is not loaded. Ensure src/contracts/FruitFlowEscrow.json exists and is correctly populated.", variant: "destructive", duration: 7000 });
+    throw new Error('Escrow contract ABI not loaded or is empty.');
   }
 
-  return new ethers.Contract(contractAddress, PLACEHOLDER_ABI /* Replace with your actual ABI */, currentSigner);
+  return new ethers.Contract(contractAddress, FruitFlowEscrowABI, currentSigner);
 }
 
 /**
@@ -66,7 +54,24 @@ export function convertToBytes32(stringId: string): string {
 // Helper to parse BigInt to number, for amounts from contract if needed (with caution for large numbers)
 export function parseBigIntToNumber(value: any): number {
     if (typeof value === 'bigint') {
+        // Be cautious with large numbers, JavaScript numbers can lose precision.
+        // For display purposes, it might be okay. For calculations, prefer BigInt.
         return Number(value);
     }
     return value;
+}
+
+// Helper to get current connected ETH address
+export async function getCurrentWalletAddress(): Promise<string | null> {
+    if (typeof window.ethereum === 'undefined') {
+        return null;
+    }
+    try {
+        const provider = new ethers.BrowserProvider(window.ethereum);
+        const accounts = await provider.listAccounts();
+        return accounts.length > 0 ? accounts[0].address : null;
+    } catch (error) {
+        console.error("Error fetching current wallet address:", error);
+        return null;
+    }
 }
