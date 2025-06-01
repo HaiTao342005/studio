@@ -247,19 +247,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const currentAllUsers = allUsersListRef.current;
     console.log("[LoginAttempt] Current allUsersList (from ref) count:", currentAllUsers.length);
 
-    if (currentAllUsers.length === 0 && !isLoadingUsers) {
-        toast({ title: "Login Error", description: "No user data loaded from the server. Possible connection issue or no users exist. Please try again later.", variant: "destructive", duration: 8000 });
-        setIsLoading(false);
-        return;
-    }
 
+    // Check if the user is in the local list first
     let potentialUserFromList = currentAllUsers.find(u => u.id === userDocId || u.name.toLowerCase() === userDocId);
 
     if (isLoadingUsers && !potentialUserFromList) {
-        toast({ title: "Login Info", description: "what's going wrong?", variant: "outline" });
+        toast({ title: "Login Info", description: "User data is still loading, please try again shortly.", variant: "outline" });
         setIsLoading(false);
         return;
     }
+
 
     let userToVerify: User | undefined = potentialUserFromList;
     let userRefPath: string | undefined = potentialUserFromList ? potentialUserFromList.id : undefined;
@@ -512,10 +509,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           });
           setUser(null);
           setAllUsersList([]);
-          setIsLoading(false);
-          setIsLoadingUsers(false);
         }
         localStorage.removeItem(CURRENT_USER_STORAGE_KEY);
+        // Ensure loading states are set to false even if db is not available
+        if (isMounted) {
+            setIsLoading(false);
+            setIsLoadingUsers(false);
+        }
         return;
       }
 
@@ -688,10 +688,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               }
               if (!storedUserFromLocalStorage && isMounted) setUser(null);
           } finally {
-            if (isMounted) {
-                // Handled by main finally setIsLoading(false);
-                // Handled by main finally setIsLoadingUsers(false);
-            }
+            // This block will be executed by the main finally
           }
         }, (error) => {
           if (!isMounted) return;
