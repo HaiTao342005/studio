@@ -11,7 +11,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from "@/components/ui/form"; // Added FormDescription
 import { useAuth, type UserShippingRates } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { DollarSign, Save, Loader2 } from 'lucide-react';
@@ -179,3 +179,4 @@ export default function ShippingRatesPage({ params, searchParams }: ShippingRate
     </>
   );
 }
+
