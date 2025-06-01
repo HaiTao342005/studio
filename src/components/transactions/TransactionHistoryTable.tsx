@@ -17,7 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
-import { Trash2, Wallet, Loader2, Eye, ThumbsUp, Truck, AlertTriangle, ThumbsDown, Star, CheckCircle, Ban, Edit } from 'lucide-react';
+import { Trash2, Wallet, Loader2, Eye, ThumbsUp, Truck, AlertTriangle, ThumbsDown, Star, CheckCircle, Ban, Edit, Info } from 'lucide-react';
 import type { OrderStatus, StoredOrder, OrderShipmentStatus } from '@/types/transaction';
 import { AppleIcon, BananaIcon, OrangeIcon, GrapeIcon, MangoIcon, FruitIcon } from '@/components/icons/FruitIcons';
 import { format } from 'date-fns';
@@ -133,7 +133,15 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
   const { toast } = useToast();
   const { user, allUsersList } = useAuth();
 
-  const availableTransporters = allUsersList.filter(u => u.role === 'transporter' && u.isApproved && !u.isSuspended);
+  const availableTransporters = allUsersList.filter(u =>
+    u.role === 'transporter' &&
+    u.isApproved &&
+    !u.isSuspended &&
+    u.shippingRates && // Check if shippingRates object exists
+    typeof u.shippingRates.tier1_0_100_km_price === 'number' &&
+    typeof u.shippingRates.tier2_101_500_km_price_per_km === 'number' &&
+    typeof u.shippingRates.tier3_501_1000_km_price_per_km === 'number'
+  );
 
   useEffect(() => {
     if (isCustomerView && initialOrders) {
@@ -341,10 +349,19 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
       setAssigningTransporterOrderId(null);
       return;
     }
+     if (!transporterUser.shippingRates ||
+        typeof transporterUser.shippingRates.tier1_0_100_km_price !== 'number' ||
+        typeof transporterUser.shippingRates.tier2_101_500_km_price_per_km !== 'number' ||
+        typeof transporterUser.shippingRates.tier3_501_1000_km_price_per_km !== 'number') {
+        toast({ title: "Rates Incomplete", description: `${transporterUser.name} has not fully set their shipping rates. Cannot assign.`, variant: "destructive", duration: 7000 });
+        setAssigningTransporterOrderId(null);
+        return;
+    }
+
 
     let supplierAddress = 'N/A', customerAddress = 'N/A';
     let predictedDeliveryTimestamp: Timestamp | null = null;
-    let calculatedTransporterFee: number | null = null; // Can be null if rates not set
+    let calculatedTransporterFee: number | null = null;
     let finalTotalOrderAmount: number = currentOrderToAssign.totalAmount;
 
 
@@ -372,9 +389,8 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
             finalTotalOrderAmount = currentOrderToAssign.totalAmount + calculatedTransporterFee;
             toast({ title: "Logistics Estimated", description: `Delivery: ${predictedDeliveryTimestamp ? format(predictedDeliveryTimestamp.toDate(), "MMM d, yyyy") : 'N/A'}. Fee: $${calculatedTransporterFee.toFixed(2)}. New Total: $${finalTotalOrderAmount.toFixed(2)}. Note: ${distanceInfo.note || ''}`});
           } else {
+             // This case should be less likely now due to the check above, but kept as a safeguard
              toast({title: "Transporter Rates Missing", description: `${transporterUser.name} has not set their shipping rates. Cannot calculate shipping fee. Using product total.`, variant: "destructive", duration: 8000});
-             // finalTotalOrderAmount remains currentOrderToAssign.totalAmount
-             // estimatedTransporterFee remains null or 0
           }
         } else {
           toast({title: "Distance Error", description: `Could not estimate distance. ${distanceNote || ''} Using product total.`, variant: "outline"});
@@ -395,7 +411,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
         shipmentStatus: 'Ready for Pickup' as OrderShipmentStatus,
         pickupAddress: supplierAddress,
         deliveryAddress: customerAddress,
-        estimatedTransporterFee: calculatedTransporterFee ?? undefined, // Store calculated fee or undefined
+        estimatedTransporterFee: calculatedTransporterFee ?? undefined,
         finalTotalAmount: finalTotalOrderAmount,
       };
       if (predictedDeliveryTimestamp) updateData.predictedDeliveryDate = predictedDeliveryTimestamp;
@@ -617,13 +633,34 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
           <div className="py-4 space-y-2">
             <p className="text-sm">Product Cost: ${currentOrderToAssign.totalAmount.toFixed(2)}</p>
             <p className="text-xs text-muted-foreground">Selected transporter's shipping fee will be added to this to get the final price for the customer.</p>
-            <Label htmlFor="transporter-select">Select Transporter</Label>
-            <Select onValueChange={setSelectedTransporter} value={selectedTransporter || undefined}>
-              <SelectTrigger id="transporter-select"><SelectValue placeholder="Choose..." /></SelectTrigger>
-              <SelectContent>{availableTransporters.length > 0 ? availableTransporters.map(t => (<SelectItem key={t.id} value={t.id}>{t.name}{t.averageTransporterRating !== undefined && (<span className="ml-2 text-xs text-muted-foreground">(<Star className="inline-block h-3 w-3 mr-0.5 text-yellow-400 fill-yellow-400" />{t.averageTransporterRating.toFixed(1)} - {t.transporterRatingCount} ratings)</span>)}</SelectItem>)) : (<div className="p-4 text-sm text-muted-foreground">No transporters.</div>)}</SelectContent>
-            </Select>
+            
+            {availableTransporters.length > 0 ? (
+              <>
+                <Label htmlFor="transporter-select">Select Transporter</Label>
+                <Select onValueChange={setSelectedTransporter} value={selectedTransporter || undefined}>
+                  <SelectTrigger id="transporter-select"><SelectValue placeholder="Choose..." /></SelectTrigger>
+                  <SelectContent>{availableTransporters.map(t => (<SelectItem key={t.id} value={t.id}>{t.name}{t.averageTransporterRating !== undefined && (<span className="ml-2 text-xs text-muted-foreground">(<Star className="inline-block h-3 w-3 mr-0.5 text-yellow-400 fill-yellow-400" />{t.averageTransporterRating.toFixed(1)} - {t.transporterRatingCount} ratings)</span>)}</SelectItem>))}
+                  </SelectContent>
+                </Select>
+              </>
+            ) : (
+              <div className="p-4 text-sm text-muted-foreground text-center border rounded-md bg-secondary/50">
+                <Info className="h-5 w-5 mx-auto mb-2 text-primary" />
+                No transporters are currently eligible for assignment. They may need to set up their shipping rates.
+              </div>
+            )}
           </div>
-          <DialogFooter><DialogClose asChild><Button type="button" variant="outline">Cancel</Button></DialogClose><Button type="button" onClick={handleAssignTransporter} disabled={!selectedTransporter || assigningTransporterOrderId === currentOrderToAssign.id || !!assigningTransporterOrderId}>{(assigningTransporterOrderId === currentOrderToAssign.id) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Confirm & Set Price</Button></DialogFooter>
+          <DialogFooter>
+            <DialogClose asChild><Button type="button" variant="outline">Cancel</Button></DialogClose>
+            <Button 
+              type="button" 
+              onClick={handleAssignTransporter} 
+              disabled={!selectedTransporter || assigningTransporterOrderId === currentOrderToAssign.id || !!assigningTransporterOrderId || availableTransporters.length === 0}
+            >
+              {(assigningTransporterOrderId === currentOrderToAssign.id) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Confirm & Set Price
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     )}

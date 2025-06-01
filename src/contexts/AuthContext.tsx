@@ -38,14 +38,14 @@ export interface User {
   averageTransporterRating?: number;
   transporterRatingCount?: number;
   isSuspended?: boolean;
-  shippingRates?: UserShippingRates; // New field for transporters
+  shippingRates?: UserShippingRates;
 }
 
 export interface StoredUser extends Omit<User, 'id' | 'averageSupplierRating' | 'supplierRatingCount' | 'averageTransporterRating' | 'transporterRatingCount' | 'isSuspended' | 'shippingRates'> {
   mockPassword?: string;
   address?: string;
   isSuspended?: boolean;
-  shippingRates?: UserShippingRates; // New field for transporters
+  shippingRates?: UserShippingRates;
 }
 
 interface AuthContextType {
@@ -57,7 +57,7 @@ interface AuthContextType {
   approveUser: (userId: string) => void;
   addManager: (newManagerUsername: string, newManagerPassword: string) => Promise<boolean>;
   updateUserAddress: (userId: string, address: string) => Promise<boolean>;
-  updateTransporterShippingRates: (userId: string, rates: UserShippingRates) => Promise<boolean>; // New function
+  updateTransporterShippingRates: (userId: string, rates: UserShippingRates) => Promise<boolean>;
   allUsersList: User[];
   isLoadingUsers: boolean;
 }
@@ -148,7 +148,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             isApproved: data.isApproved,
             address: data.address,
             isSuspended: data.isSuspended ?? false,
-            shippingRates: data.shippingRates // Add shipping rates
+            shippingRates: data.shippingRates
         });
       });
 
@@ -266,7 +266,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isApproved: isCustomer,
       isSuspended: false,
       address: '',
-      shippingRates: role === 'transporter' ? { tier1_0_100_km_price: 0, tier2_101_500_km_price_per_km: 0, tier3_501_1000_km_price_per_km: 0 } : undefined,
+      shippingRates: role === 'transporter' ? undefined : undefined, // Initialize to undefined
     };
 
     try {
