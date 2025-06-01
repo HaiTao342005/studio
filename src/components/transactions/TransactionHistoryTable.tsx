@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import { useState, useEffect, type SVGProps, type ElementType, useCallback } from 'react';
@@ -18,7 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
-import { Trash2, Wallet, Loader2, Eye, ThumbsUp, Truck, AlertTriangle, ThumbsDown, Star, CheckCircle, Ban, Edit, Info, Hash, KeyRound, CircleDollarSign, Send, Zap, FileSignature } from 'lucide-react';
+import { Trash2, Wallet, Loader2, Eye, ThumbsUp, Truck, AlertTriangle, ThumbsDown, Star, CheckCircle, Ban, Edit, Info, Hash, KeyRound, CircleDollarSign, Send, FileSignature } from 'lucide-react';
 import type { OrderStatus, StoredOrder, OrderShipmentStatus } from '@/types/transaction';
 import { AppleIcon, BananaIcon, OrangeIcon, GrapeIcon, MangoIcon, FruitIcon } from '@/components/icons/FruitIcons';
 import { format } from 'date-fns';
@@ -261,7 +260,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
     const transporter = allUsersList.find(u => u.id === selectedTransporterId);
 
     if (!supplier?.ethereumAddress || !customer?.ethereumAddress || !transporter?.ethereumAddress) {
-        toast({ title: "Address Missing", description: "Customer, Supplier, or Transporter Ethereum address is missing. Cannot create order on chain.", variant: "destructive", duration: 8000 });
+        toast({ title: "Address Missing", description: "Customer, Supplier, or Transporter Ethereum address is missing from their profile. Cannot create order on chain.", variant: "destructive", duration: 8000 });
         setActionOrderId(null);
         return false;
     }
@@ -323,7 +322,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
     
     const currentEthUsdPrice = await fetchEthPrice();
     const productAmountInWei = ethers.parseEther((orderToAssign.totalAmount / currentEthUsdPrice).toFixed(18));
-    const shippingFeeInWei = ethers.parseEther(((calculatedTransporterFeeUSD) / currentEthUsdPrice).toFixed(18)); // No ?? 0, already checked > 0
+    const shippingFeeInWei = ethers.parseEther(((calculatedTransporterFeeUSD) / currentEthUsdPrice).toFixed(18)); 
 
     try {
         const contract = await getEscrowContract();
@@ -341,12 +340,12 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
 
         const tx = await contract.createOrder(
             orderIdBytes32,
-            customer.ethereumAddress,
-            supplier.ethereumAddress,
-            transporter.ethereumAddress,
+            customer.ethereumAddress, // From customer's profile
+            supplier.ethereumAddress, // From supplier's profile (current user)
+            transporter.ethereumAddress, // From transporter's profile
             productAmountInWei,
             shippingFeeInWei,
-            ethers.ZeroAddress 
+            ethers.ZeroAddress // For ETH payments
         );
         await tx.wait();
         toast({ title: "Order Created On-Chain!", description: `Smart contract order ID: ${orderIdBytes32.substring(0,10)}... Tx: ${tx.hash.substring(0,10)}...`});
@@ -395,8 +394,14 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
       toast({ title: "Payment Error", description: `Order is not awaiting funding. Status: ${orderToPay.status}`, variant: "destructive" });
       return false;
     }
-    if (!user?.ethereumAddress || user.ethereumAddress.toLowerCase() !== orderToPay.customerEthereumAddress?.toLowerCase()) {
-         toast({ title: "Wallet Mismatch", description: `Please ensure Metamask is connected with the customer's wallet: ${orderToPay.customerEthereumAddress}. Currently connected: ${user?.ethereumAddress || 'N/A'}`, variant: "destructive", duration: 10000 });
+    
+    const customerUser = allUsersList.find(u => u.id === orderToPay.customerId);
+    if (!customerUser?.ethereumAddress) {
+         toast({ title: "Customer Wallet Error", description: `Customer ${orderToPay.customerName} Ethereum address not found in their profile.`, variant: "destructive", duration: 8000 });
+         return false;
+    }
+    if (!user?.ethereumAddress || user.ethereumAddress.toLowerCase() !== customerUser.ethereumAddress.toLowerCase()) {
+         toast({ title: "Wallet Mismatch", description: `Please ensure Metamask is connected with the customer's wallet: ${customerUser.ethereumAddress}. Currently connected: ${user?.ethereumAddress || 'N/A'}`, variant: "destructive", duration: 10000 });
          return false;
     }
 
@@ -439,7 +444,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
     } finally {
       setActionOrderId(null);
     }
-  }, [orders, toast, user]);
+  }, [orders, toast, user, allUsersList]);
 
 
   const handleOpenAssignTransporterDialog = (order: StoredOrder) => {
@@ -471,8 +476,10 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
          setActionOrderId(null);
          return;
     }
-    if (!user?.ethereumAddress || user.ethereumAddress.toLowerCase() !== order.customerEthereumAddress?.toLowerCase()) {
-         toast({ title: "Wallet Mismatch", description: `Please ensure Metamask is connected with the customer's wallet: ${order.customerEthereumAddress}. Currently connected: ${user?.ethereumAddress || 'N/A'}`, variant: "destructive", duration: 10000 });
+    
+    const customerUser = allUsersList.find(u => u.id === order.customerId);
+    if (!user?.ethereumAddress || !customerUser?.ethereumAddress || user.ethereumAddress.toLowerCase() !== customerUser.ethereumAddress.toLowerCase()) {
+         toast({ title: "Wallet Mismatch", description: `Please ensure Metamask is connected with the customer's wallet: ${customerUser?.ethereumAddress || 'N/A'}. Currently connected: ${user?.ethereumAddress || 'N/A'}`, variant: "destructive", duration: 10000 });
          setActionOrderId(null);
          return;
     }
@@ -521,8 +528,10 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
         setActionOrderId(null);
         return;
     }
-    if (!user?.ethereumAddress || user.ethereumAddress.toLowerCase() !== order.customerEthereumAddress?.toLowerCase()) {
-         toast({ title: "Wallet Mismatch", description: `Please ensure Metamask is connected with the customer's wallet: ${order.customerEthereumAddress}. Currently connected: ${user?.ethereumAddress || 'N/A'}`, variant: "destructive", duration: 10000 });
+    
+    const customerUser = allUsersList.find(u => u.id === order.customerId);
+    if (!user?.ethereumAddress || !customerUser?.ethereumAddress || user.ethereumAddress.toLowerCase() !== customerUser.ethereumAddress.toLowerCase()) {
+         toast({ title: "Wallet Mismatch", description: `Please ensure Metamask is connected with the customer's wallet: ${customerUser?.ethereumAddress || 'N/A'}. Currently connected: ${user?.ethereumAddress || 'N/A'}`, variant: "destructive", duration: 10000 });
          setActionOrderId(null);
          return;
     }
@@ -597,6 +606,10 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
     if (text.length <= length) return text;
     return text.substring(0, length) + '...';
   };
+
+  // For the "Finalize & Create Order On-Chain" dialog
+  const customerForDialog = currentOrderToAssign ? allUsersList.find(u => u.id === currentOrderToAssign.customerId) : null;
+  const selectedTransporterDetails = selectedTransporter ? allUsersList.find(u => u.id === selectedTransporter) : null;
 
 
   if (isLoading) return <div className="flex justify-center items-center py-8"><Loader2 className="h-8 w-8 animate-spin mr-2" /> Loading...</div>;
@@ -697,8 +710,8 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
               {isManagerView && <TableCell className="text-xs" title={order.contractConfirmationTxHash || undefined}>{truncateText(order.contractConfirmationTxHash, 12)}</TableCell>}
               <TableCell className="space-x-1 text-center">
                 {canCreateOnChain && (
-                  <Button variant="outline" size="sm" onClick={() => handleOpenAssignTransporterDialog(order)} disabled={actionOrderId === order.id || !!actionOrderId} className="h-8 px-2 text-blue-600 border-blue-600 hover:text-blue-700 hover:bg-blue-50" title="Assign Transporter & Create On-Chain">
-                     {actionOrderId === order.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSignature className="h-4 w-4" />} <span className="ml-1">Finalize & Create</span>
+                  <Button variant="outline" size="sm" onClick={() => handleOpenAssignTransporterDialog(order)} disabled={actionOrderId === order.id || !!actionOrderId} className="h-8 px-2 text-blue-600 border-blue-600 hover:text-blue-700 hover:bg-blue-50" title="Assign Transporter &amp; Create On-Chain">
+                     {actionOrderId === order.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSignature className="h-4 w-4" />} <span className="ml-1">Finalize &amp; Create</span>
                   </Button>
                 )}
                 {canPayOnChain && (
@@ -708,7 +721,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
                 )}
                 {canConfirmOrDenyOnChain && (
                   <>
-                    <Button variant="outline" size="sm" onClick={() => handleCustomerConfirmReceiptOnChain(order.id)} disabled={actionOrderId === order.id || !!actionOrderId} className="h-8 px-2 text-green-600 border-green-600 hover:text-green-700" title="Confirm Delivery On-Chain & Release Funds">
+                    <Button variant="outline" size="sm" onClick={() => handleCustomerConfirmReceiptOnChain(order.id)} disabled={actionOrderId === order.id || !!actionOrderId} className="h-8 px-2 text-green-600 border-green-600 hover:text-green-700" title="Confirm Delivery On-Chain &amp; Release Funds">
                       {actionOrderId === order.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <ThumbsUp className="h-4 w-4" />} <span className="ml-1">Confirm</span>
                     </Button>
                     <Button variant="outline" size="sm" onClick={() => handleDenyReceiptOnChain(order.id)} disabled={actionOrderId === order.id || !!actionOrderId} className="h-8 px-2 text-red-600 border-red-600 hover:text-red-700" title="Dispute Order On-Chain">
@@ -736,7 +749,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
                 )}
                  {isCustomerView && (order.status === 'CompletedOnChain' || order.status === 'DisputedOnChain') && !canEvaluate && (
                     <Badge variant={order.status === 'CompletedOnChain' ? 'default' : 'destructive'} className="text-xs bg-opacity-70">
-                       <CheckCircle className="h-3 w-3 mr-1"/> {order.assessmentSubmitted ? (order.status === 'CompletedOnChain' ? 'Evaluated' : 'Disputed & Evaluated') : (order.status === 'CompletedOnChain' ? 'Completed' : 'Disputed')}
+                       <CheckCircle className="h-3 w-3 mr-1"/> {order.assessmentSubmitted ? (order.status === 'CompletedOnChain' ? 'Evaluated' : 'Disputed &amp; Evaluated') : (order.status === 'CompletedOnChain' ? 'Completed' : 'Disputed')}
                     </Badge>
                 )}
               </TableCell>
@@ -749,14 +762,14 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
     {isAssignTransporterDialogOpen && currentOrderToAssign && (
       <Dialog open={isAssignTransporterDialogOpen} onOpenChange={(isOpen) => { if (!isOpen) { setCurrentOrderToAssign(null); setSelectedTransporter(null); } setIsAssignTransporterDialogOpen(isOpen); }}>
         <DialogContent className="sm:max-w-md">
-          <DialogHeader><DialogTitle>Finalize & Create Order On-Chain</DialogTitle><DialogDescription>Order: {currentOrderToAssign.productName} for {currentOrderToAssign.customerName}</DialogDescription></DialogHeader>
+          <DialogHeader><DialogTitle>Finalize &amp; Create Order On-Chain</DialogTitle><DialogDescription>Order: {currentOrderToAssign.productName} for {currentOrderToAssign.customerName}</DialogDescription></DialogHeader>
           <div className="py-4 space-y-2">
             <p className="text-sm">Product Cost: ${currentOrderToAssign.totalAmount.toFixed(2)} USD</p>
             <p className="text-xs text-muted-foreground">Select a transporter. Their shipping fee will be calculated and added. This total will be used for the on-chain escrow order.</p>
             
             {availableTransporters.length > 0 ? (
               <>
-                <Label htmlFor="transporter-select">Select Transporter (Must have ETH address & rates)</Label>
+                <Label htmlFor="transporter-select">Select Transporter (Must have ETH address &amp; rates)</Label>
                 <Select onValueChange={setSelectedTransporter} value={selectedTransporter || undefined}>
                   <SelectTrigger id="transporter-select"><SelectValue placeholder="Choose..." /></SelectTrigger>
                   <SelectContent>{availableTransporters.map(t => (<SelectItem key={t.id} value={t.id}>{t.name} ({truncateText(t.ethereumAddress,10)}) {t.averageTransporterRating !== undefined && (<span className="ml-2 text-xs text-muted-foreground">(<Star className="inline-block h-3 w-3 mr-0.5 text-yellow-400 fill-yellow-400" />{t.averageTransporterRating.toFixed(1)} - {t.transporterRatingCount} ratings)</span>)}</SelectItem>))}
@@ -769,14 +782,14 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
                 No transporters are currently eligible (must be approved, not suspended, have ETH address, and shipping rates set).
               </div>
             )}
-             {!user?.ethereumAddress && (
-                <p className="text-xs text-destructive mt-2">Warning: Your (Supplier) Ethereum address is not set in your profile. It's required for the smart contract.</p>
+            {!user?.ethereumAddress && (
+                <p className="text-xs text-destructive mt-2">Warning: Your (Supplier) Ethereum address is not set in your profile. It's required.</p>
             )}
-            {!currentOrderToAssign.customerEthereumAddress && (
-                 <p className="text-xs text-destructive mt-2">Warning: Customer ({currentOrderToAssign.customerName}) Ethereum address is not set. It's required.</p>
+            {currentOrderToAssign && !customerForDialog?.ethereumAddress && (
+                 <p className="text-xs text-destructive mt-2">Warning: Customer ({currentOrderToAssign.customerName}) Ethereum address is not set in their profile. It's required.</p>
             )}
-            {selectedTransporter && !allUsersList.find(u => u.id === selectedTransporter)?.ethereumAddress && (
-                 <p className="text-xs text-destructive mt-2">Warning: Selected Transporter does not have an Ethereum address set. It's required.</p>
+            {selectedTransporterDetails && !selectedTransporterDetails.ethereumAddress && (
+                 <p className="text-xs text-destructive mt-2">Warning: Selected Transporter ({selectedTransporterDetails.name}) does not have an Ethereum address set. It's required.</p>
             )}
           </div>
           <DialogFooter>
@@ -784,7 +797,14 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
             <Button 
               type="button" 
               onClick={handleConfirmAssignTransporter} 
-              disabled={!selectedTransporter || actionOrderId === currentOrderToAssign.id || !!actionOrderId || availableTransporters.length === 0 || !user?.ethereumAddress || !currentOrderToAssign.customerEthereumAddress || !allUsersList.find(u => u.id === selectedTransporter)?.ethereumAddress}
+              disabled={
+                !selectedTransporter ||
+                actionOrderId === currentOrderToAssign.id ||
+                !!actionOrderId ||
+                !user?.ethereumAddress ||
+                !customerForDialog?.ethereumAddress ||
+                !selectedTransporterDetails?.ethereumAddress
+              }
             >
               {(actionOrderId === currentOrderToAssign.id) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Create On-Chain Order
@@ -809,4 +829,3 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
     </>
   );
 }
-
