@@ -76,7 +76,7 @@ const calculateTieredShippingPrice = (distanceKm: number, rates?: UserShippingRa
 const getStatusBadgeVariant = (status: OrderStatus | OrderShipmentStatus): "default" | "secondary" | "destructive" | "outline" => {
   switch (status) {
     case 'Paid': return 'default';
-    case 'Delivered': return 'secondary'; // Kept secondary as payment is still pending confirmation by customer
+    case 'Delivered': return 'default'; // Main status 'Delivered' will now be more prominent
     case 'Receipt Confirmed': return 'default';
     case 'Completed': return 'default';
     case 'Shipped': return 'secondary';
@@ -137,7 +137,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
     u.role === 'transporter' &&
     u.isApproved &&
     !u.isSuspended &&
-    u.shippingRates && // Check if shippingRates object exists
+    u.shippingRates &&
     typeof u.shippingRates.tier1_0_100_km_price === 'number' &&
     typeof u.shippingRates.tier2_101_500_km_price_per_km === 'number' &&
     typeof u.shippingRates.tier3_501_1000_km_price_per_km === 'number'
@@ -177,9 +177,20 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
     } else if (currentRole === 'manager') {
       ordersQuery = query(collection(db, "orders"), orderBy("orderDate", "desc"));
     } else {
-      setOrders([]);
-      setIsLoading(false);
-      return;
+      // This case is for when isCustomerView is true, but initialOrders is not provided,
+      // which is the scenario for the new "My Escrowed Payments" page.
+      // We need to construct the query for the customer here.
+      if (isCustomerView) {
+         ordersQuery = query(
+          collection(db, "orders"),
+          where("customerId", "==", user.id),
+          where("status", "in", ["Paid", "Delivered"]) // Specific statuses for escrow view
+        );
+      } else {
+        setOrders([]);
+        setIsLoading(false);
+        return;
+      }
     }
 
     const unsubscribe = onSnapshot(ordersQuery, (querySnapshot) => {
@@ -193,7 +204,8 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
         });
       });
 
-      if (currentRole === 'supplier') {
+      // Client-side sorting if not already ordered by Firestore (e.g. for supplier/customer specific views without composite index)
+      if (currentRole === 'supplier' || isCustomerView) {
         fetchedOrders.sort((a, b) => {
             const dateA = (a.orderDate as Timestamp)?.toMillis() || 0;
             const dateB = (b.orderDate as Timestamp)?.toMillis() || 0;
@@ -203,7 +215,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
       setOrders(fetchedOrders);
       setIsLoading(false);
     }, (error) => {
-      console.error(`Error fetching orders for role ${currentRole}:`, error);
+      console.error(`Error fetching orders for role ${currentRole || (isCustomerView ? 'customer' : 'unknown')}:`, error);
       toast({
         title: "Firestore Query Error",
         description: `Failed to fetch orders: ${error.message}. Check console for index requirements.`,
@@ -557,7 +569,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
             const productName = order.productName || (order as any).fruitType;
 
             const canPay = isCustomerView && order.status === 'Awaiting Payment';
-            const canConfirmOrDeny = isCustomerView && order.status === 'Paid' && order.shipmentStatus === 'Delivered';
+            const canConfirmOrDeny = isCustomerView && order.status === 'Delivered' && !order.assessmentSubmitted;
             const canEvaluate = isCustomerView && (order.status === 'Completed' || order.status === 'Disputed') && !order.assessmentSubmitted;
 
             const supplierForOrder = allUsersList.find(u => u.id === order.supplierId);
@@ -698,5 +710,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
     </>
   );
 }
+
+    
 
     

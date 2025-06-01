@@ -154,28 +154,26 @@ export default function ManageShipmentsPage({ params, searchParams }: ManageShip
 
     try {
       let updateData: Partial<StoredOrder> = { shipmentStatus: newStatus };
+      const currentOrder = assignedShipments.find(s => s.id === orderId);
 
       if (newStatus === 'Shipment Cancelled') {
         updateData = {
           ...updateData,
-          status: 'Awaiting Transporter Assignment',
+          status: 'Awaiting Transporter Assignment', // Revert main status
           transporterId: null,
           transporterName: null,
-          estimatedTransporterFee: undefined, // Clear fee as it needs recalculation
-          finalTotalAmount: orders.find(o => o.id === orderId)?.totalAmount, // Revert to original product total
+          estimatedTransporterFee: undefined,
+          finalTotalAmount: currentOrder?.totalAmount, // Revert to original product total
         };
         toast({ title: "Shipment Cancelled", description: `Order ${orderId} is now awaiting re-assignment by the supplier.` });
       } else if (newStatus === 'Delivered') {
-        const currentOrder = assignedShipments.find(s => s.id === orderId);
         if (currentOrder && (currentOrder.status === 'Paid' || currentOrder.status === 'Shipped')) {
-            updateData.status = 'Delivered';
+            updateData.status = 'Delivered' as OrderStatus; // Update main order status
         }
         toast({ title: "Success", description: `Shipment status updated to ${newStatus}. Customer will be prompted to confirm receipt.` });
-
       } else if (newStatus === 'In Transit' || newStatus === 'Out for Delivery' || newStatus === 'Ready for Pickup') {
-        const currentOrder = assignedShipments.find(s => s.id === orderId);
-        if (currentOrder && (currentOrder.status === 'Paid' || currentOrder.status === 'Ready for Pickup')) {
-             updateData.status = 'Shipped';
+        if (currentOrder && (currentOrder.status === 'Paid' || currentOrder.status === 'Ready for Pickup')) { // Ensure order is paid or already set for pickup
+             updateData.status = 'Shipped' as OrderStatus; // Update main order status if appropriate
         }
         toast({ title: "Success", description: `Shipment status updated to ${newStatus}.` });
       } else {
@@ -350,3 +348,5 @@ export default function ManageShipmentsPage({ params, searchParams }: ManageShip
     </>
   );
 }
+
+    
