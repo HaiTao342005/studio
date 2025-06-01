@@ -56,8 +56,10 @@ export interface StoredOrder {
   estimatedTransporterFee?: number;
   supplierPayoutAmount?: number;
   transporterPayoutAmount?: number;
-  supplierPayoutAddress?: string; // New field
-  transporterPayoutAddress?: string; // New field
+  supplierPayoutAddress?: string | null; // Changed from undefined
+  transporterPayoutAddress?: string | null; // Changed from undefined
+  supplierPayoutTxHash?: string; // New field for simulated supplier payout tx hash
+  transporterPayoutTxHash?: string; // New field for simulated transporter payout tx hash
   payoutTimestamp?: Timestamp;
   refundTimestamp?: Timestamp;
 }
@@ -73,5 +75,3 @@ export interface Order extends Omit<StoredOrder, 'orderDate' | 'predictedDeliver
   createdAt?: Date; // Client-side transformed
   updatedAt?: Date; // Client-side transformed
 }
-
-    

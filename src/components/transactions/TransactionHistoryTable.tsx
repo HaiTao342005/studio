@@ -17,7 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
-import { Trash2, Wallet, Loader2, Eye, ThumbsUp, Truck, AlertTriangle, ThumbsDown, Star, CheckCircle, Ban, Edit, Info, Hash, KeyRound, CircleDollarSign } from 'lucide-react';
+import { Trash2, Wallet, Loader2, Eye, ThumbsUp, Truck, AlertTriangle, ThumbsDown, Star, CheckCircle, Ban, Edit, Info, Hash, KeyRound, CircleDollarSign, Send } from 'lucide-react';
 import type { OrderStatus, StoredOrder, OrderShipmentStatus } from '@/types/transaction';
 import { AppleIcon, BananaIcon, OrangeIcon, GrapeIcon, MangoIcon, FruitIcon } from '@/components/icons/FruitIcons';
 import { format } from 'date-fns';
@@ -39,6 +39,7 @@ import {
 } from 'firebase/firestore';
 import { useAuth, type User as AuthUser, type UserShippingRates } from '@/contexts/AuthContext';
 import { calculateDistance, type CalculateDistanceOutput } from '@/ai/flows/calculate-distance-flow';
+import { simulatePayout } from '@/ai/flows/simulate-payout-flow'; // Added new import
 
 
 const GANACHE_RECIPIENT_ADDRESS = "0x83491285C0aC3dd64255A5D68f0C3e919A5Eacf2";
@@ -467,16 +468,47 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
         transporterPayoutAddress: transporterUser?.ethereumAddress || null,
       };
 
-      await updateDoc(orderRef, updatePayload);
+      // Simulate Payouts and get mock Tx Hashes
+      let supplierToastMessage = "";
+      if (supplierUser && supplierUser.ethereumAddress && supplierPayout > 0) {
+        const payoutResult = await simulatePayout({
+          recipientAddress: supplierUser.ethereumAddress,
+          amount: supplierPayout,
+          currency: order.currency,
+          escrowAddress: GANACHE_RECIPIENT_ADDRESS
+        });
+        if (payoutResult.status === 'SUCCESS') {
+          updatePayload.supplierPayoutTxHash = payoutResult.mockTransactionHash;
+          supplierToastMessage = `Supplier Payout: $${supplierPayout.toFixed(2)} to ${truncateText(supplierUser.ethereumAddress, 8)} (SimTx: ${truncateText(payoutResult.mockTransactionHash, 8)}). `;
+        } else {
+          supplierToastMessage = `Supplier Payout: $${supplierPayout.toFixed(2)} to ${truncateText(supplierUser.ethereumAddress, 8)} (Simulation Failed: ${payoutResult.message}). `;
+        }
+      } else if (supplierPayout > 0) {
+        supplierToastMessage = `Supplier Payout: $${supplierPayout.toFixed(2)} (Address not set). `;
+      }
 
-      let toastDescription = `Simulated Payouts: Supplier ($${supplierPayout.toFixed(2)} to ${updatePayload.supplierPayoutAddress || 'address not set'})`;
-      if (transporterFee > 0 && order.transporterId) {
-        toastDescription += ` and Transporter ($${transporterFee.toFixed(2)} to ${updatePayload.transporterPayoutAddress || 'address not set'}).`;
-      } else {
-        toastDescription += ".";
+
+      let transporterToastMessage = "";
+      if (transporterUser && transporterUser.ethereumAddress && transporterFee > 0) {
+         const payoutResult = await simulatePayout({
+          recipientAddress: transporterUser.ethereumAddress,
+          amount: transporterFee,
+          currency: order.currency,
+          escrowAddress: GANACHE_RECIPIENT_ADDRESS
+        });
+        if (payoutResult.status === 'SUCCESS') {
+          updatePayload.transporterPayoutTxHash = payoutResult.mockTransactionHash;
+          transporterToastMessage = `Transporter Payout: $${transporterFee.toFixed(2)} to ${truncateText(transporterUser.ethereumAddress, 8)} (SimTx: ${truncateText(payoutResult.mockTransactionHash, 8)}).`;
+        } else {
+          transporterToastMessage = `Transporter Payout: $${transporterFee.toFixed(2)} to ${truncateText(transporterUser.ethereumAddress, 8)} (Simulation Failed: ${payoutResult.message}).`;
+        }
+      } else if (transporterFee > 0) {
+        transporterToastMessage = `Transporter Payout: $${transporterFee.toFixed(2)} (Address not set).`;
       }
       
-      toast({ title: "Receipt Confirmed & Order Completed!", description: toastDescription });
+      await updateDoc(orderRef, updatePayload);
+      
+      toast({ title: "Receipt Confirmed & Order Completed!", description: `${supplierToastMessage}${transporterToastMessage}`.trim(), duration: 10000 });
 
     } catch (error) {
       console.error("Error confirming receipt and processing payout:", error);
@@ -584,8 +616,10 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
             <TableHead>Shipment Status</TableHead>
             <TableHead>Predicted Delivery</TableHead>
             {isCustomerView && <TableHead>Transaction Outcome</TableHead>}
-            {isManagerView && <TableHead title="Payment Transaction Hash"><Hash className="inline-block h-4 w-4 mr-1"/>Hash</TableHead>}
-            {isManagerView && <TableHead title="Simulated Recipient Address"><KeyRound className="inline-block h-4 w-4 mr-1"/>Recipient</TableHead>}
+            {isManagerView && <TableHead title="Customer Payment Transaction Hash"><Hash className="inline-block h-4 w-4 mr-1"/>Payment Hash</TableHead>}
+            {isManagerView && <TableHead title="Simulated Escrow Recipient Address"><KeyRound className="inline-block h-4 w-4 mr-1"/>Escrow Addr.</TableHead>}
+            {isManagerView && <TableHead title="Simulated Supplier Payout Transaction Hash"><Send className="inline-block h-4 w-4 mr-1"/>S. Payout Hash</TableHead>}
+            {isManagerView && <TableHead title="Simulated Transporter Payout Transaction Hash"><Send className="inline-block h-4 w-4 mr-1"/>T. Payout Hash</TableHead>}
             <TableHead className="w-[200px] text-center">Actions</TableHead>
           </TableRow>
         </TableHeader>
@@ -635,15 +669,17 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
                   {order.status === 'Completed' && (
                     <div className="space-y-0.5">
                       {order.supplierPayoutAmount !== undefined && (
-                        <p className="flex items-center" title={order.supplierPayoutAddress || 'Supplier address not set'}>
+                        <p className="flex items-center" title={`Payout Address: ${order.supplierPayoutAddress || 'Not set'}\nSimulated Tx Hash: ${order.supplierPayoutTxHash || 'N/A'}`}>
                           <CircleDollarSign className="h-3 w-3 mr-1 text-green-600" />
                           Supplier: ${order.supplierPayoutAmount.toFixed(2)} (to: {truncateText(order.supplierPayoutAddress, 6) || 'N/A'})
+                          {order.supplierPayoutTxHash && <Info className="h-3 w-3 ml-1 text-blue-500 cursor-help" />}
                         </p>
                       )}
                       {order.transporterPayoutAmount !== undefined && order.transporterId && (
-                        <p className="flex items-center" title={order.transporterPayoutAddress || 'Transporter address not set'}>
+                        <p className="flex items-center" title={`Payout Address: ${order.transporterPayoutAddress || 'Not set'}\nSimulated Tx Hash: ${order.transporterPayoutTxHash || 'N/A'}`}>
                            <CircleDollarSign className="h-3 w-3 mr-1 text-blue-600" />
                           Transporter: ${order.transporterPayoutAmount.toFixed(2)} (to: {truncateText(order.transporterPayoutAddress, 6) || 'N/A'})
+                          {order.transporterPayoutTxHash && <Info className="h-3 w-3 ml-1 text-blue-500 cursor-help" />}
                         </p>
                       )}
                       {order.payoutTimestamp && (
@@ -670,6 +706,8 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
               )}
               {isManagerView && <TableCell className="text-xs" title={order.paymentTransactionHash || undefined}>{truncateText(order.paymentTransactionHash, 12)}</TableCell>}
               {isManagerView && <TableCell className="text-xs" title={GANACHE_RECIPIENT_ADDRESS}>{truncateText(GANACHE_RECIPIENT_ADDRESS, 12)}</TableCell>}
+              {isManagerView && <TableCell className="text-xs" title={order.supplierPayoutTxHash || undefined}>{truncateText(order.supplierPayoutTxHash, 12)}</TableCell>}
+              {isManagerView && <TableCell className="text-xs" title={order.transporterPayoutTxHash || undefined}>{truncateText(order.transporterPayoutTxHash, 12)}</TableCell>}
               <TableCell className="space-x-1 text-center">
                 {canPay && (
                   <Button variant="outline" size="sm" onClick={() => handlePayWithMetamask(order.id)} disabled={payingOrderId === order.id || !!payingOrderId} className="h-8 px-2" title="Pay with Metamask">
@@ -774,4 +812,3 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
     </>
   );
 }
-

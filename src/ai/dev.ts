@@ -7,3 +7,4 @@ config();
 import '@/ai/flows/payment-risk-assessment.ts';
 import '@/ai/flows/project-health-check-flow.ts'; // Added new flow
 import '@/ai/flows/calculate-distance-flow.ts'; // Added new flow for distance calculation
+import '@/ai/flows/simulate-payout-flow.ts'; // Added new flow for simulating payouts
