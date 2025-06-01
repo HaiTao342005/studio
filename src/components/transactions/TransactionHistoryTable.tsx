@@ -17,7 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
-import { Trash2, Wallet, Loader2, Eye, ThumbsUp, Truck, AlertTriangle, ThumbsDown, Star, CheckCircle, Ban, Edit, Info, Hash, KeyRound, CircleDollarSign, Send, FileSignature, Zap } from 'lucide-react'; // Added Zap
+import { Trash2, Wallet, Loader2, Eye, ThumbsUp, Truck, AlertTriangle, ThumbsDown, Star, CheckCircle, Ban, Edit, Info, Hash, KeyRound, CircleDollarSign, Send, FileSignature, Zap } from 'lucide-react';
 import type { OrderStatus, StoredOrder, OrderShipmentStatus } from '@/types/transaction';
 import { AppleIcon, BananaIcon, OrangeIcon, GrapeIcon, MangoIcon, FruitIcon } from '@/components/icons/FruitIcons';
 import { format } from 'date-fns';
@@ -370,7 +370,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
         }
 
         await updateDoc(orderRef, updatePayload);
-        toast({ title: "Firestore Updated", description: `Order ${orderToAssign.id} status to AwaitingOnChainFunding.`});
+        
         setOrders(prevOrders =>
           prevOrders.map(o =>
             o.id === orderToAssign.id
@@ -378,6 +378,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
               : o
           )
         );
+        toast({ title: "Firestore Updated", description: `Order ${orderToAssign.id} status to AwaitingOnChainFunding.`});
         setIsAssignTransporterDialogOpen(false);
         return true;
     } catch (error: any) {
@@ -388,7 +389,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
     } finally {
         setActionOrderId(null);
     }
-  }, [allUsersList, toast, user]); 
+  }, [allUsersList, toast]); 
 
 
   const handlePayWithMetamaskOnChain = useCallback(async (orderId: string): Promise<boolean> => {
@@ -711,7 +712,12 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
             const displayDate = order.orderDate || (order as any).date;
             const productName = order.productName || (order as any).fruitType;
 
-            const canCreateOnChain = user?.role === 'supplier' && order.status === 'AwaitingSupplierConfirmation' && !user.isSuspended;
+            const canConfirmAndAssign = 
+              user?.role === 'supplier' && 
+              user.id === order.supplierId && 
+              order.status === 'AwaitingSupplierConfirmation' && 
+              !user.isSuspended;
+
             const canPayOnChain = isCustomerView && order.status === 'AwaitingOnChainFunding' && !user?.isSuspended;
             const canConfirmOrDenyOnChain = isCustomerView && order.status === 'FundedOnChain' && order.shipmentStatus === 'Delivered' && !order.assessmentSubmitted && !user?.isSuspended;
             const canEvaluate = isCustomerView && (order.status === 'CompletedOnChain' || order.status === 'DisputedOnChain') && !order.assessmentSubmitted && !user?.isSuspended;
@@ -770,10 +776,10 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
               {isManagerView && <TableCell className="text-xs" title={order.paymentTransactionHash || undefined}>{truncateText(order.paymentTransactionHash, 12)}</TableCell>}
               {isManagerView && <TableCell className="text-xs" title={order.contractConfirmationTxHash || undefined}>{truncateText(order.contractConfirmationTxHash, 12)}</TableCell>}
               <TableCell className="space-x-1 text-center">
-                {canCreateOnChain && (
+                {canConfirmAndAssign && (
                   <Button variant="outline" size="sm" onClick={() => handleOpenAssignTransporterDialog(order)} disabled={actionOrderId === order.id || !!actionOrderId} className="h-8 px-2 text-blue-600 border-blue-600 hover:text-blue-700 hover:bg-blue-50"
-                    title="Finalize order, assign transporter, and create the order on the smart contract">
-                     {actionOrderId === order.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSignature className="h-4 w-4" />} <span className="ml-1">Finalize &amp; Create</span>
+                    title="Confirm order, assign transporter, and create the order on the smart contract">
+                     {actionOrderId === order.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSignature className="h-4 w-4" />} <span className="ml-1">Confirm &amp; Assign for On-Chain</span>
                   </Button>
                 )}
                 {canPayOnChain && (
@@ -801,7 +807,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
                     <Trash2 className="h-4 w-4 text-destructive" />
                   </Button>
                 )}
-                {user?.isSuspended && user?.role === 'supplier' && canCreateOnChain && (
+                {user?.isSuspended && user?.role === 'supplier' && canConfirmAndAssign && (
                     <Badge variant="destructive" className="text-xs"><Ban className="h-3 w-3 mr-1"/> Suspended</Badge>
                 )}
                 {isCustomerView && (user?.isSuspended || (order.status !== 'AwaitingOnChainFunding' && order.status !== 'FundedOnChain' && !canEvaluate && !canConfirmOrDenyOnChain)) && order.status !== 'CompletedOnChain' && order.status !== 'DisputedOnChain' && (
@@ -824,7 +830,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
     {isAssignTransporterDialogOpen && currentOrderToAssign && (
       <Dialog open={isAssignTransporterDialogOpen} onOpenChange={(isOpen) => { if (!isOpen) { setCurrentOrderToAssign(null); setSelectedTransporter(null); } setIsAssignTransporterDialogOpen(isOpen); }}>
         <DialogContent className="sm:max-w-md">
-          <DialogHeader><DialogTitle>Finalize &amp; Create Order On-Chain</DialogTitle><DialogDescription>Order: {currentOrderToAssign.productName} for {customerForDialog?.name || currentOrderToAssign.customerName}</DialogDescription></DialogHeader>
+          <DialogHeader><DialogTitle>Confirm &amp; Assign for On-Chain</DialogTitle><DialogDescription>Order: {currentOrderToAssign.productName} for {customerForDialog?.name || currentOrderToAssign.customerName}</DialogDescription></DialogHeader>
           <div className="py-4 space-y-2">
             <p className="text-sm">Product Cost: ${currentOrderToAssign.totalAmount.toFixed(2)} USD</p>
             <p className="text-xs text-muted-foreground">Select a transporter. Their shipping fee will be calculated and added. This total will be used for the on-chain escrow order.</p>
