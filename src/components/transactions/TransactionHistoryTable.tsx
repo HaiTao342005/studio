@@ -470,7 +470,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
       await updateDoc(orderRef, updatePayload);
 
       let toastDescription = `Simulated Payouts: Supplier ($${supplierPayout.toFixed(2)} to ${updatePayload.supplierPayoutAddress || 'address not set'})`;
-      if (transporterFee > 0) {
+      if (transporterFee > 0 && order.transporterId) {
         toastDescription += ` and Transporter ($${transporterFee.toFixed(2)} to ${updatePayload.transporterPayoutAddress || 'address not set'}).`;
       } else {
         toastDescription += ".";
@@ -479,7 +479,13 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
       toast({ title: "Receipt Confirmed & Order Completed!", description: toastDescription });
 
     } catch (error) {
-      toast({ title: "Error", description: "Could not confirm receipt and process payout.", variant: "destructive" });
+      console.error("Error confirming receipt and processing payout:", error);
+      const errorMessage = error instanceof Error ? error.message : "An unknown error occurred.";
+      toast({ 
+        title: "Confirmation Error", 
+        description: `Could not confirm receipt and process payout. ${errorMessage}`, 
+        variant: "destructive" 
+      });
     } finally {
       setConfirmingReceiptOrderId(null);
     }
@@ -768,3 +774,4 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
     </>
   );
 }
+
