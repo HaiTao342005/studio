@@ -77,8 +77,18 @@ const calculateDistanceFlow = ai.defineFlow(
         console.error('[calculateDistanceFlow] AI estimation returned incomplete output:', output);
         throw new Error("AI estimation returned incomplete output.");
       }
-    } catch (aiError) {
+    } catch (aiError: any) {
       console.error('[calculateDistanceFlow] AI distance estimation failed:', aiError);
+      
+      let noteMessage = 'AI estimation for distance and duration failed. Displaying simulated fallback values. Please try again or check addresses.';
+      if (aiError && aiError.message && typeof aiError.message === 'string') {
+        if (aiError.message.includes('503 Service Unavailable')) {
+          noteMessage = 'AI distance service is temporarily unavailable. Displaying simulated fallback values. Please try again later.';
+        } else if (aiError.message.includes('incomplete output')) {
+          noteMessage = 'AI estimation returned incomplete data. Displaying simulated fallback values.';
+        }
+      }
+
       // Fallback simulation if AI fails or returns incomplete data
       const randomHours = Math.floor(Math.random() * 72) + 8; // 8 to 80 hours
       const baseDate = orderCreationDate ? new Date(orderCreationDate) : new Date();
@@ -91,8 +101,9 @@ const calculateDistanceFlow = ai.defineFlow(
         distanceKm: randomKm,
         durationText: `Approx. ${Math.floor(randomHours / 24)} days ${randomHours % 24} hours (Simulated Fallback)`,
         predictedDeliveryIsoDate: deliveryDate.toISOString(),
-        note: 'AI estimation for distance and duration failed. Displaying simulated fallback values. Please try again or check addresses.',
+        note: noteMessage,
       };
     }
   }
 );
+
