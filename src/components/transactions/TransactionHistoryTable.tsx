@@ -77,7 +77,7 @@ const getStatusBadgeVariant = (status: OrderStatus | OrderShipmentStatus): "defa
   switch (status) {
     case 'FundedOnChain': case 'CompletedOnChain': return 'default'; 
     case 'Shipped': case 'Ready for Pickup': case 'In Transit': case 'Out for Delivery': case 'Delivered': return 'secondary';
-    case 'AwaitingSupplierConfirmation': case 'AwaitingOnChainCreation': case 'AwaitingOnChainFunding': case 'Pending': return 'outline'; 
+    case 'Awaiting Supplier Confirmation': case 'AwaitingOnChainCreation': case 'AwaitingOnChainFunding': case 'Pending': return 'outline'; 
     case 'Cancelled': case 'Delivery Failed': case 'Shipment Cancelled': case 'DisputedOnChain': return 'destructive';
     // Deprecated/legacy, keep for now for old data
     case 'Paid': case 'Receipt Confirmed': case 'Awaiting Payment': case 'Awaiting Transporter Assignment':
@@ -728,8 +728,8 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
 
             const canConfirmAndAssign =
               user?.role === 'supplier' &&
-              // order.supplierId === user.id && // Removed this line
-              order.status === 'AwaitingSupplierConfirmation' &&
+              order.supplierId === user.id &&
+              order.status === 'Awaiting Supplier Confirmation' && // Corrected string
               !user.isSuspended;
 
             const canPayOnChain = isCustomerView && order.status === 'AwaitingOnChainFunding' && !user?.isSuspended;
@@ -737,6 +737,14 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
             const canEvaluate = isCustomerView && (order.status === 'CompletedOnChain' || order.status === 'DisputedOnChain') && !order.assessmentSubmitted && !user?.isSuspended;
             
             const displayAmount = order.finalTotalAmount ?? order.totalAmount;
+
+            const showDeleteButton = user?.role !== 'customer' &&
+              order.status !== 'Awaiting Supplier Confirmation' && // Corrected string
+              order.status !== 'AwaitingOnChainFunding' &&
+              order.status !== 'FundedOnChain' &&
+              order.status !== 'CompletedOnChain' &&
+              order.status !== 'DisputedOnChain';
+
 
             return (
             <TableRow key={order.id}>
@@ -827,7 +835,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
                     <Star className="h-4 w-4" /> <span className="ml-1">Evaluate</span>
                   </Button>
                 )}
-                {user?.role !== 'customer' && order.status !== 'AwaitingSupplierConfirmation' && order.status !== 'AwaitingOnChainFunding' && order.status !== 'FundedOnChain' && order.status !== 'CompletedOnChain' && order.status !== 'DisputedOnChain' && (
+                {showDeleteButton && (
                   <Button variant="ghost" size="icon" onClick={() => handleDeleteOrder(order.id)} aria-label="Delete order" className="h-8 w-8" disabled={user?.isSuspended && user?.role === 'supplier'}>
                     <Trash2 className="h-4 w-4 text-destructive" />
                   </Button>
