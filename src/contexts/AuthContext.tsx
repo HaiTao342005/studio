@@ -92,6 +92,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const allUsersListRef = useRef(allUsersList);
   const userRef = useRef(user);
 
+
   const { toast } = useToast();
 
   const seedDefaultManager = useCallback(async () => {
@@ -255,7 +256,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let potentialUserFromList = currentAllUsers.find(u => u.id === userDocId || u.name.toLowerCase() === userDocId);
 
     if (isLoadingUsers && !potentialUserFromList) {
-        toast({ title: "Login Info", description: "User data is still loading, please try again shortly.", variant: "outline" });
+        toast({ title: "Login Info", description: "what's going wrong?", variant: "outline" });
         setIsLoading(false);
         return;
     }
@@ -310,7 +311,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
     }
 
-    const userDocFirestoreRef = doc(db, "users", userRefPath); 
+    const userDocFirestoreRef = doc(db, "users", userRefPath);
     try {
         const userSnap = await getDoc(userDocFirestoreRef);
         if (userSnap.exists()) {
@@ -369,7 +370,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       toast({ title: "Action Error", description: "Firebase is not configured or offline. Cannot approve user.", variant: "destructive", duration: 7000 });
       return;
     }
-    if (userRef.current?.role !== 'manager') { 
+    if (userRef.current?.role !== 'manager') {
       toast({ title: "Permission Denied", description: "Only managers can approve users.", variant: "destructive" });
       return;
     }
@@ -386,14 +387,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         toast({ title: "Error", description: "Could not approve user. Please try again.", variant: "destructive" });
       }
     }
-  }, [toast]); 
+  }, [toast]);
 
   const addManager = useCallback(async (newManagerUsername: string, newManagerPassword: string): Promise<boolean> => {
     if (!db) {
       toast({ title: "Action Error", description: "Firebase is not configured or offline. Cannot add manager.", variant: "destructive", duration: 7000 });
       return false;
     }
-    if (userRef.current?.role !== 'manager') { 
+    if (userRef.current?.role !== 'manager') {
         toast({ title: "Permission Denied", description: "Only managers can create new manager accounts.", variant: "destructive" });
         return false;
     }
@@ -428,14 +429,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       return false;
     }
-  }, [toast]); 
+  }, [toast]);
 
   const updateUserProfile = useCallback(async (userId: string, data: { address?: string; ethereumAddress?: string }): Promise<boolean> => {
     if (!db) {
       toast({ title: "Update Error", description: "Firebase is not configured or offline. Cannot update profile.", variant: "destructive", duration: 7000 });
       return false;
     }
-    if (!userRef.current || userRef.current.id !== userId) { 
+    if (!userRef.current || userRef.current.id !== userId) {
         toast({ title: "Permission Denied", description: "You can only update your own profile.", variant: "destructive" });
         return false;
     }
@@ -461,14 +462,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
         return false;
     }
-  }, [toast]); 
+  }, [toast]);
 
   const updateTransporterShippingRates = useCallback(async (userId: string, rates: UserShippingRates): Promise<boolean> => {
     if (!db) {
       toast({ title: "Update Error", description: "Firebase is not configured or offline. Cannot update rates.", variant: "destructive", duration: 7000});
       return false;
     }
-    if (!userRef.current || userRef.current.id !== userId || userRef.current.role !== 'transporter') { 
+    if (!userRef.current || userRef.current.id !== userId || userRef.current.role !== 'transporter') {
       toast({ title: "Permission Denied", description: "You can only update your own shipping rates.", variant: "destructive"});
       return false;
     }
@@ -507,7 +508,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             title: "Firebase Unavailable",
             description: "The application cannot connect to Firebase. Core features are disabled. Please check console for Firebase config errors or network issues.",
             variant: "destructive",
-            duration: 0, 
+            duration: 0,
           });
           setUser(null);
           setAllUsersList([]);
@@ -642,7 +643,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                   else if (isMounted) toast({ title: "User Suspended", description: `User ${u.name} has been automatically suspended.`, variant: "destructive", duration: 10000});
 
                 } catch (suspendError: any) {
-                  if (isMounted && db) { 
+                  if (isMounted && db) {
                      if (suspendError instanceof FirestoreError && (suspendError.code === 'unavailable' || (suspendError.message && suspendError.message.includes('client is offline')))) {
                        console.info(`AuthContext: Suspending user ${u.id} failed as Firestore client is offline.`, suspendError.message);
                        toast({ title: "Network Issue", description: `Could not update suspension for ${u.name}. Firebase is offline.`, variant: "destructive", duration: 7000});
@@ -688,6 +689,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               if (!storedUserFromLocalStorage && isMounted) setUser(null);
           } finally {
             if (isMounted) {
+                // Handled by main finally setIsLoading(false);
+                // Handled by main finally setIsLoadingUsers(false);
             }
           }
         }, (error) => {
@@ -700,14 +703,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             if(isMounted) toast({ title: "Error Loading Users", description: error.message, variant: "destructive"});
           }
           if (isMounted) {
-            setIsLoadingUsers(false); 
+            setIsLoadingUsers(false);
           }
         });
         unsubscribers.push(unsubscribeUsersSnapshot);
 
         const assessedOrdersListenerQuery = query(collection(db, "orders"), where("assessmentSubmitted", "==", true));
         const unsubscribeAssessedOrdersSnapshot = onSnapshot(assessedOrdersListenerQuery, async (snapshot) => {
-          if (!isMounted || !db) return; 
+          if (!isMounted || !db) return;
           try {
             const currentAllUsersList = allUsersListRef.current;
             if (currentAllUsersList.length > 0) {
@@ -827,8 +830,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         localStorage.removeItem(CURRENT_USER_STORAGE_KEY);
       } finally {
         if (isMounted) {
-          setIsLoading(false); 
-          setIsLoadingUsers(false); 
+          setIsLoading(false);
+          setIsLoadingUsers(false);
         }
       }
     }
