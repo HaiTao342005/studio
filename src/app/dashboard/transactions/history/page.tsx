@@ -1,3 +1,5 @@
+
+import React from 'react'; // Added
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { TransactionHistoryTable } from "@/components/transactions/TransactionHistoryTable"; // Keeping component name for now
 import { Header } from "@/components/dashboard/Header";
@@ -7,7 +9,9 @@ interface OrderHistoryPageProps { // Renamed from TransactionHistoryPageProps
   searchParams: { [key: string]: string | string[] | undefined };
 }
 
-export default function OrderHistoryPage({ params, searchParams }: OrderHistoryPageProps) { // Renamed
+export default function OrderHistoryPage({ params, searchParams: initialSearchParams }: OrderHistoryPageProps) { // Renamed
+  const searchParams = React.use(initialSearchParams); // Unwrapped searchParams
+
   return (
     <>
       <Header title="Order History" /> {/* Changed title */}

@@ -1,3 +1,5 @@
+
+import React from 'react'; // Added
 import { Header } from '@/components/dashboard/Header';
 import { MarketDataCard } from '@/components/dashboard/MarketDataCard';
 import { AppleIcon, BananaIcon, OrangeIcon, GrapeIcon, MangoIcon } from '@/components/icons/FruitIcons';
@@ -16,7 +18,9 @@ interface MarketDataPageProps {
   searchParams: { [key: string]: string | string[] | undefined };
 }
 
-export default function MarketDataPage({ params, searchParams }: MarketDataPageProps) {
+export default function MarketDataPage({ params, searchParams: initialSearchParams }: MarketDataPageProps) {
+  const searchParams = React.use(initialSearchParams); // Unwrapped searchParams
+
   return (
     <>
       <Header title="Global Fruit Market Data" />

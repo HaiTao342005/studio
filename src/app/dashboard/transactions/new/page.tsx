@@ -1,3 +1,5 @@
+
+import React from 'react'; // Added
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { TransactionForm } from "@/components/transactions/TransactionForm"; // Keeping component name for now
 import { Header } from "@/components/dashboard/Header";
@@ -7,7 +9,9 @@ interface NewOrderPageProps { // Renamed from NewTransactionPageProps
   searchParams: { [key: string]: string | string[] | undefined };
 }
 
-export default function NewOrderPage({ params, searchParams }: NewOrderPageProps) { // Renamed
+export default function NewOrderPage({ params, searchParams: initialSearchParams }: NewOrderPageProps) { // Renamed
+  const searchParams = React.use(initialSearchParams); // Unwrapped searchParams
+
   return (
     <>
       <Header title="Record New Order" /> {/* Changed title */}
