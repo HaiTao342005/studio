@@ -144,8 +144,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     seedDefaultManager();
 
-    // Fetch all orders once to build purchase history.
-    // This could be further optimized if performance becomes an issue for very large order sets.
     const allOrdersQuery = query(collection(db, "orders"));
     let allOrderDocsForHistory: StoredOrder[] = [];
     const customerSupplierPurchaseCount = new Map<string, Map<string, number>>();
@@ -170,7 +168,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const usersQuery = query(collection(db, "users"));
     const unsubscribeUsers = onSnapshot(usersQuery, async (querySnapshot) => {
-      await fetchAllOrdersForHistory(); // Refresh purchase history map when users change (or for the first time)
+      await fetchAllOrdersForHistory(); 
 
       const baseUsers: User[] = [];
       querySnapshot.forEach((docSnapshot) => {
@@ -189,7 +187,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       const ordersRef = collection(db, "orders");
       const assessedOrdersQuery = query(ordersRef, where("assessmentSubmitted", "==", true));
-      const assessedOrdersSnap = await getDocs(assessedOrdersQuery); // This doesn't need to be onSnapshot if users snapshot triggers re-calc
+      const assessedOrdersSnap = await getDocs(assessedOrdersQuery); 
 
       const supplierWeightedRatingSumMap: Record<string, number> = {};
       const supplierTotalWeightsMap: Record<string, number> = {};
@@ -200,23 +198,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       assessedOrdersSnap.forEach(orderDoc => {
         const orderData = orderDoc.data() as StoredOrder;
 
-        // Supplier Weighted Rating
         if (orderData.supplierId && typeof orderData.supplierRating === 'number' && orderData.customerId) {
           const purchaseCount = customerSupplierPurchaseCount.get(orderData.customerId)?.get(orderData.supplierId) || 0;
-          let weight = 0.05; // Default for first time (purchaseCount is 1 for the current order being assessed)
-          if (purchaseCount > 10) { // The current order is part of this count
+          let weight = 0.05; 
+          if (purchaseCount > 10) { 
             weight = 0.80;
-          } else if (purchaseCount >= 2) { // This order makes it the 2nd to 10th
+          } else if (purchaseCount >= 2) { 
             weight = 0.15;
           }
-          // else if purchaseCount is 1 (this order), weight remains 0.05
-
+          
           supplierWeightedRatingSumMap[orderData.supplierId] = (supplierWeightedRatingSumMap[orderData.supplierId] || 0) + (orderData.supplierRating * weight);
           supplierTotalWeightsMap[orderData.supplierId] = (supplierTotalWeightsMap[orderData.supplierId] || 0) + weight;
           supplierRatingCountMap[orderData.supplierId] = (supplierRatingCountMap[orderData.supplierId] || 0) + 1;
         }
 
-        // Transporter Simple Average Rating (as per current design)
         if (orderData.transporterId && typeof orderData.transporterRating === 'number') {
           transporterRatingsMap[orderData.transporterId] = transporterRatingsMap[orderData.transporterId] || { total: 0, count: 0 };
           transporterRatingsMap[orderData.transporterId].total += orderData.transporterRating;
@@ -225,7 +220,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
 
       const enrichedUsersPromises = baseUsers.map(async (u) => {
-        let userWithRatings = { ...u } as User; // Ensure type compatibility
+        let userWithRatings = { ...u } as User; 
 
         const sWeightedRatingSum = supplierWeightedRatingSumMap[u.id] || 0;
         const sTotalWeights = supplierTotalWeightsMap[u.id] || 0;
@@ -290,37 +285,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setIsLoading(false);
     });
 
-    // Also need a listener for assessed orders to trigger recalculation if an assessment is submitted
-    // after initial load.
     const assessedOrdersListenerQuery = query(collection(db, "orders"), where("assessmentSubmitted", "==", true));
     const unsubscribeAssessedOrders = onSnapshot(assessedOrdersListenerQuery, async (snapshot) => {
-        if (!isLoadingUsers && allUsersList.length > 0) { // Only re-calculate if users are already loaded
+        if (!isLoadingUsers && allUsersList.length > 0) { 
             console.log("New assessment submitted, recalculating ratings...");
-            // This will re-trigger the user snapshot logic by causing a state change
-            // or we can explicitly call a recalculation function.
-            // For simplicity, we can trigger a re-fetch of users by making a superficial change
-            // or better, abstract the rating calculation to a function and call it.
-            // Let's try to simulate a re-evaluation for now, by just re-setting a dummy state,
-            // or more cleanly, re-fetch users or re-run parts of the user snapshot logic.
-            // The most robust way is to re-trigger the main effect or parts of it.
-            // For now, let's assume the user snapshot will handle it, or make it more explicit.
-            // A simpler approach: if the user list exists, simulate a usersQuery snapshot to re-run its logic.
-            // This is a bit hacky. Better would be to lift rating calc into a shared func.
-            // For now, the user snapshot will run if any user doc changes.
-            // If only an order changes (new assessment), the user snapshot might not rerun.
-            // So, it's better to make the rating calculation part of the assessedOrders listener too.
-            // OR, have the assessment submission trigger a refresh of the user data.
+            
+             await fetchAllOrdersForHistory(); 
+             const baseUsers = [...allUsersList]; 
 
-            // For now, let's rely on the fact that changing an order for assessment
-            // will likely make the UI re-render and if `user` object changes, things refresh.
-            // This part might need further refinement if ratings don't update immediately after assessment.
-            // The most direct way is to re-run the user enrichment logic here.
-             await fetchAllOrdersForHistory(); // Re-fetch order history
-             // Re-process baseUsers with new ratings
-             const baseUsers = [...allUsersList]; // Use a copy of the current user list
-
-             // Use assessedOrdersListenerQuery (defined in this scope) instead of assessedOrdersQuery
-             const assessedOrdersSnap = await getDocs(assessedOrdersListenerQuery); // Re-fetch assessed orders
+             const assessedOrdersSnap = await getDocs(assessedOrdersListenerQuery); 
 
              const supplierWeightedRatingSumMap: Record<string, number> = {};
              const supplierTotalWeightsMap: Record<string, number> = {};
@@ -358,7 +331,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 const tRatingData = transporterRatingsMap[u.id];
                 userWithRatings.averageTransporterRating = tRatingData && tRatingData.count > 0 ? tRatingData.total / tRatingData.count : undefined;
                 userWithRatings.transporterRatingCount = tRatingData ? tRatingData.count : 0;
-                // Suspension logic remains the same
+                // Suspension logic (can be repeated or refactored)
+                let shouldSuspend = false;
+                if (userWithRatings.role === 'supplier' && userWithRatings.supplierRatingCount >= MIN_RATINGS_FOR_SUSPENSION && userWithRatings.averageSupplierRating !== undefined && userWithRatings.averageSupplierRating < RATING_THRESHOLD_FOR_SUSPENSION) {
+                  shouldSuspend = true;
+                }
+                if (userWithRatings.role === 'transporter' && userWithRatings.transporterRatingCount >= MIN_RATINGS_FOR_SUSPENSION && userWithRatings.averageTransporterRating !== undefined && userWithRatings.averageTransporterRating < RATING_THRESHOLD_FOR_SUSPENSION) {
+                  shouldSuspend = true;
+                }
+                if (shouldSuspend && !userWithRatings.isSuspended) {
+                  userWithRatings.isSuspended = true;
+                   // Consider if updating Firestore here is desired or if it should only be in the main user listener
+                }
                 return userWithRatings;
               });
               const reEnrichedUsers = await Promise.all(reEnrichedUsersPromises);
@@ -378,7 +362,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       unsubscribeUsers();
       unsubscribeAssessedOrders();
     };
-  }, [seedDefaultManager, toast, logoutCallback, user?.id, isLoadingUsers, allUsersList]); // Added allUsersList as a dependency
+  }, [seedDefaultManager, toast, logoutCallback, user?.id, isLoadingUsers]); // Removed allUsersList from dependencies
 
 
   const signup = useCallback(async (username: string, mockPasswordNew: string, role: UserRole) => {
@@ -429,7 +413,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         address: newUserFirestoreData.address,
         ethereumAddress: newUserFirestoreData.ethereumAddress,
         shippingRates: newUserFirestoreData.shippingRates,
-        // Initial rating fields
+        
         supplierWeightedRatingSum: 0,
         supplierTotalWeights: 0,
         supplierRatingCount: 0,
@@ -475,7 +459,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                     setUser(null);
                     localStorage.removeItem(CURRENT_USER_STORAGE_KEY);
                 } else {
-                    setUser(potentialUser); // potentialUser already has rating data from allUsersList
+                    setUser(potentialUser); 
                     localStorage.setItem(CURRENT_USER_STORAGE_KEY, JSON.stringify(potentialUser));
                     toast({ title: "Login Successful!", description: `Welcome back, ${potentialUser.name}!` });
                 }
