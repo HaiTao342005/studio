@@ -463,8 +463,8 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
         supplierPayoutAmount: supplierPayout,
         transporterPayoutAmount: transporterFee,
         payoutTimestamp: serverTimestamp(),
-        supplierPayoutAddress: supplierUser?.ethereumAddress || undefined,
-        transporterPayoutAddress: transporterUser?.ethereumAddress || undefined,
+        supplierPayoutAddress: supplierUser?.ethereumAddress || null,
+        transporterPayoutAddress: transporterUser?.ethereumAddress || null,
       };
 
       await updateDoc(orderRef, updatePayload);
