@@ -10,9 +10,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { StoredOrder, OrderShipmentStatus, OrderStatus } from '@/types/transaction';
 import { db } from '@/lib/firebase/config';
 import { collection, onSnapshot, query, where, doc, updateDoc, Timestamp } from 'firebase/firestore';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuth, type UserShippingRates } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
-import { Truck, Loader2, Info, DollarSign, Ban } from 'lucide-react'; // Added Ban
+import { Truck, Loader2, Info, DollarSign, Ban } from 'lucide-react';
 import { format } from 'date-fns';
 import { Badge } from '@/components/ui/badge';
 import { calculateDistance, type CalculateDistanceOutput } from '@/ai/flows/calculate-distance-flow';
@@ -24,6 +24,34 @@ interface ManageShipmentsPageProps {
   params: {};
   searchParams: { [key: string]: string | string[] | undefined };
 }
+
+// Helper function to calculate tiered shipping price - copied from TransactionHistoryTable
+const calculateTieredShippingPrice = (distanceKm: number, rates?: UserShippingRates): number | null => {
+  if (!rates || rates.tier1_0_100_km_price === undefined || rates.tier2_101_500_km_price_per_km === undefined || rates.tier3_501_1000_km_price_per_km === undefined) {
+    return null;
+  }
+  const { tier1_0_100_km_price, tier2_101_500_km_price_per_km, tier3_501_1000_km_price_per_km } = rates;
+
+  if (distanceKm <= 0) return 0;
+  if (distanceKm <= 100) return tier1_0_100_km_price;
+
+  let price = tier1_0_100_km_price;
+  if (distanceKm <= 500) {
+    price += (distanceKm - 100) * tier2_101_500_km_price_per_km;
+    return price;
+  }
+
+  price += (400) * tier2_101_500_km_price_per_km;
+  if (distanceKm <= 1000) {
+    price += (distanceKm - 500) * tier3_501_1000_km_price_per_km;
+    return price;
+  }
+
+  price += (500) * tier3_501_1000_km_price_per_km;
+  price += (distanceKm - 1000) * tier3_501_1000_km_price_per_km;
+  return price;
+};
+
 
 const getStatusBadgeVariant = (status: OrderStatus | OrderShipmentStatus): "default" | "secondary" | "destructive" | "outline" => {
   switch (status) {
@@ -38,11 +66,8 @@ const getStatusBadgeVariant = (status: OrderStatus | OrderShipmentStatus): "defa
 interface ShipmentWithDistance extends StoredOrder {
     distanceInfo?: CalculateDistanceOutput | null;
     isLoadingDistance?: boolean;
-    shippingPrice?: number;
+    shippingPrice?: number | null; // Can be null if rates not set
 }
-
-const BASE_FARE = 2.00; 
-const RATE_PER_KM = 0.50; 
 
 
 export default function ManageShipmentsPage({ params, searchParams }: ManageShipmentsPageProps) {
@@ -62,8 +87,11 @@ export default function ManageShipmentsPage({ params, searchParams }: ManageShip
           destinationAddress: shipment.deliveryAddress,
         });
         updatedShipment.distanceInfo = distanceResult;
-        if (distanceResult.distanceKm && typeof distanceResult.distanceKm === 'number') {
-          updatedShipment.shippingPrice = BASE_FARE + (distanceResult.distanceKm * RATE_PER_KM);
+        if (distanceResult.distanceKm && typeof distanceResult.distanceKm === 'number' && user?.shippingRates) {
+          updatedShipment.shippingPrice = calculateTieredShippingPrice(distanceResult.distanceKm, user.shippingRates);
+        } else if (distanceResult.distanceKm && !user?.shippingRates) {
+            updatedShipment.shippingPrice = null; // Transporter hasn't set rates
+            console.warn(`Transporter ${user?.name} has not set shipping rates for order ${shipment.id}`);
         }
       } catch (error) {
         console.error(`Error calculating distance for order ${shipment.id}:`, error);
@@ -72,7 +100,7 @@ export default function ManageShipmentsPage({ params, searchParams }: ManageShip
     }
     updatedShipment.isLoadingDistance = false;
     return updatedShipment;
-  }, []);
+  }, [user]);
 
 
   useEffect(() => {
@@ -93,14 +121,14 @@ export default function ManageShipmentsPage({ params, searchParams }: ManageShip
       querySnapshot.forEach((orderDoc) => {
         fetchedOrdersData.push({ id: orderDoc.id, ...orderDoc.data() } as StoredOrder);
       });
-      
+
       fetchedOrdersData.sort((a, b) => {
         const dateA = (a.orderDate || (a as any).date) as Timestamp | undefined;
         const dateB = (b.orderDate || (b as any).date) as Timestamp | undefined;
         return (dateB?.toMillis() || 0) - (dateA?.toMillis() || 0);
       });
-      
-      const shipmentsWithDetailsPromises = fetchedOrdersData.map(order => 
+
+      const shipmentsWithDetailsPromises = fetchedOrdersData.map(order =>
         fetchDistanceAndPriceForShipment(order)
       );
       const shipmentsWithDetails = await Promise.all(shipmentsWithDetailsPromises);
@@ -130,17 +158,14 @@ export default function ManageShipmentsPage({ params, searchParams }: ManageShip
       if (newStatus === 'Shipment Cancelled') {
         updateData = {
           ...updateData,
-          status: 'Awaiting Transporter Assignment', 
+          status: 'Awaiting Transporter Assignment',
           transporterId: null,
           transporterName: null,
+          estimatedTransporterFee: undefined, // Clear fee as it needs recalculation
+          finalTotalAmount: orders.find(o => o.id === orderId)?.totalAmount, // Revert to original product total
         };
         toast({ title: "Shipment Cancelled", description: `Order ${orderId} is now awaiting re-assignment by the supplier.` });
       } else if (newStatus === 'Delivered') {
-        // Main status is 'Paid' until customer confirms receipt. Shipment status is 'Delivered'.
-        // No change to main 'status' here, only 'shipmentStatus'.
-        // The main 'status' changes to 'Delivered' when customer confirms or 'Disputed' if denied.
-        // For simplicity here, we will update main status if it makes sense.
-        // If order status was 'Paid' or 'Shipped', it now becomes 'Delivered' at a high level for supplier view.
         const currentOrder = assignedShipments.find(s => s.id === orderId);
         if (currentOrder && (currentOrder.status === 'Paid' || currentOrder.status === 'Shipped')) {
             updateData.status = 'Delivered';
@@ -148,10 +173,9 @@ export default function ManageShipmentsPage({ params, searchParams }: ManageShip
         toast({ title: "Success", description: `Shipment status updated to ${newStatus}. Customer will be prompted to confirm receipt.` });
 
       } else if (newStatus === 'In Transit' || newStatus === 'Out for Delivery' || newStatus === 'Ready for Pickup') {
-         // If the main order status was 'Paid' or 'Ready for Pickup', update it to 'Shipped'
         const currentOrder = assignedShipments.find(s => s.id === orderId);
         if (currentOrder && (currentOrder.status === 'Paid' || currentOrder.status === 'Ready for Pickup')) {
-             updateData.status = 'Shipped'; 
+             updateData.status = 'Shipped';
         }
         toast({ title: "Success", description: `Shipment status updated to ${newStatus}.` });
       } else {
@@ -179,7 +203,7 @@ export default function ManageShipmentsPage({ params, searchParams }: ManageShip
       </>
     );
   }
-  
+
   if (user?.isSuspended) {
     return (
       <>
@@ -213,7 +237,10 @@ export default function ManageShipmentsPage({ params, searchParams }: ManageShip
               Your Shipment Assignments
             </CardTitle>
             <CardDescription>
-              View, update status, see estimated travel, and estimated shipping price for your assignments.
+              View, update status, see estimated travel, and estimated shipping price for your assignments based on your set rates.
+              {!user?.shippingRates?.tier1_0_100_km_price && (
+                <span className="text-destructive block mt-1"> Please set your shipping rates in the "Shipping Rates" tab to see accurate price estimations.</span>
+              )}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -237,7 +264,7 @@ export default function ManageShipmentsPage({ params, searchParams }: ManageShip
                       <TableHead>Delivery</TableHead>
                       <TableHead>Est. Dist./Time</TableHead>
                       <TableHead>Predicted Delivery</TableHead>
-                      <TableHead className="text-right">Est. Shipping Price</TableHead>
+                      <TableHead className="text-right">Your Est. Shipping Price</TableHead>
                       <TableHead>Shipment Status</TableHead>
                       <TableHead className="w-[200px]">Update Status</TableHead>
                     </TableRow>
@@ -275,10 +302,10 @@ export default function ManageShipmentsPage({ params, searchParams }: ManageShip
                           </TableCell>
                           <TableCell className="text-right font-medium">
                             {shipment.isLoadingDistance ? <Loader2 className="h-4 w-4 animate-spin mx-auto" /> :
-                             shipment.shippingPrice !== undefined ? (
+                             shipment.shippingPrice !== undefined && shipment.shippingPrice !== null ? (
                                 `$${shipment.shippingPrice.toFixed(2)}`
                              ) : (
-                                <span className="text-muted-foreground">N/A</span>
+                                <span className="text-muted-foreground text-xs">Rates not set / Error</span>
                              )
                             }
                           </TableCell>
@@ -323,5 +350,3 @@ export default function ManageShipmentsPage({ params, searchParams }: ManageShip
     </>
   );
 }
-
-    

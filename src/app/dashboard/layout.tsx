@@ -34,9 +34,10 @@ import {
   UserCheck,
   PackagePlus,
   Search,
-  UserCircle, 
+  UserCircle,
   Route,
   AlertTriangle, // For suspension
+  DollarSign, // For Shipping Rates
 } from 'lucide-react';
 import { useAuth, type UserRole } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
@@ -52,7 +53,7 @@ type NavItem = {
 
 const allNavItems: NavItem[] = [
   { href: '/dashboard', label: 'Overview', icon: LayoutDashboard, roles: ['supplier', 'transporter', 'customer', 'manager'] },
-  { href: '/dashboard/profile', label: 'My Profile', icon: UserCircle, roles: ['supplier', 'customer'] }, 
+  { href: '/dashboard/profile', label: 'My Profile', icon: UserCircle, roles: ['supplier', 'customer'] },
   // Manager specific
   { href: '/dashboard/user-approvals', label: 'User Approvals', icon: UserCheck, roles: ['manager'] },
   { href: '/dashboard/manage-users', label: 'Manage Users', icon: Users, roles: ['manager'] },
@@ -66,6 +67,7 @@ const allNavItems: NavItem[] = [
   { href: '/dashboard/shipments', label: 'Manage Shipments', icon: Truck, roles: ['transporter'] },
   { href: '/dashboard/delivery-proof', label: 'Proof of Delivery', icon: PackageSearch, roles: ['transporter'] },
   { href: '/dashboard/distance-calculator', label: 'Distance Calculator', icon: Route, roles: ['transporter'] },
+  { href: '/dashboard/shipping-rates', label: 'Shipping Rates', icon: DollarSign, roles: ['transporter'] }, // New
   // Customer specific
   { href: '/dashboard/find-products', label: 'Find Products', icon: Search, roles: ['customer'] },
   { href: '/dashboard/my-orders', label: 'My Orders', icon: ClipboardList, roles: ['customer'] },
@@ -132,11 +134,11 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
         <h1 className="text-2xl font-semibold text-destructive mb-2">Account Suspended</h1>
         <p className="text-muted-foreground mb-4">Your account has been suspended due to consistently low ratings.</p>
         <p className="text-sm text-muted-foreground">Please contact support for further assistance.</p>
-        <Button 
+        <Button
           onClick={() => {
             logout(); // Call logout from AuthContext
             router.push('/login');
-          }} 
+          }}
           className="mt-6"
           variant="destructive"
         >
@@ -154,11 +156,11 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
         <h1 className="text-2xl font-semibold text-primary mb-2">Account Pending Approval</h1>
         <p className="text-muted-foreground mb-4">Your account as a {user.role} is currently awaiting manager approval.</p>
         <p className="text-sm text-muted-foreground">Please check back later or contact support if you have questions.</p>
-        <Button 
+        <Button
          onClick={() => {
             logout(); // Call logout from AuthContext
             router.push('/login');
-          }} 
+          }}
         className="mt-6"
         >
             Logout
@@ -191,5 +193,3 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
     </SidebarProvider>
   );
 }
-
-    

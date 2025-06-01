@@ -17,7 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
-import { Trash2, Wallet, Loader2, Eye, ThumbsUp, Truck, AlertTriangle, ThumbsDown, Star, CheckCircle, Ban, Edit } from 'lucide-react'; // Added Edit
+import { Trash2, Wallet, Loader2, Eye, ThumbsUp, Truck, AlertTriangle, ThumbsDown, Star, CheckCircle, Ban, Edit } from 'lucide-react';
 import type { OrderStatus, StoredOrder, OrderShipmentStatus } from '@/types/transaction';
 import { AppleIcon, BananaIcon, OrangeIcon, GrapeIcon, MangoIcon, FruitIcon } from '@/components/icons/FruitIcons';
 import { format } from 'date-fns';
@@ -37,33 +37,60 @@ import {
   runTransaction,
   serverTimestamp
 } from 'firebase/firestore';
-import { useAuth, type User as AuthUser } from '@/contexts/AuthContext';
+import { useAuth, type User as AuthUser, type UserShippingRates } from '@/contexts/AuthContext';
 import { calculateDistance, type CalculateDistanceOutput } from '@/ai/flows/calculate-distance-flow';
 
 
 const GANACHE_RECIPIENT_ADDRESS = "0x83491285C0aC3dd64255A5D68f0C3e919A5Eacf2";
 const FALLBACK_SIMULATED_ETH_USD_PRICE = 2000;
-const BASE_FARE = 2.00; 
-const RATE_PER_KM = 0.50; 
+
+// Helper function to calculate tiered shipping price
+const calculateTieredShippingPrice = (distanceKm: number, rates?: UserShippingRates): number | null => {
+  if (!rates || rates.tier1_0_100_km_price === undefined || rates.tier2_101_500_km_price_per_km === undefined || rates.tier3_501_1000_km_price_per_km === undefined) {
+    return null; // Rates not fully set
+  }
+  const { tier1_0_100_km_price, tier2_101_500_km_price_per_km, tier3_501_1000_km_price_per_km } = rates;
+
+  if (distanceKm <= 0) return 0;
+  if (distanceKm <= 100) return tier1_0_100_km_price;
+
+  let price = tier1_0_100_km_price;
+  if (distanceKm <= 500) {
+    price += (distanceKm - 100) * tier2_101_500_km_price_per_km;
+    return price;
+  }
+
+  price += (400) * tier2_101_500_km_price_per_km; // Full price for 101-500km segment
+  if (distanceKm <= 1000) {
+    price += (distanceKm - 500) * tier3_501_1000_km_price_per_km;
+    return price;
+  }
+
+  // For distances > 1000km
+  price += (500) * tier3_501_1000_km_price_per_km; // Full price for 501-1000km segment
+  price += (distanceKm - 1000) * tier3_501_1000_km_price_per_km; // Use tier 3 rate for the remainder
+  return price;
+};
+
 
 const getStatusBadgeVariant = (status: OrderStatus | OrderShipmentStatus): "default" | "secondary" | "destructive" | "outline" => {
   switch (status) {
-    case 'Paid': return 'default'; 
-    case 'Delivered': return 'secondary'; 
+    case 'Paid': return 'default';
+    case 'Delivered': return 'secondary';
     case 'Receipt Confirmed': return 'default';
-    case 'Completed': return 'default'; 
+    case 'Completed': return 'default';
     case 'Shipped': return 'secondary';
     case 'Ready for Pickup': return 'secondary';
     case 'In Transit': return 'secondary';
     case 'Out for Delivery': return 'secondary';
     case 'Awaiting Supplier Confirmation': return 'outline';
     case 'Awaiting Transporter Assignment': return 'outline';
-    case 'Awaiting Payment': return 'outline'; 
+    case 'Awaiting Payment': return 'outline';
     case 'Pending': return 'outline';
     case 'Cancelled': return 'destructive';
     case 'Delivery Failed': return 'destructive';
     case 'Shipment Cancelled': return 'destructive';
-    case 'Disputed': return 'destructive'; 
+    case 'Disputed': return 'destructive';
     default: return 'secondary';
   }
 };
@@ -88,7 +115,6 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
   const [orders, setOrders] = useState<StoredOrder[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [payingOrderId, setPayingOrderId] = useState<string | null>(null);
-  // const [confirmingOrderId, setConfirmingOrderId] = useState<string | null>(null); // Replaced by assign transporter flow
   const [assigningTransporterOrderId, setAssigningTransporterOrderId] = useState<string | null>(null);
   const [confirmingReceiptOrderId, setConfirmingReceiptOrderId] = useState<string | null>(null);
   const [denyingReceiptOrderId, setDenyingReceiptOrderId] = useState<string | null>(null);
@@ -158,7 +184,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
           FruitIcon: getFruitIcon(data.productName || (data as any).fruitType),
         });
       });
-      
+
       if (currentRole === 'supplier') {
         fetchedOrders.sort((a, b) => {
             const dateA = (a.orderDate as Timestamp)?.toMillis() || 0;
@@ -260,10 +286,10 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
       }) as string;
       toast({ title: "Transaction Submitted", description: `Tx Hash: ${txHash.substring(0,10)}... Simulating confirmation.` });
 
-      await new Promise(resolve => setTimeout(resolve, 4000)); 
+      await new Promise(resolve => setTimeout(resolve, 4000));
       const orderRef = doc(db, "orders", orderId);
       await updateDoc(orderRef, {
-        status: 'Paid' as OrderStatus, 
+        status: 'Paid' as OrderStatus,
         paymentTransactionHash: txHash
       });
       toast({ title: "Payment Confirmed (Simulated Escrow)", description: `Order marked as Paid. Funds are now held.`, variant: "default" });
@@ -318,7 +344,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
 
     let supplierAddress = 'N/A', customerAddress = 'N/A';
     let predictedDeliveryTimestamp: Timestamp | null = null;
-    let calculatedTransporterFee: number | undefined = undefined;
+    let calculatedTransporterFee: number | null = null; // Can be null if rates not set
     let finalTotalOrderAmount: number = currentOrderToAssign.totalAmount;
 
 
@@ -328,17 +354,31 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
       const customerDetails = allUsersList.find(u => u.id === currentOrderToAssign.customerId);
       if (customerDetails?.address) customerAddress = customerDetails.address;
 
+      let distanceKm: number | undefined;
+      let distanceNote: string | undefined;
+
       if (supplierAddress !== 'N/A' && customerAddress !== 'N/A') {
         const distanceInfo = await calculateDistance({ originAddress: supplierAddress, destinationAddress: customerAddress });
+        distanceKm = distanceInfo.distanceKm;
+        distanceNote = distanceInfo.note;
         if (distanceInfo.predictedDeliveryIsoDate) {
           const parsedDate = new Date(distanceInfo.predictedDeliveryIsoDate);
           if (!isNaN(parsedDate.getTime())) predictedDeliveryTimestamp = Timestamp.fromDate(parsedDate);
         }
-        if (distanceInfo.distanceKm && typeof distanceInfo.distanceKm === 'number') {
-          calculatedTransporterFee = BASE_FARE + (distanceInfo.distanceKm * RATE_PER_KM);
-          finalTotalOrderAmount = currentOrderToAssign.totalAmount + calculatedTransporterFee;
+
+        if (distanceKm !== undefined) {
+          calculatedTransporterFee = calculateTieredShippingPrice(distanceKm, transporterUser.shippingRates);
+          if (calculatedTransporterFee !== null) {
+            finalTotalOrderAmount = currentOrderToAssign.totalAmount + calculatedTransporterFee;
+            toast({ title: "Logistics Estimated", description: `Delivery: ${predictedDeliveryTimestamp ? format(predictedDeliveryTimestamp.toDate(), "MMM d, yyyy") : 'N/A'}. Fee: $${calculatedTransporterFee.toFixed(2)}. New Total: $${finalTotalOrderAmount.toFixed(2)}. Note: ${distanceInfo.note || ''}`});
+          } else {
+             toast({title: "Transporter Rates Missing", description: `${transporterUser.name} has not set their shipping rates. Cannot calculate shipping fee. Using product total.`, variant: "destructive", duration: 8000});
+             // finalTotalOrderAmount remains currentOrderToAssign.totalAmount
+             // estimatedTransporterFee remains null or 0
+          }
+        } else {
+          toast({title: "Distance Error", description: `Could not estimate distance. ${distanceNote || ''} Using product total.`, variant: "outline"});
         }
-        toast({ title: "Logistics Estimated", description: `Delivery: ${predictedDeliveryTimestamp ? format(predictedDeliveryTimestamp.toDate(), "MMM d, yyyy") : 'N/A'}. Fee: ${calculatedTransporterFee ? '$'+calculatedTransporterFee.toFixed(2) : 'N/A'}. New Total: $${finalTotalOrderAmount.toFixed(2)}. Note: ${distanceInfo.note || ''}`});
       } else {
         toast({title: "Address Info Missing", description: "Supplier or customer address not found. Cannot accurately estimate delivery/fee. Using product total.", variant: "outline"});
       }
@@ -351,11 +391,11 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
       const updateData: Partial<StoredOrder> = {
         transporterId: selectedTransporter,
         transporterName: transporterUser.name,
-        status: 'Awaiting Payment' as OrderStatus, 
-        shipmentStatus: 'Ready for Pickup' as OrderShipmentStatus, // Transporter is assigned, ready for pickup
+        status: 'Awaiting Payment' as OrderStatus,
+        shipmentStatus: 'Ready for Pickup' as OrderShipmentStatus,
         pickupAddress: supplierAddress,
         deliveryAddress: customerAddress,
-        estimatedTransporterFee: calculatedTransporterFee,
+        estimatedTransporterFee: calculatedTransporterFee ?? undefined, // Store calculated fee or undefined
         finalTotalAmount: finalTotalOrderAmount,
       };
       if (predictedDeliveryTimestamp) updateData.predictedDeliveryDate = predictedDeliveryTimestamp;
@@ -382,13 +422,13 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
     try {
       const orderRef = doc(db, "orders", orderId);
       const basisAmount = order.finalTotalAmount ?? order.totalAmount;
-      const supplierPayout = basisAmount - (order.estimatedTransporterFee || 0);
-      const transporterPayout = order.estimatedTransporterFee || 0;
+      const transporterFee = order.estimatedTransporterFee !== undefined && order.estimatedTransporterFee !== null ? order.estimatedTransporterFee : 0;
+      const supplierPayout = basisAmount - transporterFee;
 
       await updateDoc(orderRef, {
-        status: 'Completed' as OrderStatus, 
+        status: 'Completed' as OrderStatus,
         supplierPayoutAmount: supplierPayout,
-        transporterPayoutAmount: transporterPayout,
+        transporterPayoutAmount: transporterFee,
         payoutTimestamp: serverTimestamp()
       });
       toast({ title: "Receipt Confirmed & Order Completed!", description: "Funds released to supplier and transporter (simulated)." });
@@ -405,7 +445,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
       const orderRef = doc(db, "orders", orderId);
       await updateDoc(orderRef, {
         status: 'Disputed' as OrderStatus,
-        refundTimestamp: serverTimestamp() 
+        refundTimestamp: serverTimestamp()
       });
       toast({ title: "Receipt Denied", description: "Delivery issue reported. Funds returned to customer (simulated)." });
     } catch (error) {
@@ -486,11 +526,11 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
           {orders.map((order) => {
             const displayDate = order.orderDate || (order as any).date;
             const productName = order.productName || (order as any).fruitType;
-            
+
             const canPay = isCustomerView && order.status === 'Awaiting Payment';
             const canConfirmOrDeny = isCustomerView && order.status === 'Paid' && order.shipmentStatus === 'Delivered';
             const canEvaluate = isCustomerView && (order.status === 'Completed' || order.status === 'Disputed') && !order.assessmentSubmitted;
-            
+
             const supplierForOrder = allUsersList.find(u => u.id === order.supplierId);
             const transporterForOrder = order.transporterId ? allUsersList.find(u => u.id === order.transporterId) : null;
             const isCurrentUserSupplierSuspended = user?.role === 'supplier' && user?.isSuspended;
@@ -576,7 +616,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
           <DialogHeader><DialogTitle>Assign Transporter & Set Final Price</DialogTitle><DialogDescription>Order: {currentOrderToAssign.productName} for {currentOrderToAssign.customerName}</DialogDescription></DialogHeader>
           <div className="py-4 space-y-2">
             <p className="text-sm">Product Cost: ${currentOrderToAssign.totalAmount.toFixed(2)}</p>
-            <p className="text-xs text-muted-foreground">Estimated shipping fee will be added to this to get the final price for the customer.</p>
+            <p className="text-xs text-muted-foreground">Selected transporter's shipping fee will be added to this to get the final price for the customer.</p>
             <Label htmlFor="transporter-select">Select Transporter</Label>
             <Select onValueChange={setSelectedTransporter} value={selectedTransporter || undefined}>
               <SelectTrigger id="transporter-select"><SelectValue placeholder="Choose..." /></SelectTrigger>

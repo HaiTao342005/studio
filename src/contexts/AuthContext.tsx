@@ -21,6 +21,12 @@ import type { StoredOrder } from '@/types/transaction';
 
 export type UserRole = 'supplier' | 'transporter' | 'customer' | 'manager' | null;
 
+export interface UserShippingRates {
+  tier1_0_100_km_price?: number;
+  tier2_101_500_km_price_per_km?: number;
+  tier3_501_1000_km_price_per_km?: number;
+}
+
 export interface User {
   id: string; // Firestore document ID
   name: string;
@@ -31,13 +37,15 @@ export interface User {
   supplierRatingCount?: number;
   averageTransporterRating?: number;
   transporterRatingCount?: number;
-  isSuspended?: boolean; // New field
+  isSuspended?: boolean;
+  shippingRates?: UserShippingRates; // New field for transporters
 }
 
-export interface StoredUser extends Omit<User, 'id' | 'averageSupplierRating' | 'supplierRatingCount' | 'averageTransporterRating' | 'transporterRatingCount' | 'isSuspended'> {
+export interface StoredUser extends Omit<User, 'id' | 'averageSupplierRating' | 'supplierRatingCount' | 'averageTransporterRating' | 'transporterRatingCount' | 'isSuspended' | 'shippingRates'> {
   mockPassword?: string;
   address?: string;
-  isSuspended?: boolean; // New field
+  isSuspended?: boolean;
+  shippingRates?: UserShippingRates; // New field for transporters
 }
 
 interface AuthContextType {
@@ -49,6 +57,7 @@ interface AuthContextType {
   approveUser: (userId: string) => void;
   addManager: (newManagerUsername: string, newManagerPassword: string) => Promise<boolean>;
   updateUserAddress: (userId: string, address: string) => Promise<boolean>;
+  updateTransporterShippingRates: (userId: string, rates: UserShippingRates) => Promise<boolean>; // New function
   allUsersList: User[];
   isLoadingUsers: boolean;
 }
@@ -132,13 +141,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const baseUsers: User[] = [];
       querySnapshot.forEach((doc) => {
         const data = doc.data() as StoredUser;
-        baseUsers.push({ 
-            id: doc.id, 
+        baseUsers.push({
+            id: doc.id,
             name: data.name,
             role: data.role,
             isApproved: data.isApproved,
             address: data.address,
-            isSuspended: data.isSuspended ?? false 
+            isSuspended: data.isSuspended ?? false,
+            shippingRates: data.shippingRates // Add shipping rates
         });
       });
 
@@ -172,7 +182,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         userWithRatings.supplierRatingCount = sRatingData ? sRatingData.count : 0;
         userWithRatings.averageTransporterRating = tRatingData && tRatingData.count > 0 ? tRatingData.total / tRatingData.count : undefined;
         userWithRatings.transporterRatingCount = tRatingData ? tRatingData.count : 0;
-        
+
         let shouldSuspend = false;
         if (u.role === 'supplier' && userWithRatings.supplierRatingCount >= MIN_RATINGS_FOR_SUSPENSION && userWithRatings.averageSupplierRating !== undefined && userWithRatings.averageSupplierRating < RATING_THRESHOLD_FOR_SUSPENSION) {
           shouldSuspend = true;
@@ -254,19 +264,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       role,
       mockPassword: mockPasswordNew,
       isApproved: isCustomer,
-      isSuspended: false, // New users are not suspended
+      isSuspended: false,
       address: '',
+      shippingRates: role === 'transporter' ? { tier1_0_100_km_price: 0, tier2_101_500_km_price_per_km: 0, tier3_501_1000_km_price_per_km: 0 } : undefined,
     };
 
     try {
       const docRef = await addDoc(usersRef, newUserFirestoreData);
-      const newUser: User = { 
-        id: docRef.id, 
+      const newUser: User = {
+        id: docRef.id,
         name: newUserFirestoreData.name,
         role: newUserFirestoreData.role,
         isApproved: newUserFirestoreData.isApproved,
         isSuspended: newUserFirestoreData.isSuspended,
         address: newUserFirestoreData.address,
+        shippingRates: newUserFirestoreData.shippingRates,
       };
 
       if (isCustomer) {
@@ -290,7 +302,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
     setIsLoading(true);
-    
+
     const potentialUser = allUsersList.find(u => u.name === username);
     const storedUserDocData = potentialUser ? (await getDoc(doc(db, "users", potentialUser.id))).data() as StoredUser : null;
 
@@ -304,7 +316,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setUser(null);
           localStorage.removeItem(CURRENT_USER_STORAGE_KEY);
         } else {
-          setUser(potentialUser); 
+          setUser(potentialUser);
           localStorage.setItem(CURRENT_USER_STORAGE_KEY, JSON.stringify(potentialUser));
           toast({ title: "Login Successful!", description: `Welcome back, ${username}!` });
         }
@@ -323,13 +335,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             const userDataFromDB = userDoc.data() as StoredUser;
 
             if (userDataFromDB.mockPassword === mockPasswordAttempt) {
-                const loggedInUserEnriched = allUsersList.find(u => u.id === userDoc.id) || { 
-                    id: userDoc.id, 
-                    name: userDataFromDB.name, 
-                    role: userDataFromDB.role, 
-                    isApproved: userDataFromDB.isApproved, 
+                const loggedInUserEnriched = allUsersList.find(u => u.id === userDoc.id) || {
+                    id: userDoc.id,
+                    name: userDataFromDB.name,
+                    role: userDataFromDB.role,
+                    isApproved: userDataFromDB.isApproved,
                     isSuspended: userDataFromDB.isSuspended ?? false,
-                    address: userDataFromDB.address || '' 
+                    address: userDataFromDB.address || '',
+                    shippingRates: userDataFromDB.shippingRates,
                 };
 
                 if (loggedInUserEnriched.isSuspended) {
@@ -400,7 +413,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       address: '1 Admin Way, Suite M, Management City',
     };
     try {
-      const managerDocRef = doc(db, "users", newManagerUsername.toLowerCase()); 
+      const managerDocRef = doc(db, "users", newManagerUsername.toLowerCase());
       await setDoc(managerDocRef, newManagerData);
       toast({ title: "Manager Created", description: `Manager account for ${newManagerUsername} created successfully.` });
       return true;
@@ -422,7 +435,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const updatedUser = { ...user, address: address };
         setUser(updatedUser);
         localStorage.setItem(CURRENT_USER_STORAGE_KEY, JSON.stringify(updatedUser));
-        
+
         setAllUsersList(prevList => prevList.map(u => u.id === userId ? updatedUser : u));
 
         toast({ title: "Address Updated", description: "Your address has been successfully updated." });
@@ -431,6 +444,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         console.error("Error updating user address:", error);
         toast({ title: "Update Error", description: "Could not update your address.", variant: "destructive"});
         return false;
+    }
+  }, [user, toast]);
+
+  const updateTransporterShippingRates = useCallback(async (userId: string, rates: UserShippingRates): Promise<boolean> => {
+    if (!user || user.id !== userId || user.role !== 'transporter') {
+      toast({ title: "Permission Denied", description: "You can only update your own shipping rates.", variant: "destructive"});
+      return false;
+    }
+    const userDocRef = doc(db, "users", userId);
+    try {
+      await updateDoc(userDocRef, { shippingRates: rates });
+      const updatedUser = { ...user, shippingRates: rates };
+      setUser(updatedUser);
+      localStorage.setItem(CURRENT_USER_STORAGE_KEY, JSON.stringify(updatedUser));
+      
+      setAllUsersList(prevList => prevList.map(u => u.id === userId ? { ...u, shippingRates: rates } : u));
+
+      toast({ title: "Shipping Rates Updated", description: "Your shipping rates have been successfully updated."});
+      return true;
+    } catch (error) {
+      console.error("Error updating shipping rates: ", error);
+      toast({ title: "Update Error", description: "Could not update shipping rates.", variant: "destructive"});
+      return false;
     }
   }, [user, toast]);
 
@@ -445,6 +481,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       approveUser,
       addManager,
       updateUserAddress,
+      updateTransporterShippingRates,
       allUsersList,
       isLoadingUsers
     }}>
@@ -460,5 +497,3 @@ export function useAuth() {
   }
   return context;
 }
-
-    
