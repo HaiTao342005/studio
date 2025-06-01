@@ -14,6 +14,7 @@ import {z} from 'genkit';
 const CalculateDistanceInputSchema = z.object({
   originAddress: z.string().describe('The starting address or place name.'),
   destinationAddress: z.string().describe('The destination address or place name.'),
+  orderCreationDate: z.string().optional().describe('The ISO 8601 date when the order was created. If provided, delivery prediction starts from this date. Otherwise, assumes travel starts now.'),
 });
 export type CalculateDistanceInput = z.infer<typeof CalculateDistanceInputSchema>;
 
@@ -21,7 +22,7 @@ const CalculateDistanceOutputSchema = z.object({
   distanceText: z.string().describe("The estimated distance as a string (e.g., 'Approx. 500 km')."),
   distanceKm: z.number().optional().describe("The estimated distance in kilometers as a number (e.g., 500)."),
   durationText: z.string().describe("The estimated travel duration as a string (e.g., 'Approx. 5 hours')."),
-  predictedDeliveryIsoDate: z.string().optional().describe("The predicted delivery date and time in ISO 8601 format (e.g., 'YYYY-MM-DDTHH:mm:ss.sssZ'), assuming travel starts immediately after calculation based on estimated duration."),
+  predictedDeliveryIsoDate: z.string().optional().describe("The predicted delivery date and time in ISO 8601 format (e.g., 'YYYY-MM-DDTHH:mm:ss.sssZ'), assuming travel starts immediately after calculation (or from orderCreationDate if provided) based on estimated duration."),
   note: z.string().optional().describe('A note indicating the source of the data (AI Estimation) or if there was an issue.'),
 });
 export type CalculateDistanceOutput = z.infer<typeof CalculateDistanceOutputSchema>;
@@ -36,7 +37,11 @@ const distanceEstimationPrompt = ai.definePrompt({
   output: {schema: CalculateDistanceOutputSchema.pick({distanceText: true, distanceKm: true, durationText: true, predictedDeliveryIsoDate: true })},
   prompt: `Based on general knowledge, provide an estimated driving distance and travel time between the following origin and destination.
 Present the distance in kilometers (km) and the duration in hours and minutes.
-Also, provide a predicted delivery date and time in ISO 8601 format (e.g., 'YYYY-MM-DDTHH:mm:ss.sssZ'), assuming travel starts now.
+{{#if orderCreationDate}}
+Also, provide a predicted delivery date and time in ISO 8601 format (e.g., 'YYYY-MM-DDTHH:mm:ss.sssZ'), assuming travel starts from the orderCreationDate ({{{orderCreationDate}}}) plus the estimated travel duration.
+{{else}}
+Also, provide a predicted delivery date and time in ISO 8601 format (e.g., 'YYYY-MM-DDTHH:mm:ss.sssZ'), assuming travel starts now plus the estimated travel duration.
+{{/if}}
 Be concise.
 
 Origin: {{{originAddress}}}
@@ -56,10 +61,10 @@ const calculateDistanceFlow = ai.defineFlow(
     inputSchema: CalculateDistanceInputSchema,
     outputSchema: CalculateDistanceOutputSchema,
   },
-  async ({ originAddress, destinationAddress }) => {
+  async ({ originAddress, destinationAddress, orderCreationDate }) => {
     console.log('[calculateDistanceFlow] Using AI for distance estimation.');
     try {
-      const {output} = await distanceEstimationPrompt({ originAddress, destinationAddress });
+      const {output} = await distanceEstimationPrompt({ originAddress, destinationAddress, orderCreationDate });
       if (output && output.distanceText && output.durationText) { // Check if core fields are present
         return {
           distanceText: output.distanceText,
@@ -76,7 +81,8 @@ const calculateDistanceFlow = ai.defineFlow(
       console.error('[calculateDistanceFlow] AI distance estimation failed:', aiError);
       // Fallback simulation if AI fails or returns incomplete data
       const randomHours = Math.floor(Math.random() * 72) + 8; // 8 to 80 hours
-      const deliveryDate = new Date();
+      const baseDate = orderCreationDate ? new Date(orderCreationDate) : new Date();
+      const deliveryDate = new Date(baseDate.getTime());
       deliveryDate.setHours(deliveryDate.getHours() + randomHours);
       const randomKm = Math.floor(Math.random() * 500) + 100;
 

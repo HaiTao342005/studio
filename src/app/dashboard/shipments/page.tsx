@@ -82,10 +82,12 @@ export default function ManageShipmentsPage({ params, searchParams }: ManageShip
 
     if (shipment.pickupAddress && shipment.deliveryAddress && shipment.pickupAddress !== 'N/A' && shipment.deliveryAddress !== 'N/A') {
       try {
-        const distanceResult = await calculateDistance({
+        const distanceInput = {
           originAddress: shipment.pickupAddress,
           destinationAddress: shipment.deliveryAddress,
-        });
+          orderCreationDate: (shipment.orderDate as Timestamp).toDate().toISOString()
+        };
+        const distanceResult = await calculateDistance(distanceInput);
         updatedShipment.distanceInfo = distanceResult;
         if (distanceResult.distanceKm && typeof distanceResult.distanceKm === 'number' && user?.shippingRates) {
           updatedShipment.shippingPrice = calculateTieredShippingPrice(distanceResult.distanceKm, user.shippingRates);
@@ -296,7 +298,8 @@ export default function ManageShipmentsPage({ params, searchParams }: ManageShip
                             }
                           </TableCell>
                           <TableCell>
-                            {shipment.predictedDeliveryDate ? format((shipment.predictedDeliveryDate as Timestamp).toDate(), "MMM d, yyyy") : <span className="text-xs text-muted-foreground">N/A</span>}
+                            {shipment.distanceInfo?.predictedDeliveryIsoDate ? format(new Date(shipment.distanceInfo.predictedDeliveryIsoDate), "MMM d, yyyy") : 
+                            (shipment.predictedDeliveryDate ? format((shipment.predictedDeliveryDate as Timestamp).toDate(), "MMM d, yyyy") : <span className="text-xs text-muted-foreground">N/A</span>)}
                           </TableCell>
                           <TableCell className="text-right font-medium">
                             {shipment.isLoadingDistance ? <Loader2 className="h-4 w-4 animate-spin mx-auto" /> :
@@ -348,5 +351,3 @@ export default function ManageShipmentsPage({ params, searchParams }: ManageShip
     </>
   );
 }
-
-    

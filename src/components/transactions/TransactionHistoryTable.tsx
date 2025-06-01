@@ -385,7 +385,12 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
       let distanceNote: string | undefined;
 
       if (supplierAddress !== 'N/A' && customerAddress !== 'N/A') {
-        const distanceInfo = await calculateDistance({ originAddress: supplierAddress, destinationAddress: customerAddress });
+        const distanceInput = { 
+            originAddress: supplierAddress, 
+            destinationAddress: customerAddress,
+            orderCreationDate: (currentOrderToAssign.orderDate as Timestamp).toDate().toISOString() 
+        };
+        const distanceInfo = await calculateDistance(distanceInput);
         distanceKm = distanceInfo.distanceKm;
         distanceNote = distanceInfo.note;
         if (distanceInfo.predictedDeliveryIsoDate) {
@@ -763,5 +768,3 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
     </>
   );
 }
-
-    
