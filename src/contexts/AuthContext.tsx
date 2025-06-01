@@ -33,6 +33,7 @@ export interface User {
   role: UserRole;
   isApproved: boolean;
   address?: string;
+  ethereumAddress?: string; // New field for Ethereum wallet address
   averageSupplierRating?: number;
   supplierRatingCount?: number;
   averageTransporterRating?: number;
@@ -41,9 +42,10 @@ export interface User {
   shippingRates?: UserShippingRates;
 }
 
-export interface StoredUser extends Omit<User, 'id' | 'averageSupplierRating' | 'supplierRatingCount' | 'averageTransporterRating' | 'transporterRatingCount' | 'isSuspended' | 'shippingRates'> {
+export interface StoredUser extends Omit<User, 'id' | 'averageSupplierRating' | 'supplierRatingCount' | 'averageTransporterRating' | 'transporterRatingCount' | 'isSuspended' | 'shippingRates' | 'ethereumAddress'> {
   mockPassword?: string;
   address?: string;
+  ethereumAddress?: string; // New field
   isSuspended?: boolean;
   shippingRates?: UserShippingRates;
 }
@@ -56,7 +58,7 @@ interface AuthContextType {
   isLoading: boolean;
   approveUser: (userId: string) => void;
   addManager: (newManagerUsername: string, newManagerPassword: string) => Promise<boolean>;
-  updateUserAddress: (userId: string, address: string) => Promise<boolean>;
+  updateUserProfile: (userId: string, data: { address?: string; ethereumAddress?: string }) => Promise<boolean>; // Modified
   updateTransporterShippingRates: (userId: string, rates: UserShippingRates) => Promise<boolean>;
   allUsersList: User[];
   isLoadingUsers: boolean;
@@ -89,7 +91,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         role: 'manager',
         isApproved: true,
         isSuspended: false,
-        address: '1 Management Plaza, Admin City, AC 10001'
+        address: '1 Management Plaza, Admin City, AC 10001',
+        ethereumAddress: '',
       };
       const managerDocRef = doc(db, "users", DEFAULT_MANAGER_USERNAME.toLowerCase());
       await setDoc(managerDocRef, defaultManagerData);
@@ -103,6 +106,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       if (!managerData.address) {
         updates.address = '1 Management Plaza, Admin City, AC 10001';
+      }
+       if (managerData.ethereumAddress === undefined) {
+        updates.ethereumAddress = '';
       }
       if (managerData.isSuspended === undefined) {
         updates.isSuspended = false;
@@ -147,6 +153,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             role: data.role,
             isApproved: data.isApproved,
             address: data.address,
+            ethereumAddress: data.ethereumAddress,
             isSuspended: data.isSuspended ?? false,
             shippingRates: data.shippingRates
         });
@@ -266,7 +273,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isApproved: isCustomer,
       isSuspended: false,
       address: '',
-      shippingRates: role === 'transporter' ? undefined : undefined, // Initialize to undefined
+      ethereumAddress: '', // Initialize ethereumAddress
+      shippingRates: role === 'transporter' ? undefined : undefined,
     };
 
     try {
@@ -278,6 +286,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isApproved: newUserFirestoreData.isApproved,
         isSuspended: newUserFirestoreData.isSuspended,
         address: newUserFirestoreData.address,
+        ethereumAddress: newUserFirestoreData.ethereumAddress,
         shippingRates: newUserFirestoreData.shippingRates,
       };
 
@@ -342,6 +351,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                     isApproved: userDataFromDB.isApproved,
                     isSuspended: userDataFromDB.isSuspended ?? false,
                     address: userDataFromDB.address || '',
+                    ethereumAddress: userDataFromDB.ethereumAddress || '',
                     shippingRates: userDataFromDB.shippingRates,
                 };
 
@@ -411,6 +421,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isApproved: true,
       isSuspended: false,
       address: '1 Admin Way, Suite M, Management City',
+      ethereumAddress: '',
     };
     try {
       const managerDocRef = doc(db, "users", newManagerUsername.toLowerCase());
@@ -424,25 +435,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [user, toast]);
 
-  const updateUserAddress = useCallback(async (userId: string, address: string): Promise<boolean> => {
+  const updateUserProfile = useCallback(async (userId: string, data: { address?: string; ethereumAddress?: string }): Promise<boolean> => {
     if (!user || user.id !== userId) {
-        toast({ title: "Permission Denied", description: "You can only update your own address.", variant: "destructive" });
+        toast({ title: "Permission Denied", description: "You can only update your own profile.", variant: "destructive" });
         return false;
     }
     const userDocRef = doc(db, "users", userId);
     try {
-        await updateDoc(userDocRef, { address: address });
-        const updatedUser = { ...user, address: address };
+        const updatePayload: Partial<StoredUser> = {};
+        if (data.address !== undefined) {
+            updatePayload.address = data.address;
+        }
+        if (data.ethereumAddress !== undefined) {
+            updatePayload.ethereumAddress = data.ethereumAddress;
+        }
+
+        if (Object.keys(updatePayload).length === 0) {
+            toast({ title: "No Changes", description: "No new information to save."});
+            return true; // No changes, but not an error
+        }
+        
+        await updateDoc(userDocRef, updatePayload);
+        
+        const updatedUser = { 
+            ...user, 
+            ...(data.address !== undefined && { address: data.address }),
+            ...(data.ethereumAddress !== undefined && { ethereumAddress: data.ethereumAddress })
+        };
         setUser(updatedUser);
         localStorage.setItem(CURRENT_USER_STORAGE_KEY, JSON.stringify(updatedUser));
 
         setAllUsersList(prevList => prevList.map(u => u.id === userId ? updatedUser : u));
 
-        toast({ title: "Address Updated", description: "Your address has been successfully updated." });
+        toast({ title: "Profile Updated", description: "Your profile information has been successfully updated." });
         return true;
     } catch (error) {
-        console.error("Error updating user address:", error);
-        toast({ title: "Update Error", description: "Could not update your address.", variant: "destructive"});
+        console.error("Error updating user profile:", error);
+        toast({ title: "Update Error", description: "Could not update your profile.", variant: "destructive"});
         return false;
     }
   }, [user, toast]);
@@ -480,7 +509,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isLoading,
       approveUser,
       addManager,
-      updateUserAddress,
+      updateUserProfile, // Use new function
       updateTransporterShippingRates,
       allUsersList,
       isLoadingUsers
@@ -497,3 +526,5 @@ export function useAuth() {
   }
   return context;
 }
+
+    

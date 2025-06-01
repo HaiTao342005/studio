@@ -17,7 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
-import { Trash2, Wallet, Loader2, Eye, ThumbsUp, Truck, AlertTriangle, ThumbsDown, Star, CheckCircle, Ban, Edit, Info, Hash, KeyRound, CircleDollarSign } from 'lucide-react'; // Added CircleDollarSign
+import { Trash2, Wallet, Loader2, Eye, ThumbsUp, Truck, AlertTriangle, ThumbsDown, Star, CheckCircle, Ban, Edit, Info, Hash, KeyRound, CircleDollarSign } from 'lucide-react';
 import type { OrderStatus, StoredOrder, OrderShipmentStatus } from '@/types/transaction';
 import { AppleIcon, BananaIcon, OrangeIcon, GrapeIcon, MangoIcon, FruitIcon } from '@/components/icons/FruitIcons';
 import { format } from 'date-fns';
@@ -182,7 +182,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
          ordersQuery = query(
           collection(db, "orders"),
           where("customerId", "==", user.id),
-          // For "My Escrow" this will be further filtered, but for "My Orders" this is fine
+          orderBy("orderDate", "desc") 
         );
       } else {
         setOrders([]);
@@ -203,7 +203,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
       });
 
       
-      if (currentRole === 'supplier' || (isCustomerView && !initialOrders)) { // Added !initialOrders for general customer view sorting
+      if (currentRole === 'supplier' || (isCustomerView && !initialOrders)) { 
         fetchedOrders.sort((a, b) => {
             const dateA = (a.orderDate as Timestamp)?.toMillis() || 0;
             const dateB = (b.orderDate as Timestamp)?.toMillis() || 0;
@@ -450,13 +450,29 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
       const transporterFee = order.estimatedTransporterFee !== undefined && order.estimatedTransporterFee !== null ? order.estimatedTransporterFee : 0;
       const supplierPayout = basisAmount - transporterFee;
 
-      await updateDoc(orderRef, {
+      const supplierUser = allUsersList.find(u => u.id === order.supplierId);
+      const transporterUser = order.transporterId ? allUsersList.find(u => u.id === order.transporterId) : null;
+
+      const updatePayload: Partial<StoredOrder> = {
         status: 'Completed' as OrderStatus,
         supplierPayoutAmount: supplierPayout,
         transporterPayoutAmount: transporterFee,
-        payoutTimestamp: serverTimestamp()
-      });
-      toast({ title: "Receipt Confirmed & Order Completed!", description: "Funds released to supplier and transporter (simulated)." });
+        payoutTimestamp: serverTimestamp(),
+        supplierPayoutAddress: supplierUser?.ethereumAddress || undefined,
+        transporterPayoutAddress: transporterUser?.ethereumAddress || undefined,
+      };
+
+      await updateDoc(orderRef, updatePayload);
+
+      let toastDescription = `Simulated Payouts: Supplier ($${supplierPayout.toFixed(2)} to ${updatePayload.supplierPayoutAddress || 'address not set'})`;
+      if (transporterFee > 0) {
+        toastDescription += ` and Transporter ($${transporterFee.toFixed(2)} to ${updatePayload.transporterPayoutAddress || 'address not set'}).`;
+      } else {
+        toastDescription += ".";
+      }
+      
+      toast({ title: "Receipt Confirmed & Order Completed!", description: toastDescription });
+
     } catch (error) {
       toast({ title: "Error", description: "Could not confirm receipt and process payout.", variant: "destructive" });
     } finally {
@@ -608,15 +624,15 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
                   {order.status === 'Completed' && (
                     <div className="space-y-0.5">
                       {order.supplierPayoutAmount !== undefined && (
-                        <p className="flex items-center">
+                        <p className="flex items-center" title={order.supplierPayoutAddress || 'Supplier address not set'}>
                           <CircleDollarSign className="h-3 w-3 mr-1 text-green-600" />
-                          Supplier: ${order.supplierPayoutAmount.toFixed(2)}
+                          Supplier: ${order.supplierPayoutAmount.toFixed(2)} (to: {truncateText(order.supplierPayoutAddress, 6) || 'N/A'})
                         </p>
                       )}
                       {order.transporterPayoutAmount !== undefined && order.transporterId && (
-                        <p className="flex items-center">
+                        <p className="flex items-center" title={order.transporterPayoutAddress || 'Transporter address not set'}>
                            <CircleDollarSign className="h-3 w-3 mr-1 text-blue-600" />
-                          Transporter: ${order.transporterPayoutAmount.toFixed(2)}
+                          Transporter: ${order.transporterPayoutAmount.toFixed(2)} (to: {truncateText(order.transporterPayoutAddress, 6) || 'N/A'})
                         </p>
                       )}
                       {order.payoutTimestamp && (
@@ -747,7 +763,5 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
     </>
   );
 }
-
-    
 
     

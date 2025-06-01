@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
-import { UserCircle, Home, Save, Loader2 } from 'lucide-react';
+import { UserCircle, Home, Save, Loader2, Wallet } from 'lucide-react'; // Added Wallet icon
 
 interface ProfilePageProps {
   params: {};
@@ -17,16 +17,16 @@ interface ProfilePageProps {
 }
 
 export default function ProfilePage({ params, searchParams }: ProfilePageProps) {
-  const { user, updateUserAddress, isLoading: authLoading } = useAuth();
+  const { user, updateUserProfile, isLoading: authLoading } = useAuth(); // Using updateUserProfile
   const [address, setAddress] = useState('');
+  const [ethereumAddress, setEthereumAddress] = useState(''); // New state for Ethereum address
   const [isSaving, setIsSaving] = useState(false);
   const { toast } = useToast();
 
   useEffect(() => {
-    if (user && user.address) {
-      setAddress(user.address);
-    } else if (user && !user.address) {
-      setAddress('');
+    if (user) {
+      setAddress(user.address || '');
+      setEthereumAddress(user.ethereumAddress || ''); // Set Ethereum address from user context
     }
   }, [user]);
 
@@ -37,9 +37,13 @@ export default function ProfilePage({ params, searchParams }: ProfilePageProps) 
       return;
     }
     setIsSaving(true);
-    const success = await updateUserAddress(user.id, address);
+    // Call updateUserProfile with both addresses
+    const success = await updateUserProfile(user.id, { 
+      address: address.trim(), 
+      ethereumAddress: ethereumAddress.trim() 
+    });
     if (success) {
-      // Toast is handled within updateUserAddress
+      // Toast is handled within updateUserProfile
     }
     setIsSaving(false);
   };
@@ -67,44 +71,64 @@ export default function ProfilePage({ params, searchParams }: ProfilePageProps) 
               Your Profile Information
             </CardTitle>
             <CardDescription>
-              View and update your contact address.
+              View and update your contact and Ethereum wallet addresses.
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div>
-              <Label className="text-sm font-medium text-muted-foreground">Username</Label>
-              <p className="text-lg font-semibold">{user.name}</p>
-            </div>
-            <div>
-              <Label className="text-sm font-medium text-muted-foreground">Role</Label>
-              <p className="text-lg">{user.role?.charAt(0).toUpperCase() + (user.role?.slice(1) || '')}</p>
-            </div>
-            <form onSubmit={handleSubmit} className="space-y-4 pt-4 border-t">
+          <form onSubmit={handleSubmit}>
+            <CardContent className="space-y-6">
               <div>
+                <Label className="text-sm font-medium text-muted-foreground">Username</Label>
+                <p className="text-lg font-semibold">{user.name}</p>
+              </div>
+              <div>
+                <Label className="text-sm font-medium text-muted-foreground">Role</Label>
+                <p className="text-lg">{user.role?.charAt(0).toUpperCase() + (user.role?.slice(1) || '')}</p>
+              </div>
+              
+              <div className="space-y-1 pt-4 border-t">
                 <Label htmlFor="address" className="flex items-center gap-1.5">
                   <Home className="h-4 w-4 text-muted-foreground" />
-                  Your Address
+                  Your Physical Address
                 </Label>
                 <Input
                   id="address"
                   type="text"
                   value={address}
                   onChange={(e) => setAddress(e.target.value)}
-                  placeholder="Enter your full address"
+                  placeholder="Enter your full physical address"
                   className="mt-1"
-                  required
                 />
                 <p className="text-xs text-muted-foreground mt-1">
-                  This address will be used as the pickup location if you are a supplier, or the delivery location if you are a customer.
+                  Used as pickup (supplier) or delivery (customer) location.
                 </p>
               </div>
+
+              <div className="space-y-1">
+                <Label htmlFor="ethereumAddress" className="flex items-center gap-1.5">
+                  <Wallet className="h-4 w-4 text-muted-foreground" />
+                  Ethereum Wallet Address (Optional)
+                </Label>
+                <Input
+                  id="ethereumAddress"
+                  type="text"
+                  value={ethereumAddress}
+                  onChange={(e) => setEthereumAddress(e.target.value)}
+                  placeholder="0x..."
+                  className="mt-1"
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Used for simulated payouts if you are a supplier or transporter.
+                </p>
+              </div>
+            </CardContent>
+            <CardFooter>
               <Button type="submit" disabled={isSaving || authLoading} className="w-full">
                 {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 <Save className="mr-2 h-4 w-4" />
-                Save Address
+                Save Profile
               </Button>
-            </form>
-          </CardContent>
+            </CardFooter>
+          </form>
         </Card>
       </main>
     </>
