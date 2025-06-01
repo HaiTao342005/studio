@@ -314,7 +314,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
         setActionOrderId(null);
         return false;
     }
-    if (orderToAssign.totalAmount <= 0) {
+    if (orderToAssign.totalAmount <= 0) { 
         toast({ title: "Product Amount Error", description: "Product amount must be greater than zero to create an order on-chain.", variant: "destructive", duration: 8000 });
         setActionOrderId(null);
         return false;
@@ -474,7 +474,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
     }
     if (!user?.ethereumAddress) {
       toast({
-        title: "ETH Address Required",
+        title: "Your ETH Address Required",
         description: "Please set your (Supplier) Ethereum address in 'My Profile' before creating an on-chain order.",
         variant: "destructive",
         duration: 8000,
@@ -789,8 +789,8 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
               {isManagerView && <TableCell className="text-xs" title={order.contractConfirmationTxHash || undefined}>{truncateText(order.contractConfirmationTxHash, 12)}</TableCell>}
               <TableCell className="space-x-1 text-center">
                 {canCreateOnChain && (
-                  <Button variant="outline" size="sm" onClick={() => handleOpenAssignTransporterDialog(order)} disabled={actionOrderId === order.id || !!actionOrderId || isCurrentUserSupplierSuspended} className="h-8 px-2 text-blue-600 border-blue-600 hover:text-blue-700 hover:bg-blue-50" title="Assign Transporter &amp; Create On-Chain">
-                     {actionOrderId === order.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSignature className="h-4 w-4" />} <span className="ml-1">Finalize &amp; Create</span>
+                  <Button variant="outline" size="sm" onClick={() => handleOpenAssignTransporterDialog(order)} disabled={actionOrderId === order.id || !!actionOrderId || isCurrentUserSupplierSuspended} className="h-8 px-2 text-blue-600 border-blue-600 hover:text-blue-700 hover:bg-blue-50" title="Confirm order, assign transporter, and create the order on the smart contract">
+                     {actionOrderId === order.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSignature className="h-4 w-4" />} <span className="ml-1">Confirm &amp; Assign for On-Chain</span>
                   </Button>
                 )}
                 {canPayOnChain && (
