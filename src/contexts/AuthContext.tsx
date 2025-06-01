@@ -89,8 +89,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const [allUsersList, setAllUsersList] = useState<User[]>([]);
   const [isLoadingUsers, setIsLoadingUsers] = useState(true);
-
-  // Moved useRef calls to be after useState declarations
   const allUsersListRef = useRef(allUsersList);
   const userRef = useRef(user);
 
@@ -385,14 +383,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         toast({ title: "Error", description: "Could not approve user. Please try again.", variant: "destructive" });
       }
     }
-  }, [toast]); // Removed user from dependency array, using userRef
+  }, [toast]); 
 
   const addManager = useCallback(async (newManagerUsername: string, newManagerPassword: string): Promise<boolean> => {
     if (!db) {
       toast({ title: "Action Error", description: "Firebase is not configured or offline. Cannot add manager.", variant: "destructive", duration: 7000 });
       return false;
     }
-    if (userRef.current?.role !== 'manager') { // Use userRef.current
+    if (userRef.current?.role !== 'manager') { 
         toast({ title: "Permission Denied", description: "Only managers can create new manager accounts.", variant: "destructive" });
         return false;
     }
@@ -427,14 +425,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       return false;
     }
-  }, [toast]); // Removed user from dependency array, using userRef
+  }, [toast]); 
 
   const updateUserProfile = useCallback(async (userId: string, data: { address?: string; ethereumAddress?: string }): Promise<boolean> => {
     if (!db) {
       toast({ title: "Update Error", description: "Firebase is not configured or offline. Cannot update profile.", variant: "destructive", duration: 7000 });
       return false;
     }
-    if (!userRef.current || userRef.current.id !== userId) { // Use userRef.current
+    if (!userRef.current || userRef.current.id !== userId) { 
         toast({ title: "Permission Denied", description: "You can only update your own profile.", variant: "destructive" });
         return false;
     }
@@ -460,14 +458,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
         return false;
     }
-  }, [toast]); // Removed user from dependency array, using userRef
+  }, [toast]); 
 
   const updateTransporterShippingRates = useCallback(async (userId: string, rates: UserShippingRates): Promise<boolean> => {
     if (!db) {
       toast({ title: "Update Error", description: "Firebase is not configured or offline. Cannot update rates.", variant: "destructive", duration: 7000});
       return false;
     }
-    if (!userRef.current || userRef.current.id !== userId || userRef.current.role !== 'transporter') { // Use userRef.current
+    if (!userRef.current || userRef.current.id !== userId || userRef.current.role !== 'transporter') { 
       toast({ title: "Permission Denied", description: "You can only update your own shipping rates.", variant: "destructive"});
       return false;
     }
@@ -477,7 +475,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       toast({ title: "Shipping Rates Updated", description: "Your shipping rates have been successfully updated."});
       return true;
     } catch (error: any) {
-      if (error instanceof FirestoreError && (error.code === 'unavailable' || (error.message && error.message.includes('client is offline'))) ) {
+      if (error instanceof FirestoreError && (error.code === 'unavailable' || (error.message && error.message.includes('client is offline')))) {
           console.info("AuthContext: Updating shipping rates failed as Firestore client is offline.", error.message);
           toast({ title: "Network Issue", description: "Could not update shipping rates. Firebase is offline.", variant: "destructive", duration: 7000});
       } else {
@@ -486,7 +484,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       return false;
     }
-  }, [toast]); // Removed user from dependency array, using userRef
+  }, [toast]);
 
 
   useEffect(() => {
@@ -505,7 +503,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           title: "Firebase Unavailable",
           description: "The application cannot connect to Firebase. Core features are disabled. Please check console for Firebase config errors or network issues.",
           variant: "destructive",
-          duration: 0, // Persist this toast
+          duration: 0, 
         });
         if (isMounted) {
           setUser(null);
@@ -641,7 +639,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                   else if (isMounted) toast({ title: "User Suspended", description: `User ${u.name} has been automatically suspended.`, variant: "destructive", duration: 10000});
 
                 } catch (suspendError: any) {
-                  if (isMounted && db) { // Check db again inside catch as it's async
+                  if (isMounted && db) { 
                      if (suspendError instanceof FirestoreError && (suspendError.code === 'unavailable' || (suspendError.message && suspendError.message.includes('client is offline')))) {
                        console.info(`AuthContext: Suspending user ${u.id} failed as Firestore client is offline.`, suspendError.message);
                        toast({ title: "Network Issue", description: `Could not update suspension for ${u.name}. Firebase is offline.`, variant: "destructive", duration: 7000});
@@ -687,8 +685,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               if (!storedUserFromLocalStorage && isMounted) setUser(null);
           } finally {
             if (isMounted) {
-              setIsLoadingUsers(false);
-              setIsLoading(false);
+              // setIsLoadingUsers(false); // This one is tricky, as this is inside a listener.
+              // Let the outer finally handle setIsLoading, and setIsLoadingUsers will be set here.
+              // If this is the *first* snapshot, it's appropriate to set isLoadingUsers to false.
+              // However, subsequent snapshots shouldn't toggle the main app loading.
+              // This is already handled by the main setIsLoading(false) in the outer finally.
             }
           }
         }, (error) => {
@@ -701,15 +702,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             if(isMounted) toast({ title: "Error Loading Users", description: error.message, variant: "destructive"});
           }
           if (isMounted) {
-            setIsLoadingUsers(false);
-            setIsLoading(false);
+            setIsLoadingUsers(false); // Definitely set to false on error
+            // setIsLoading(false); // Outer finally will handle this
           }
         });
         unsubscribers.push(unsubscribeUsersSnapshot);
 
         const assessedOrdersListenerQuery = query(collection(db, "orders"), where("assessmentSubmitted", "==", true));
         const unsubscribeAssessedOrdersSnapshot = onSnapshot(assessedOrdersListenerQuery, async (snapshot) => {
-          if (!isMounted || !db) return; // also check db here
+          if (!isMounted || !db) return; 
           try {
             const currentAllUsersList = allUsersListRef.current;
             if (currentAllUsersList.length > 0) {
@@ -825,10 +826,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (isMounted) {
           setUser(null);
           setAllUsersList([]);
-          setIsLoading(false);
-          setIsLoadingUsers(false);
+          setIsLoading(false); 
+          setIsLoadingUsers(false); 
         }
         localStorage.removeItem(CURRENT_USER_STORAGE_KEY);
+      } finally {
+        if (isMounted) {
+          setIsLoading(false); 
+          setIsLoadingUsers(false); 
+        }
       }
     }
 
@@ -875,5 +881,3 @@ export function useAuth() {
   }
   return context;
 }
-
-    
