@@ -327,6 +327,11 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
 
     try {
         const contract = await getEscrowContract();
+        if (!contract) {
+            // Toast message is handled by getEscrowContract if address/ABI is missing
+            setActionOrderId(null);
+            return false;
+        }
         toast({ title: "Creating Order On-Chain...", description: "Please confirm in Metamask. This involves a gas fee.", duration: 10000});
         
         const { signer } = await getSignerAndProvider();
@@ -426,6 +431,11 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
 
     try {
       const contract = await getEscrowContract(); 
+      if (!contract) {
+          // Toast message is handled by getEscrowContract
+          setActionOrderId(null);
+          return false;
+      }
       const tx = await contract.fundOrder(orderToPay.contractOrderId, { value: amountInWei });
       toast({ title: "Transaction Submitted", description: `Tx Hash: ${tx.hash.substring(0,10)}... Waiting for confirmation.` });
       await tx.wait();
@@ -534,6 +544,10 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
     toast({ title: "Confirming Delivery On-Chain...", description: "Please confirm in Metamask. This will trigger payouts by the contract.", duration: 10000 });
     try {
       const contract = await getEscrowContract();
+      if (!contract) {
+          setActionOrderId(null);
+          return;
+      }
       const tx = await contract.confirmDelivery(order.contractOrderId);
       toast({ title: "Confirmation Submitted", description: `Tx Hash: ${tx.hash.substring(0,10)}... Waiting for on-chain processing.` });
       await tx.wait();
@@ -602,6 +616,10 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
     toast({ title: "Submitting Dispute On-Chain...", description: "Please confirm in Metamask.", duration: 10000 });
     try {
       const contract = await getEscrowContract();
+      if (!contract) {
+          setActionOrderId(null);
+          return;
+      }
       const tx = await contract.disputeOrder(order.contractOrderId);
       toast({ title: "Dispute Submitted", description: `Tx Hash: ${tx.hash.substring(0,10)}... Waiting for confirmation.` });
       await tx.wait();
@@ -729,7 +747,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
             const canConfirmAndAssign =
               user?.role === 'supplier' &&
               order.supplierId === user.id &&
-              order.status === 'Awaiting Supplier Confirmation' && // Corrected string
+              order.status === 'Awaiting Supplier Confirmation' && 
               !user.isSuspended;
 
             const canPayOnChain = isCustomerView && order.status === 'AwaitingOnChainFunding' && !user?.isSuspended;
@@ -739,7 +757,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
             const displayAmount = order.finalTotalAmount ?? order.totalAmount;
 
             const showDeleteButton = user?.role !== 'customer' &&
-              order.status !== 'Awaiting Supplier Confirmation' && // Corrected string
+              order.status !== 'Awaiting Supplier Confirmation' && 
               order.status !== 'AwaitingOnChainFunding' &&
               order.status !== 'FundedOnChain' &&
               order.status !== 'CompletedOnChain' &&
@@ -932,4 +950,3 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
     </>
   );
 }
-

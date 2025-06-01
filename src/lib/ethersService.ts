@@ -29,20 +29,26 @@ export async function getSignerAndProvider() {
   return { signer, provider };
 }
 
-export async function getEscrowContract(signer?: ethers.Signer | null) {
+export async function getEscrowContract(signer?: ethers.Signer | null): Promise<ethers.Contract | null> {
   let currentSigner = signer;
   if (!currentSigner) {
-    const { signer: newSigner } = await getSignerAndProvider();
-    currentSigner = newSigner;
+    try {
+      const { signer: newSigner } = await getSignerAndProvider();
+      currentSigner = newSigner;
+    } catch (error) {
+      // If getSignerAndProvider throws (e.g., Metamask not installed/connected),
+      // we can't proceed to create a contract instance.
+      return null;
+    }
   }
 
   if (!contractAddress) {
     toast({ title: "Contract Error", description: "Escrow contract address is not configured. Please set NEXT_PUBLIC_ESCROW_CONTRACT_ADDRESS in your .env.local file.", variant: "destructive", duration: 7000 });
-    throw new Error('Escrow contract address not configured.');
+    return null;
   }
   if (!FruitFlowEscrowABI || FruitFlowEscrowABI.length === 0) {
     toast({ title: "Contract Error", description: "Escrow contract ABI is not loaded. Ensure src/contracts/FruitFlowEscrow.json exists and is correctly populated.", variant: "destructive", duration: 7000 });
-    throw new Error('Escrow contract ABI not loaded or is empty.');
+    return null;
   }
 
   return new ethers.Contract(contractAddress, FruitFlowEscrowABI, currentSigner);
@@ -82,4 +88,3 @@ export async function getCurrentWalletAddress(): Promise<string | null> {
         return null;
     }
 }
-
