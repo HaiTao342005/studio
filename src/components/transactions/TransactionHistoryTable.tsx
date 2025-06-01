@@ -472,26 +472,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
       toast({ title: "Action Denied", description: "Your account is suspended.", variant: "destructive" });
       return;
     }
-    if (!user?.ethereumAddress) {
-      toast({
-        title: "Your ETH Address Required",
-        description: "Please set your (Supplier) Ethereum address in 'My Profile' before creating an on-chain order.",
-        variant: "destructive",
-        duration: 8000,
-      });
-      return;
-    }
-    const customerForThisOrder = allUsersList.find(u => u.id === order.customerId);
-    if (!customerForThisOrder?.ethereumAddress) {
-        toast({
-            title: "Customer ETH Address Missing",
-            description: `Customer ${order.customerName} needs to set their Ethereum address in their profile. You cannot create an on-chain order until they do.`,
-            variant: "destructive",
-            duration: 10000,
-        });
-        return;
-    }
-
+    // Removed pre-checks for supplier/customer ETH here, they will be checked inside the dialog or when enabling the final button.
     setCurrentOrderToAssign(order);
     setSelectedTransporter(null);
     setIsAssignTransporterDialogOpen(true);
@@ -789,8 +770,9 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
               {isManagerView && <TableCell className="text-xs" title={order.contractConfirmationTxHash || undefined}>{truncateText(order.contractConfirmationTxHash, 12)}</TableCell>}
               <TableCell className="space-x-1 text-center">
                 {canCreateOnChain && (
-                  <Button variant="outline" size="sm" onClick={() => handleOpenAssignTransporterDialog(order)} disabled={actionOrderId === order.id || !!actionOrderId || isCurrentUserSupplierSuspended} className="h-8 px-2 text-blue-600 border-blue-600 hover:text-blue-700 hover:bg-blue-50" title="Confirm order, assign transporter, and create the order on the smart contract">
-                     {actionOrderId === order.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSignature className="h-4 w-4" />} <span className="ml-1">Confirm &amp; Assign for On-Chain</span>
+                  <Button variant="outline" size="sm" onClick={() => handleOpenAssignTransporterDialog(order)} disabled={actionOrderId === order.id || !!actionOrderId || isCurrentUserSupplierSuspended} className="h-8 px-2 text-blue-600 border-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                    title="Finalize order, assign transporter, and create the order on the smart contract">
+                     {actionOrderId === order.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSignature className="h-4 w-4" />} <span className="ml-1">Finalize & Create</span>
                   </Button>
                 )}
                 {canPayOnChain && (
