@@ -17,7 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
-import { Trash2, Wallet, Loader2, Eye, ThumbsUp, Truck, AlertTriangle, ThumbsDown, Star, CheckCircle, Ban, Edit, Info, Hash, KeyRound, CircleDollarSign, Send, FileSignature } from 'lucide-react';
+import { Trash2, Wallet, Loader2, Eye, ThumbsUp, Truck, AlertTriangle, ThumbsDown, Star, CheckCircle, Ban, Edit, Info, Hash, KeyRound, CircleDollarSign, Send, FileSignature, Zap } from 'lucide-react'; // Added Zap
 import type { OrderStatus, StoredOrder, OrderShipmentStatus } from '@/types/transaction';
 import { AppleIcon, BananaIcon, OrangeIcon, GrapeIcon, MangoIcon, FruitIcon } from '@/components/icons/FruitIcons';
 import { format } from 'date-fns';
@@ -77,7 +77,7 @@ const getStatusBadgeVariant = (status: OrderStatus | OrderShipmentStatus): "defa
   switch (status) {
     case 'FundedOnChain': case 'CompletedOnChain': return 'default'; 
     case 'Shipped': case 'Ready for Pickup': case 'In Transit': case 'Out for Delivery': case 'Delivered': return 'secondary';
-    case 'Awaiting Supplier Confirmation': case 'AwaitingOnChainCreation': case 'AwaitingOnChainFunding': case 'Pending': return 'outline'; 
+    case 'AwaitingSupplierConfirmation': case 'AwaitingOnChainCreation': case 'AwaitingOnChainFunding': case 'Pending': return 'outline'; 
     case 'Cancelled': case 'Delivery Failed': case 'Shipment Cancelled': case 'DisputedOnChain': return 'destructive';
     // Deprecated/legacy, keep for now for old data
     case 'Paid': case 'Receipt Confirmed': case 'Awaiting Payment': case 'Awaiting Transporter Assignment':
@@ -127,10 +127,10 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
     u.isApproved &&
     !u.isSuspended &&
     u.shippingRates &&
-    typeof u.shippingRates.tier1_0_100_km_price === 'number' &&
+    typeof u.shippingRates.tier1_0_100_km_price === 'number' && 
     typeof u.shippingRates.tier2_101_500_km_price_per_km === 'number' &&
     typeof u.shippingRates.tier3_501_1000_km_price_per_km === 'number' &&
-    u.ethereumAddress // Transporter must have an Ethereum address for payouts
+    u.ethereumAddress 
   );
 
   useEffect(() => {
@@ -182,7 +182,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
 
     const unsubscribe = onSnapshot(ordersQuery, (querySnapshot) => {
       const fetchedOrders: StoredOrder[] = [];
-      querySnapshot.forEach((docSnapshot) => { // Renamed doc to docSnapshot to avoid conflict
+      querySnapshot.forEach((docSnapshot) => { 
         const data = docSnapshot.data() as Omit<StoredOrder, 'id'>;
         fetchedOrders.push({
           ...data,
@@ -303,7 +303,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
       toast({title: "Distance/Fee Calc Error", description: "Could not estimate shipping fee. Using product total.", variant: "outline", duration: 7000});
       calculatedTransporterFeeUSD = 0; 
     }
-
+    
     if (calculatedTransporterFeeUSD === null || calculatedTransporterFeeUSD <= 0) {
         toast({
             title: "Shipping Fee Error",
@@ -323,14 +323,13 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
     const currentEthUsdPrice = await fetchEthPrice();
     const productAmountInWei = ethers.parseEther((orderToAssign.totalAmount / currentEthUsdPrice).toFixed(18));
     const shippingFeeInWei = ethers.parseEther(((calculatedTransporterFeeUSD) / currentEthUsdPrice).toFixed(18)); 
+    const orderIdBytes32 = convertToBytes32(orderToAssign.id);
 
     try {
         const contract = await getEscrowContract();
-        const orderIdBytes32 = convertToBytes32(orderToAssign.id);
-
         toast({ title: "Creating Order On-Chain...", description: "Please confirm in Metamask. This involves a gas fee.", duration: 10000});
         
-        const { signer } = await getSignerAndProvider();
+        const { signer } = await getSignerAndProvider(); // Gets current signer
         const connectedSupplierAddress = await signer.getAddress();
         if (connectedSupplierAddress.toLowerCase() !== supplier.ethereumAddress.toLowerCase()) {
             toast({ title: "Wallet Mismatch", description: `Please ensure Metamask is connected with the supplier's registered wallet: ${supplier.ethereumAddress}. Currently connected: ${connectedSupplierAddress}`, variant: "destructive", duration: 10000 });
@@ -340,9 +339,9 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
 
         const tx = await contract.createOrder(
             orderIdBytes32,
-            customer.ethereumAddress, // From customer's profile
-            supplier.ethereumAddress, // From supplier's profile (current user)
-            transporter.ethereumAddress, // From transporter's profile
+            customer.ethereumAddress, 
+            supplier.ethereumAddress, 
+            transporter.ethereumAddress, 
             productAmountInWei,
             shippingFeeInWei,
             ethers.ZeroAddress // For ETH payments
@@ -371,17 +370,27 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
         }
 
         await updateDoc(orderRef, updatePayload);
+        toast({ title: "Firestore Updated", description: `Order ${orderToAssign.id} status to AwaitingOnChainFunding.`});
+
+        // Manually update the local state to ensure immediate UI feedback
+        setOrders(prevOrders =>
+          prevOrders.map(o =>
+            o.id === orderToAssign.id
+              ? { ...o, ...updatePayload } 
+              : o
+          )
+        );
         setIsAssignTransporterDialogOpen(false);
         return true;
     } catch (error: any) {
-        console.error("Error creating order on chain:", error);
-        const readableError = error.reason || error.data?.message || error.message || "Unknown smart contract error";
-        toast({ title: "Smart Contract Error", description: `Could not create order on chain: ${readableError}`, variant: "destructive", duration: 10000 });
+        console.error("Error in handleCreateOrderOnChain:", error); 
+        const readableError = error.reason || error.data?.message || error.message || "Unknown smart contract/update error";
+        toast({ title: "On-Chain Creation Error", description: `Could not process order on chain: ${readableError}`, variant: "destructive", duration: 10000 });
         return false;
     } finally {
         setActionOrderId(null);
     }
-  }, [allUsersList, toast]);
+  }, [allUsersList, toast, user]); // Added user to dependencies of useCallback
 
 
   const handlePayWithMetamaskOnChain = useCallback(async (orderId: string): Promise<boolean> => {
@@ -400,8 +409,12 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
          toast({ title: "Customer Wallet Error", description: `Customer ${orderToPay.customerName} Ethereum address not found in their profile.`, variant: "destructive", duration: 8000 });
          return false;
     }
-    if (!user?.ethereumAddress || user.ethereumAddress.toLowerCase() !== customerUser.ethereumAddress.toLowerCase()) {
-         toast({ title: "Wallet Mismatch", description: `Please ensure Metamask is connected with the customer's wallet: ${customerUser.ethereumAddress}. Currently connected: ${user?.ethereumAddress || 'N/A'}`, variant: "destructive", duration: 10000 });
+    
+    const { signer } = await getSignerAndProvider();
+    const connectedCustomerAddress = await signer.getAddress();
+
+    if (connectedCustomerAddress.toLowerCase() !== customerUser.ethereumAddress.toLowerCase()) {
+         toast({ title: "Wallet Mismatch", description: `Please ensure Metamask is connected with the customer's wallet: ${customerUser.ethereumAddress}. Currently connected: ${connectedCustomerAddress}`, variant: "destructive", duration: 10000 });
          return false;
     }
 
@@ -413,16 +426,24 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
     toast({ title: "Initiating On-Chain Payment", description: `Order: ${orderToPay.finalTotalAmount.toFixed(2)} USD. Sending: ${ethAmount.toFixed(6)} ETH. Confirm in Metamask.`, duration: 10000 });
 
     try {
-      const contract = await getEscrowContract();
+      const contract = await getEscrowContract(); // Signer will be picked up from getSignerAndProvider
       const tx = await contract.fundOrder(orderToPay.contractOrderId, { value: amountInWei });
       toast({ title: "Transaction Submitted", description: `Tx Hash: ${tx.hash.substring(0,10)}... Waiting for confirmation.` });
       await tx.wait();
 
       const orderRef = doc(db, "orders", orderId);
-      await updateDoc(orderRef, {
+      const updatePayload: Partial<StoredOrder> = {
         status: 'FundedOnChain' as OrderStatus,
         paymentTransactionHash: tx.hash
-      });
+      };
+      await updateDoc(orderRef, updatePayload);
+       setOrders(prevOrders =>
+          prevOrders.map(o =>
+            o.id === orderId
+              ? { ...o, ...updatePayload } 
+              : o
+          )
+        );
       toast({ title: "Payment Confirmed On-Chain!", description: `Order funded in smart contract. Tx: ${tx.hash.substring(0,10)}...`, variant: "default" });
 
       if (orderToPay.productId && orderToPay.quantity > 0) {
@@ -444,7 +465,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
     } finally {
       setActionOrderId(null);
     }
-  }, [orders, toast, user, allUsersList]);
+  }, [orders, toast, allUsersList]); // Removed user from here as signer is obtained fresh
 
 
   const handleOpenAssignTransporterDialog = (order: StoredOrder) => {
@@ -478,8 +499,16 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
     }
     
     const customerUser = allUsersList.find(u => u.id === order.customerId);
-    if (!user?.ethereumAddress || !customerUser?.ethereumAddress || user.ethereumAddress.toLowerCase() !== customerUser.ethereumAddress.toLowerCase()) {
-         toast({ title: "Wallet Mismatch", description: `Please ensure Metamask is connected with the customer's wallet: ${customerUser?.ethereumAddress || 'N/A'}. Currently connected: ${user?.ethereumAddress || 'N/A'}`, variant: "destructive", duration: 10000 });
+    if (!customerUser?.ethereumAddress) {
+         toast({ title: "Customer Wallet Error", description: `Customer ${order.customerName} Ethereum address not found.`, variant: "destructive", duration: 8000 });
+         setActionOrderId(null);
+         return;
+    }
+
+    const { signer } = await getSignerAndProvider();
+    const connectedCustomerAddress = await signer.getAddress();
+    if (connectedCustomerAddress.toLowerCase() !== customerUser.ethereumAddress.toLowerCase()) {
+         toast({ title: "Wallet Mismatch", description: `Please ensure Metamask is connected with the customer's wallet: ${customerUser.ethereumAddress}. Currently connected: ${connectedCustomerAddress}`, variant: "destructive", duration: 10000 });
          setActionOrderId(null);
          return;
     }
@@ -492,13 +521,21 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
       await tx.wait();
       
       const orderRef = doc(db, "orders", orderId);
-      await updateDoc(orderRef, {
+      const updatePayload: Partial<StoredOrder> = {
         status: 'CompletedOnChain' as OrderStatus,
         contractConfirmationTxHash: tx.hash,
         payoutTimestamp: serverTimestamp(), 
         supplierPayoutAmount: order.totalAmount, 
         transporterPayoutAmount: order.estimatedTransporterFee ?? 0,
-      });
+      };
+      await updateDoc(orderRef, updatePayload);
+      setOrders(prevOrders =>
+          prevOrders.map(o =>
+            o.id === orderId
+              ? { ...o, ...updatePayload } 
+              : o
+          )
+        );
       
       toast({ title: "Delivery Confirmed & Payouts Processed On-Chain!", description: `Smart contract handled payouts. Tx: ${tx.hash.substring(0,10)}...`, duration: 10000 });
 
@@ -530,8 +567,16 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
     }
     
     const customerUser = allUsersList.find(u => u.id === order.customerId);
-    if (!user?.ethereumAddress || !customerUser?.ethereumAddress || user.ethereumAddress.toLowerCase() !== customerUser.ethereumAddress.toLowerCase()) {
-         toast({ title: "Wallet Mismatch", description: `Please ensure Metamask is connected with the customer's wallet: ${customerUser?.ethereumAddress || 'N/A'}. Currently connected: ${user?.ethereumAddress || 'N/A'}`, variant: "destructive", duration: 10000 });
+     if (!customerUser?.ethereumAddress) {
+         toast({ title: "Customer Wallet Error", description: `Customer ${order.customerName} Ethereum address not found.`, variant: "destructive", duration: 8000 });
+         setActionOrderId(null);
+         return;
+    }
+    const { signer } = await getSignerAndProvider();
+    const connectedCustomerAddress = await signer.getAddress();
+
+    if (connectedCustomerAddress.toLowerCase() !== customerUser.ethereumAddress.toLowerCase()) {
+         toast({ title: "Wallet Mismatch", description: `Please ensure Metamask is connected with the customer's wallet: ${customerUser.ethereumAddress}. Currently connected: ${connectedCustomerAddress}`, variant: "destructive", duration: 10000 });
          setActionOrderId(null);
          return;
     }
@@ -544,9 +589,17 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
       await tx.wait();
 
       const orderRef = doc(db, "orders", orderId);
-      await updateDoc(orderRef, {
+      const updatePayload: Partial<StoredOrder> = {
         status: 'DisputedOnChain' as OrderStatus,
-      });
+      };
+      await updateDoc(orderRef, updatePayload);
+      setOrders(prevOrders =>
+          prevOrders.map(o =>
+            o.id === orderId
+              ? { ...o, ...updatePayload } 
+              : o
+          )
+        );
       toast({ title: "Order Disputed On-Chain", description: `Order marked as disputed. Tx: ${tx.hash.substring(0,10)}... Owner can resolve.` });
     } catch (error: any) {
       const readableError = error.reason || error.data?.message || error.message || "Unknown smart contract error";
@@ -591,7 +644,15 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
       updateData.transporterRating = tRating; updateData.transporterFeedback = transporterFeedback.trim() || undefined;
     }
     try {
-      await updateDoc(doc(db, "orders", currentOrderForAssessment.id), updateData);
+      const orderRef = doc(db, "orders", currentOrderForAssessment.id);
+      await updateDoc(orderRef, updateData);
+      setOrders(prevOrders =>
+          prevOrders.map(o =>
+            o.id === currentOrderForAssessment.id
+              ? { ...o, ...updateData } 
+              : o
+          )
+        );
       toast({ title: "Evaluation Submitted", description: "Thank you for your feedback!" });
       handleCloseAssessmentDialog();
     } catch (error) {
@@ -607,7 +668,6 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
     return text.substring(0, length) + '...';
   };
 
-  // For the "Finalize & Create Order On-Chain" dialog
   const customerForDialog = currentOrderToAssign ? allUsersList.find(u => u.id === currentOrderToAssign.customerId) : null;
   const selectedTransporterDetails = selectedTransporter ? allUsersList.find(u => u.id === selectedTransporter) : null;
 
@@ -648,7 +708,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
             const displayDate = order.orderDate || (order as any).date;
             const productName = order.productName || (order as any).fruitType;
 
-            const canCreateOnChain = user?.role === 'supplier' && order.status === 'Awaiting Supplier Confirmation' && !user.isSuspended;
+            const canCreateOnChain = user?.role === 'supplier' && order.status === 'AwaitingSupplierConfirmation' && !user.isSuspended;
             const canPayOnChain = isCustomerView && order.status === 'AwaitingOnChainFunding' && !user?.isSuspended;
             const canConfirmOrDenyOnChain = isCustomerView && order.status === 'FundedOnChain' && order.shipmentStatus === 'Delivered' && !order.assessmentSubmitted && !user?.isSuspended;
             const canEvaluate = isCustomerView && (order.status === 'CompletedOnChain' || order.status === 'DisputedOnChain') && !order.assessmentSubmitted && !user?.isSuspended;
@@ -734,7 +794,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
                     <Star className="h-4 w-4" /> <span className="ml-1">Evaluate</span>
                   </Button>
                 )}
-                {user?.role !== 'customer' && order.status !== 'Awaiting Supplier Confirmation' && order.status !== 'AwaitingOnChainFunding' && order.status !== 'FundedOnChain' && order.status !== 'CompletedOnChain' && order.status !== 'DisputedOnChain' && (
+                {user?.role !== 'customer' && order.status !== 'AwaitingSupplierConfirmation' && order.status !== 'AwaitingOnChainFunding' && order.status !== 'FundedOnChain' && order.status !== 'CompletedOnChain' && order.status !== 'DisputedOnChain' && (
                   <Button variant="ghost" size="icon" onClick={() => handleDeleteOrder(order.id)} aria-label="Delete order" className="h-8 w-8" disabled={isCurrentUserSupplierSuspended && user?.role === 'supplier'}>
                     <Trash2 className="h-4 w-4 text-destructive" />
                   </Button>
@@ -762,7 +822,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
     {isAssignTransporterDialogOpen && currentOrderToAssign && (
       <Dialog open={isAssignTransporterDialogOpen} onOpenChange={(isOpen) => { if (!isOpen) { setCurrentOrderToAssign(null); setSelectedTransporter(null); } setIsAssignTransporterDialogOpen(isOpen); }}>
         <DialogContent className="sm:max-w-md">
-          <DialogHeader><DialogTitle>Finalize &amp; Create Order On-Chain</DialogTitle><DialogDescription>Order: {currentOrderToAssign.productName} for {currentOrderToAssign.customerName}</DialogDescription></DialogHeader>
+          <DialogHeader><DialogTitle>Finalize &amp; Create Order On-Chain</DialogTitle><DialogDescription>Order: {currentOrderToAssign.productName} for {customerForDialog?.name || currentOrderToAssign.customerName}</DialogDescription></DialogHeader>
           <div className="py-4 space-y-2">
             <p className="text-sm">Product Cost: ${currentOrderToAssign.totalAmount.toFixed(2)} USD</p>
             <p className="text-xs text-muted-foreground">Select a transporter. Their shipping fee will be calculated and added. This total will be used for the on-chain escrow order.</p>
@@ -782,14 +842,14 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
                 No transporters are currently eligible (must be approved, not suspended, have ETH address, and shipping rates set).
               </div>
             )}
-            {!user?.ethereumAddress && (
-                <p className="text-xs text-destructive mt-2">Warning: Your (Supplier) Ethereum address is not set in your profile. It's required.</p>
+             {!user?.ethereumAddress && (
+                <p className="text-xs text-destructive mt-2">Warning: Your (Supplier) Ethereum address is not set in your profile. It's required for on-chain creation.</p>
             )}
             {currentOrderToAssign && !customerForDialog?.ethereumAddress && (
-                 <p className="text-xs text-destructive mt-2">Warning: Customer ({currentOrderToAssign.customerName}) Ethereum address is not set in their profile. It's required.</p>
+                 <p className="text-xs text-destructive mt-2">Warning: Customer ({customerForDialog?.name || currentOrderToAssign.customerName}) Ethereum address is not set. It's required for on-chain creation.</p>
             )}
             {selectedTransporterDetails && !selectedTransporterDetails.ethereumAddress && (
-                 <p className="text-xs text-destructive mt-2">Warning: Selected Transporter ({selectedTransporterDetails.name}) does not have an Ethereum address set. It's required.</p>
+                 <p className="text-xs text-destructive mt-2">Warning: Selected Transporter ({selectedTransporterDetails.name}) does not have an Ethereum address set. It's required for on-chain creation.</p>
             )}
           </div>
           <DialogFooter>
@@ -829,3 +889,4 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
     </>
   );
 }
+
