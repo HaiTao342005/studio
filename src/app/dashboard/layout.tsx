@@ -54,7 +54,7 @@ type NavItem = {
 
 const allNavItems: NavItem[] = [
   { href: '/dashboard', label: 'Overview', icon: LayoutDashboard, roles: ['supplier', 'transporter', 'customer', 'manager'] },
-  { href: '/dashboard/profile', label: 'My Profile', icon: UserCircle, roles: ['supplier', 'customer'] },
+  { href: '/dashboard/profile', label: 'My Profile', icon: UserCircle, roles: ['supplier', 'customer', 'transporter'] },
   // Manager specific
   { href: '/dashboard/user-approvals', label: 'User Approvals', icon: UserCheck, roles: ['manager'] },
   { href: '/dashboard/manage-users', label: 'Manage Users', icon: Users, roles: ['manager'] },
