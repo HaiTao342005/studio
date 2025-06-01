@@ -42,21 +42,38 @@ export function Header({ title, children }: HeaderProps) {
   const connectWallet = useCallback(async () => {
     if (typeof window.ethereum !== 'undefined') {
       try {
+        // Step 1: Explicitly request permissions for eth_accounts.
+        // This *might* trigger a wallet prompt if it interprets this as a new/renewed request.
+        await window.ethereum.request({
+          method: 'wallet_requestPermissions',
+          params: [{ eth_accounts: {} }],
+        });
+
+        // Step 2: After permissions are handled, request the accounts.
+        // eth_requestAccounts will then either return the selected/approved account
+        // or prompt again if the wallet decides it's necessary.
         const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' }) as string[];
+
         if (accounts.length > 0) {
           setCurrentAccount(accounts[0]);
           toast({ title: "Wallet Connected", description: `Connected to account: ${accounts[0].substring(0, 6)}...${accounts[0].substring(accounts[0].length - 4)}` });
         } else {
-          toast({ title: "Connection Failed", description: "No accounts found. Please ensure your wallet is set up.", variant: "destructive" });
+          // This case should be rare if wallet_requestPermissions succeeded and then eth_requestAccounts was called.
+          toast({ title: "Connection Failed", description: "No accounts found after requesting. Please ensure your wallet is set up and an account is selected.", variant: "destructive" });
         }
       } catch (error: any) {
-        toast({ title: "Connection Error", description: error.message || "Failed to connect wallet.", variant: "destructive" });
+        // Catch errors from either wallet_requestPermissions or eth_requestAccounts
+        if (error.code === 4001) { // EIP-1193 userRejectedRequest error
+          toast({ title: "Connection Cancelled", description: "You cancelled the wallet connection request.", variant: "outline" });
+        } else {
+          toast({ title: "Connection Error", description: error.message || "Failed to connect wallet.", variant: "destructive" });
+        }
         console.error("Error connecting to Metamask:", error);
       }
     } else {
       toast({ title: "Metamask Not Found", description: "Please install Metamask to use this feature.", variant: "destructive" });
     }
-  }, [toast]);
+  }, [toast, setCurrentAccount]);
 
   const handleDisconnect = useCallback(() => {
     setCurrentAccount(null);
@@ -88,7 +105,7 @@ export function Header({ title, children }: HeaderProps) {
         window.ethereum.removeListener('accountsChanged', handleAccountsChanged);
       };
     }
-  }, [toast]);
+  }, [toast, setCurrentAccount]);
 
 
   return (
