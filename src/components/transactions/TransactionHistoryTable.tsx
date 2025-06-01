@@ -17,7 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
-import { Trash2, Wallet, Loader2, Eye, ThumbsUp, Truck, AlertTriangle, ThumbsDown, Star, CheckCircle, Ban, Edit, Info, Hash, KeyRound } from 'lucide-react'; // Added Hash, KeyRound
+import { Trash2, Wallet, Loader2, Eye, ThumbsUp, Truck, AlertTriangle, ThumbsDown, Star, CheckCircle, Ban, Edit, Info, Hash, KeyRound, CircleDollarSign } from 'lucide-react'; // Added CircleDollarSign
 import type { OrderStatus, StoredOrder, OrderShipmentStatus } from '@/types/transaction';
 import { AppleIcon, BananaIcon, OrangeIcon, GrapeIcon, MangoIcon, FruitIcon } from '@/components/icons/FruitIcons';
 import { format } from 'date-fns';
@@ -76,7 +76,7 @@ const calculateTieredShippingPrice = (distanceKm: number, rates?: UserShippingRa
 const getStatusBadgeVariant = (status: OrderStatus | OrderShipmentStatus): "default" | "secondary" | "destructive" | "outline" => {
   switch (status) {
     case 'Paid': return 'default';
-    case 'Delivered': return 'default'; // Main status 'Delivered' will now be more prominent
+    case 'Delivered': return 'default'; 
     case 'Receipt Confirmed': return 'default';
     case 'Completed': return 'default';
     case 'Shipped': return 'secondary';
@@ -177,14 +177,12 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
     } else if (currentRole === 'manager') {
       ordersQuery = query(collection(db, "orders"), orderBy("orderDate", "desc"));
     } else {
-      // This case is for when isCustomerView is true, but initialOrders is not provided,
-      // which is the scenario for the new "My Escrowed Payments" page.
-      // We need to construct the query for the customer here.
+      
       if (isCustomerView) {
          ordersQuery = query(
           collection(db, "orders"),
           where("customerId", "==", user.id),
-          where("status", "in", ["Paid", "Delivered"]) // Specific statuses for escrow view
+          // For "My Escrow" this will be further filtered, but for "My Orders" this is fine
         );
       } else {
         setOrders([]);
@@ -204,8 +202,8 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
         });
       });
 
-      // Client-side sorting if not already ordered by Firestore (e.g. for supplier/customer specific views without composite index)
-      if (currentRole === 'supplier' || isCustomerView) {
+      
+      if (currentRole === 'supplier' || (isCustomerView && !initialOrders)) { // Added !initialOrders for general customer view sorting
         fetchedOrders.sort((a, b) => {
             const dateA = (a.orderDate as Timestamp)?.toMillis() || 0;
             const dateB = (b.orderDate as Timestamp)?.toMillis() || 0;
@@ -558,6 +556,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
             <TableHead>Status</TableHead>
             <TableHead>Shipment Status</TableHead>
             <TableHead>Predicted Delivery</TableHead>
+            {isCustomerView && <TableHead>Transaction Outcome</TableHead>}
             {isManagerView && <TableHead title="Payment Transaction Hash"><Hash className="inline-block h-4 w-4 mr-1"/>Hash</TableHead>}
             {isManagerView && <TableHead title="Simulated Recipient Address"><KeyRound className="inline-block h-4 w-4 mr-1"/>Recipient</TableHead>}
             <TableHead className="w-[200px] text-center">Actions</TableHead>
@@ -604,6 +603,44 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
               <TableCell><Badge variant={getStatusBadgeVariant(order.status)}>{order.status}</Badge></TableCell>
               <TableCell>{order.shipmentStatus ? <Badge variant={getStatusBadgeVariant(order.shipmentStatus)}>{order.shipmentStatus}</Badge> : <span className="text-xs text-muted-foreground">N/A</span>}</TableCell>
               <TableCell>{order.predictedDeliveryDate ? format((order.predictedDeliveryDate as Timestamp).toDate(), "MMM d, yyyy") : <span className="text-xs text-muted-foreground">N/A</span>}</TableCell>
+              {isCustomerView && (
+                <TableCell className="text-xs">
+                  {order.status === 'Completed' && (
+                    <div className="space-y-0.5">
+                      {order.supplierPayoutAmount !== undefined && (
+                        <p className="flex items-center">
+                          <CircleDollarSign className="h-3 w-3 mr-1 text-green-600" />
+                          Supplier: ${order.supplierPayoutAmount.toFixed(2)}
+                        </p>
+                      )}
+                      {order.transporterPayoutAmount !== undefined && order.transporterId && (
+                        <p className="flex items-center">
+                           <CircleDollarSign className="h-3 w-3 mr-1 text-blue-600" />
+                          Transporter: ${order.transporterPayoutAmount.toFixed(2)}
+                        </p>
+                      )}
+                      {order.payoutTimestamp && (
+                        <p className="text-muted-foreground">
+                          Released: {format((order.payoutTimestamp as Timestamp).toDate(), "MMM d, yy")}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                  {order.status === 'Disputed' && (
+                    <div className="space-y-0.5">
+                      <p className="text-destructive">Funds Refunded (Simulated)</p>
+                      {order.refundTimestamp && (
+                        <p className="text-muted-foreground">
+                          Processed: {format((order.refundTimestamp as Timestamp).toDate(), "MMM d, yy")}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                  {(order.status !== 'Completed' && order.status !== 'Disputed') && (
+                     <span className="text-muted-foreground">Pending...</span>
+                  )}
+                </TableCell>
+              )}
               {isManagerView && <TableCell className="text-xs" title={order.paymentTransactionHash || undefined}>{truncateText(order.paymentTransactionHash, 12)}</TableCell>}
               {isManagerView && <TableCell className="text-xs" title={GANACHE_RECIPIENT_ADDRESS}>{truncateText(GANACHE_RECIPIENT_ADDRESS, 12)}</TableCell>}
               <TableCell className="space-x-1 text-center">
