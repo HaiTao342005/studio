@@ -129,7 +129,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       }
     } catch (error: any) {
-        if (error instanceof FirestoreError && (error.code === 'unavailable' || error.message.includes('client is offline'))) {
+        if (error instanceof FirestoreError && (error.code === 'unavailable' || (error.message && error.message.includes('client is offline')))) {
             console.info("AuthContext: seedDefaultManager failed as Firestore client is offline.", error.message);
             toast({ title: "Network Issue", description: "Could not connect to Firebase to verify manager data. Some functions may be limited.", variant: "destructive", duration: 7000});
         } else {
@@ -186,7 +186,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             }
         });
       } catch (error: any) {
-        if (error instanceof FirestoreError && (error.code === 'unavailable' || error.message.includes('client is offline'))) {
+        if (error instanceof FirestoreError && (error.code === 'unavailable' || (error.message && error.message.includes('client is offline')))) {
             console.info("AuthContext: fetchAllOrdersForHistory failed as Firestore client is offline.", error.message);
             toast({ title: "Network Issue", description: "Could not fetch order history for rating calculation. Firebase is offline.", variant: "destructive", duration: 7000});
         } else {
@@ -201,12 +201,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const initializeAuthContext = async () => {
         if (!db) {
-          console.error("AuthContext: Firestore (db) is not initialized. Firebase configuration might be missing or incorrect. User authentication and data fetching will not work.");
+          console.error("AuthContext Critical Error: Firestore (db) instance is not available. This likely means Firebase failed to initialize in firebase/config.ts, possibly due to invalid hardcoded configuration or network issues preventing SDK load. Firebase-dependent features will not work.");
           toast({
-            title: "Firebase Not Configured",
-            description: "Essential Firebase services are not available. Please check configuration and restart. App functionality will be severely limited.",
+            title: "Firebase Unavailable",
+            description: "The application cannot connect to Firebase. Core features will be unavailable. Please check console and Firebase configuration.",
             variant: "destructive",
-            duration: 15000,
+            duration: 0, // Persistent toast
           });
           setIsLoading(false);
           setIsLoadingUsers(false);
@@ -307,7 +307,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                   setUser(null);
                 }
               } catch (innerError: any) {
-                 if (innerError instanceof FirestoreError && (innerError.code === 'unavailable' || innerError.message.includes('client is offline'))) {
+                 if (innerError instanceof FirestoreError && (innerError.code === 'unavailable' || (innerError.message && innerError.message.includes('client is offline')))) {
                     console.info("AuthContext: User data snapshot processing failed as Firestore client is offline.", innerError.message);
                     toast({ title: "Network Issue", description: "Could not update user data. Firebase is offline.", variant: "destructive", duration: 7000});
                 } else {
@@ -320,7 +320,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 setIsLoading(false); // Overall loading done once users (even if empty/error) are processed
               }
             }, (error) => {
-              if (error instanceof FirestoreError && (error.code === 'unavailable' || error.message.includes('client is offline'))) {
+              if (error instanceof FirestoreError && (error.code === 'unavailable' || (error.message && error.message.includes('client is offline')))) {
                 console.info("AuthContext: onSnapshot listener for users failed as Firestore client is offline.", error.message);
                 toast({ title: "Network Issue", description: "Could not connect to Firebase for live user updates. Some functions may be limited.", variant: "destructive", duration: 10000});
               } else {
@@ -401,7 +401,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                     }
                 }
               } catch (assessmentError: any) {
-                  if (assessmentError instanceof FirestoreError && (assessmentError.code === 'unavailable' || assessmentError.message.includes('client is offline'))) {
+                  if (assessmentError instanceof FirestoreError && (assessmentError.code === 'unavailable' || (assessmentError.message && assessmentError.message.includes('client is offline')))) {
                     console.info("AuthContext: Assessed orders snapshot processing failed as Firestore client is offline.", assessmentError.message);
                     toast({ title: "Network Issue", description: "Could not update ratings from new assessments. Firebase is offline.", variant: "destructive", duration: 7000});
                   } else {
@@ -410,7 +410,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                   }
               }
             }, (error) => {
-              if (error instanceof FirestoreError && (error.code === 'unavailable' || error.message.includes('client is offline'))) {
+              if (error instanceof FirestoreError && (error.code === 'unavailable' || (error.message && error.message.includes('client is offline')))) {
                 console.info("AuthContext: onSnapshot listener for assessed orders failed as Firestore client is offline.", error.message);
               } else {
                 console.error("Error fetching assessed orders from Firestore (onSnapshot):", error);
@@ -423,7 +423,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             };
 
         } catch (error: any) {
-            if (error instanceof FirestoreError && (error.code === 'unavailable' || error.message.includes('client is offline'))) {
+            if (error instanceof FirestoreError && (error.code === 'unavailable' || (error.message && error.message.includes('client is offline')))) {
                 console.info(`AuthContext: Initialization (useEffect) failed as Firestore client is offline.`, error.message);
                 toast({ title: "Network Issue", description: `AuthContext initialization error: ${error.message}. Firebase might be offline.`, variant: "destructive", duration: 10000});
             } else {
@@ -445,15 +445,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signup = useCallback(async (username: string, mockPasswordNew: string, role: UserRole) => {
     if (!db) {
-      toast({ title: "Sign Up Error", description: "Firebase is not configured. Cannot sign up.", variant: "destructive" });
+      toast({ title: "Sign Up Error", description: "Firebase is not configured or is offline. Cannot sign up.", variant: "destructive", duration: 7000 });
+      setIsLoading(false);
       return;
     }
     if (!username || !mockPasswordNew || !role) {
       toast({ title: "Sign Up Error", description: "Username, password, and role are required.", variant: "destructive" });
+      setIsLoading(false);
       return;
     }
     if (role === 'manager') {
         toast({ title: "Sign Up Error", description: "Manager accounts are pre-configured or created by existing managers.", variant: "destructive" });
+        setIsLoading(false);
         return;
     }
 
@@ -496,7 +499,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           toast({ title: "Sign Up Successful!", description: `Account for ${username} (${role}) created. Awaiting manager approval.` });
         }
     } catch (error: any) {
-        if (error instanceof FirestoreError && (error.code === 'unavailable' || error.message.includes('client is offline'))) {
+        if (error instanceof FirestoreError && (error.code === 'unavailable' || (error.message && error.message.includes('client is offline')))) {
             console.info("AuthContext: Signup failed as Firestore client is offline.", error.message);
             toast({ title: "Network Issue", description: "Could not create account. Firebase is offline. Please try again later.", variant: "destructive", duration: 7000});
         } else {
@@ -510,11 +513,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback(async (username: string, mockPasswordAttempt: string) => {
     if (!db) {
-      toast({ title: "Login Error", description: "Firebase is not configured. Cannot login.", variant: "destructive" });
+      toast({ title: "Login Error", description: "Firebase is not configured or is offline. Cannot login.", variant: "destructive", duration: 7000 });
+      setIsLoading(false);
       return;
     }
      if (!username || !mockPasswordAttempt) {
       toast({ title: "Login Error", description: "Username and password are required.", variant: "destructive" });
+      setIsLoading(false);
       return;
     }
     setIsLoading(true);
@@ -544,18 +549,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                      toast({ title: "Login Failed", description: "Invalid username or password.", variant: "destructive" });
                 }
             } else {
-                toast({ title: "Login Failed", description: "User data not found in DB.", variant: "destructive" });
+                // This case should ideally not happen if user is in allUsersList which comes from onSnapshot
+                toast({ title: "Login Failed", description: "User data inconsistency. Please try again.", variant: "destructive" });
             }
         } catch (error: any) {
-            if (error instanceof FirestoreError && (error.code === 'unavailable' || error.message.includes('client is offline'))) {
-                console.info("AuthContext: Login failed as Firestore client is offline.", error.message);
+            if (error instanceof FirestoreError && (error.code === 'unavailable' || (error.message && error.message.includes('client is offline')))) {
+                console.info("AuthContext: Login failed (getDoc) as Firestore client is offline.", error.message);
                 toast({ title: "Network Issue", description: "Could not log in. Firebase is offline. Please try again later.", variant: "destructive", duration: 7000});
             } else {
-                console.error("Error fetching user for login:", error);
+                console.error("Error fetching user for login (getDoc):", error);
                 toast({ title: "Login Error", description: "An error occurred while trying to log in.", variant: "destructive" });
             }
         }
     } else {
+        // User not in allUsersList, try a direct query (this is a fallback)
         const usersRef = collection(db, "users");
         const q = query(usersRef, where("name", "==", username));
         try {
@@ -566,11 +573,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 const userDocFromQuery = querySnapshot.docs[0];
                 const userDataFromDB = userDocFromQuery.data() as StoredUser;
                 if (userDataFromDB.mockPassword === mockPasswordAttempt) {
+                    // Construct the full User object, including potential calculated fields
                     const loggedInUser: User = {
                         id: userDocFromQuery.id, name: userDataFromDB.name, role: userDataFromDB.role,
                         isApproved: userDataFromDB.isApproved, isSuspended: userDataFromDB.isSuspended ?? false,
                         address: userDataFromDB.address || '', ethereumAddress: userDataFromDB.ethereumAddress || '',
                         shippingRates: userDataFromDB.shippingRates,
+                        // Rating fields would ideally come from allUsersList or be re-calculated,
+                        // but for this direct login path, we might not have them immediately.
+                        // This path is less ideal as allUsersList should be the source of truth.
                     };
                     if (loggedInUser.isSuspended) {
                         toast({ title: "Account Suspended", description: "Your account has been suspended. Contact support.", variant: "destructive", duration: 10000 });
@@ -587,7 +598,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 }
             }
         } catch (error: any) {
-            if (error instanceof FirestoreError && (error.code === 'unavailable' || error.message.includes('client is offline'))) {
+            if (error instanceof FirestoreError && (error.code === 'unavailable' || (error.message && error.message.includes('client is offline')))) {
                  console.info("AuthContext: Login query failed as Firestore client is offline.", error.message);
                 toast({ title: "Network Issue", description: "Could not log in. Firebase is offline. Please try again later.", variant: "destructive", duration: 7000});
             } else {
@@ -602,7 +613,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const approveUser = useCallback(async (userId: string) => {
     if (!db) {
-      toast({ title: "Action Error", description: "Firebase is not configured. Cannot approve user.", variant: "destructive" });
+      toast({ title: "Action Error", description: "Firebase is not configured or offline. Cannot approve user.", variant: "destructive", duration: 7000 });
       return;
     }
     if (user?.role !== 'manager') {
@@ -614,7 +625,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await updateDoc(userDocRef, { isApproved: true });
       toast({ title: "User Approved", description: `User has been approved.` });
     } catch (error: any) {
-      if (error instanceof FirestoreError && (error.code === 'unavailable' || error.message.includes('client is offline'))) {
+      if (error instanceof FirestoreError && (error.code === 'unavailable' || (error.message && error.message.includes('client is offline')))) {
         console.info("AuthContext: Approving user failed as Firestore client is offline.", error.message);
         toast({ title: "Network Issue", description: "Could not approve user. Firebase is offline.", variant: "destructive", duration: 7000});
       } else {
@@ -626,7 +637,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const addManager = useCallback(async (newManagerUsername: string, newManagerPassword: string): Promise<boolean> => {
     if (!db) {
-      toast({ title: "Action Error", description: "Firebase is not configured. Cannot add manager.", variant: "destructive" });
+      toast({ title: "Action Error", description: "Firebase is not configured or offline. Cannot add manager.", variant: "destructive", duration: 7000 });
       return false;
     }
     if (user?.role !== 'manager') {
@@ -655,7 +666,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         toast({ title: "Manager Created", description: `Manager account for ${newManagerUsername} created successfully.` });
         return true;
     } catch (error: any) {
-      if (error instanceof FirestoreError && (error.code === 'unavailable' || error.message.includes('client is offline'))) {
+      if (error instanceof FirestoreError && (error.code === 'unavailable' || (error.message && error.message.includes('client is offline')))) {
         console.info("AuthContext: Adding manager failed as Firestore client is offline.", error.message);
         toast({ title: "Network Issue", description: "Could not create manager. Firebase is offline.", variant: "destructive", duration: 7000});
       } else {
@@ -668,7 +679,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const updateUserProfile = useCallback(async (userId: string, data: { address?: string; ethereumAddress?: string }): Promise<boolean> => {
     if (!db) {
-      toast({ title: "Update Error", description: "Firebase is not configured. Cannot update profile.", variant: "destructive" });
+      toast({ title: "Update Error", description: "Firebase is not configured or offline. Cannot update profile.", variant: "destructive", duration: 7000 });
       return false;
     }
     if (!user || user.id !== userId) {
@@ -688,7 +699,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         toast({ title: "Profile Updated", description: "Your profile information has been successfully updated." });
         return true;
     } catch (error: any) {
-        if (error instanceof FirestoreError && (error.code === 'unavailable' || error.message.includes('client is offline'))) {
+        if (error instanceof FirestoreError && (error.code === 'unavailable' || (error.message && error.message.includes('client is offline')))) {
             console.info("AuthContext: Updating profile failed as Firestore client is offline.", error.message);
             toast({ title: "Network Issue", description: "Could not update profile. Firebase is offline.", variant: "destructive", duration: 7000});
         } else {
@@ -701,7 +712,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const updateTransporterShippingRates = useCallback(async (userId: string, rates: UserShippingRates): Promise<boolean> => {
     if (!db) {
-      toast({ title: "Update Error", description: "Firebase is not configured. Cannot update rates.", variant: "destructive" });
+      toast({ title: "Update Error", description: "Firebase is not configured or offline. Cannot update rates.", variant: "destructive", duration: 7000});
       return false;
     }
     if (!user || user.id !== userId || user.role !== 'transporter') {
@@ -714,7 +725,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       toast({ title: "Shipping Rates Updated", description: "Your shipping rates have been successfully updated."});
       return true;
     } catch (error: any) {
-      if (error instanceof FirestoreError && (error.code === 'unavailable' || error.message.includes('client is offline'))) {
+      if (error instanceof FirestoreError && (error.code === 'unavailable' || (error.message && error.message.includes('client is offline')))) {
           console.info("AuthContext: Updating shipping rates failed as Firestore client is offline.", error.message);
           toast({ title: "Network Issue", description: "Could not update shipping rates. Firebase is offline.", variant: "destructive", duration: 7000});
       } else {
@@ -743,3 +754,5 @@ export function useAuth() {
   }
   return context;
 }
+
+
