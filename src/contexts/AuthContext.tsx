@@ -15,7 +15,8 @@ import {
   updateDoc,
   onSnapshot,
   setDoc,
-  getDoc
+  getDoc,
+  FirestoreError
 } from 'firebase/firestore';
 import type { StoredOrder, OrderStatus } from '@/types/transaction'; // Added OrderStatus
 
@@ -84,47 +85,58 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const { toast } = useToast();
 
   const seedDefaultManager = useCallback(async () => {
-    if (!db) { // Check if db is available
+    if (!db) { 
       console.warn("AuthContext: Firestore (db) is not available. Skipping seedDefaultManager.");
       return;
     }
     const usersRef = collection(db, "users");
     const managerDocRef = doc(db, "users", DEFAULT_MANAGER_USERNAME.toLowerCase());
-    const managerSnap = await getDoc(managerDocRef);
+    
+    try {
+      const managerSnap = await getDoc(managerDocRef);
 
-    if (!managerSnap.exists()) {
-      const defaultManagerData: StoredUser = {
-        name: DEFAULT_MANAGER_USERNAME,
-        mockPassword: DEFAULT_MANAGER_PASSWORD,
-        role: 'manager',
-        isApproved: true,
-        isSuspended: false,
-        address: '1 Management Plaza, Admin City, AC 10001',
-        ethereumAddress: '0xManagerEthAddressPlaceholder',
-      };
-      await setDoc(managerDocRef, defaultManagerData);
-      console.log("Default manager seeded in Firestore with ID:", managerDocRef.id);
-    } else {
-      const managerData = managerSnap.data() as StoredUser;
-      let updates: Partial<StoredUser> = {};
-      if (managerData.mockPassword !== DEFAULT_MANAGER_PASSWORD) {
-        updates.mockPassword = DEFAULT_MANAGER_PASSWORD;
+      if (!managerSnap.exists()) {
+        const defaultManagerData: StoredUser = {
+          name: DEFAULT_MANAGER_USERNAME,
+          mockPassword: DEFAULT_MANAGER_PASSWORD,
+          role: 'manager',
+          isApproved: true,
+          isSuspended: false,
+          address: '1 Management Plaza, Admin City, AC 10001',
+          ethereumAddress: '0xManagerEthAddressPlaceholder',
+        };
+        await setDoc(managerDocRef, defaultManagerData);
+        console.log("Default manager seeded in Firestore with ID:", managerDocRef.id);
+      } else {
+        const managerData = managerSnap.data() as StoredUser;
+        let updates: Partial<StoredUser> = {};
+        if (managerData.mockPassword !== DEFAULT_MANAGER_PASSWORD) {
+          updates.mockPassword = DEFAULT_MANAGER_PASSWORD;
+        }
+        if (!managerData.address) {
+          updates.address = '1 Management Plaza, Admin City, AC 10001';
+        }
+         if (managerData.ethereumAddress === undefined || managerData.ethereumAddress === '') {
+          updates.ethereumAddress = '0xManagerEthAddressPlaceholder';
+        }
+        if (managerData.isSuspended === undefined) {
+          updates.isSuspended = false;
+        }
+        if (Object.keys(updates).length > 0) {
+          await updateDoc(managerDocRef, updates);
+          console.log("Default manager details updated in Firestore.");
+        }
       }
-      if (!managerData.address) {
-        updates.address = '1 Management Plaza, Admin City, AC 10001';
-      }
-       if (managerData.ethereumAddress === undefined || managerData.ethereumAddress === '') {
-        updates.ethereumAddress = '0xManagerEthAddressPlaceholder';
-      }
-      if (managerData.isSuspended === undefined) {
-        updates.isSuspended = false;
-      }
-      if (Object.keys(updates).length > 0) {
-        await updateDoc(managerDocRef, updates);
-        console.log("Default manager details updated in Firestore.");
-      }
+    } catch (error: any) {
+        if (error instanceof FirestoreError && (error.code === 'unavailable' || error.message.includes('offline'))) {
+            console.warn("AuthContext: seedDefaultManager failed as Firestore client is offline.", error);
+            toast({ title: "Network Issue", description: "Could not connect to Firebase to verify manager data. Some functions may be limited.", variant: "destructive", duration: 7000});
+        } else {
+            console.error("Error in seedDefaultManager:", error);
+            toast({ title: "Setup Error", description: "Could not verify default manager data.", variant: "destructive"});
+        }
     }
-  }, [toast]); // db is not a direct dependency as it's checked internally
+  }, [toast]);
 
   const logoutCallback = useCallback(() => {
     setUser(null);
@@ -146,9 +158,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
       setIsLoading(false);
       setIsLoadingUsers(false);
-      setUser(null); // Ensure user is null if Firebase is not up
-      localStorage.removeItem(CURRENT_USER_STORAGE_KEY); // Clear any stored user
-      return; // Stop further execution in this useEffect
+      setUser(null); 
+      localStorage.removeItem(CURRENT_USER_STORAGE_KEY); 
+      return; 
     }
 
     let storedUser: User | null = null;
@@ -162,6 +174,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       localStorage.removeItem(CURRENT_USER_STORAGE_KEY);
     }
 
+    // Attempt to seed manager, handling offline errors internally
     seedDefaultManager();
 
     const allOrdersQuery = query(collection(db, "orders"));
@@ -169,7 +182,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const customerSupplierPurchaseCount = new Map<string, Map<string, number>>();
 
     const fetchAllOrdersForHistory = async () => {
-      if (!db) return; // Guard against db being null
+      if (!db) return; 
       try {
         const allOrdersSnap = await getDocs(allOrdersQuery);
         allOrderDocsForHistory = [];
@@ -177,7 +190,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         customerSupplierPurchaseCount.clear();
         allOrderDocsForHistory.forEach(order => {
-            const countableStatuses: OrderStatus[] = ['Paid', 'Shipped', 'Delivered', 'CompletedOnChain', 'FundedOnChain', 'Awaiting Payment', 'AwaitingOnChainFunding', 'AwaitingOnChainCreation', 'Pending', 'AwaitingSupplierConfirmation'];
+            const countableStatuses: OrderStatus[] = ['Paid', 'Shipped', 'Delivered', 'CompletedOnChain', 'FundedOnChain', 'Awaiting Payment', 'AwaitingOnChainFunding', 'AwaitingOnChainCreation', 'Pending', 'Awaiting Supplier Confirmation'];
             if (order.customerId && order.supplierId && countableStatuses.includes(order.status) && order.status !== 'Cancelled' && order.status !== 'DisputedOnChain') {
                 if (!customerSupplierPurchaseCount.has(order.customerId)) {
                     customerSupplierPurchaseCount.set(order.customerId, new Map<string, number>());
@@ -186,9 +199,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 supplierMap.set(order.supplierId, (supplierMap.get(order.supplierId) || 0) + 1);
             }
         });
-      } catch (error) {
-        console.error("Error in fetchAllOrdersForHistory:", error);
-        toast({ title: "Order History Error", description: "Could not fetch order history for rating calculation.", variant: "destructive"});
+      } catch (error: any) {
+        if (error instanceof FirestoreError && (error.code === 'unavailable' || error.message.includes('offline'))) {
+            console.warn("AuthContext: fetchAllOrdersForHistory failed as Firestore client is offline.", error);
+            toast({ title: "Network Issue", description: "Could not fetch order history for rating calculation. Firebase is offline.", variant: "destructive", duration: 7000});
+        } else {
+            console.error("Error in fetchAllOrdersForHistory:", error);
+            toast({ title: "Order History Error", description: "Could not fetch order history for rating calculation.", variant: "destructive"});
+        }
         allOrderDocsForHistory = [];
         customerSupplierPurchaseCount.clear();
       }
@@ -196,7 +214,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const usersQuery = query(collection(db, "users"));
     const unsubscribeUsers = onSnapshot(usersQuery, async (querySnapshot) => {
-      if (!db) { // Secondary check in case db becomes null during listener lifecycle (unlikely but safe)
+      if (!db) { 
         setIsLoadingUsers(false);
         setIsLoading(false);
         return;
@@ -310,9 +328,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         } else {
           setUser(null);
         }
-      } catch (innerError) {
-        console.error("Error processing user data snapshot:", innerError);
-        toast({ title: "Data Processing Error", description: "Failed to process user data.", variant: "destructive" });
+      } catch (innerError: any) {
+         if (innerError instanceof FirestoreError && (innerError.code === 'unavailable' || innerError.message.includes('offline'))) {
+            console.warn("AuthContext: User data snapshot processing failed as Firestore client is offline.", innerError);
+            toast({ title: "Network Issue", description: "Could not update user data. Firebase is offline.", variant: "destructive", duration: 7000});
+        } else {
+            console.error("Error processing user data snapshot:", innerError);
+            toast({ title: "Data Processing Error", description: "Failed to process user data.", variant: "destructive" });
+        }
         if (!storedUser) { 
             setUser(null);
         }
@@ -321,15 +344,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setIsLoading(false);
       }
     }, (error) => {
-      console.error("Error fetching users from Firestore:", error);
-      toast({ title: "Error Loading Users", description: error.message, variant: "destructive"});
+      if (error instanceof FirestoreError && (error.code === 'unavailable' || error.message.includes('offline'))) {
+        console.warn("AuthContext: onSnapshot listener for users failed as Firestore client is offline.", error);
+        toast({ title: "Network Issue", description: "Could not connect to Firebase for live user updates. Some functions may be limited.", variant: "destructive", duration: 10000});
+      } else {
+        console.error("Error fetching users from Firestore:", error);
+        toast({ title: "Error Loading Users", description: error.message, variant: "destructive"});
+      }
       setIsLoadingUsers(false);
       setIsLoading(false);
     });
 
     const assessedOrdersListenerQuery = query(collection(db, "orders"), where("assessmentSubmitted", "==", true));
     const unsubscribeAssessedOrders = onSnapshot(assessedOrdersListenerQuery, async (snapshot) => {
-      if (!db) return; // Guard
+      if (!db) return; 
       try {
         if (allUsersList.length > 0) {
             console.log("New assessment submitted or initial load of assessed orders, recalculating ratings...");
@@ -408,17 +436,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               }
             }
         }
-      } catch (assessmentError) {
-          console.error("Error processing assessed orders snapshot:", assessmentError);
-          toast({ title: "Rating Update Error", description: "Failed to update ratings based on new assessments.", variant: "destructive" });
+      } catch (assessmentError: any) {
+          if (assessmentError instanceof FirestoreError && (assessmentError.code === 'unavailable' || assessmentError.message.includes('offline'))) {
+            console.warn("AuthContext: Assessed orders snapshot processing failed as Firestore client is offline.", assessmentError);
+            toast({ title: "Network Issue", description: "Could not update ratings based on new assessments. Firebase is offline.", variant: "destructive", duration: 7000});
+          } else {
+            console.error("Error processing assessed orders snapshot:", assessmentError);
+            toast({ title: "Rating Update Error", description: "Failed to update ratings based on new assessments.", variant: "destructive" });
+          }
+      }
+    }, (error) => {
+      if (error instanceof FirestoreError && (error.code === 'unavailable' || error.message.includes('offline'))) {
+        console.warn("AuthContext: onSnapshot listener for assessed orders failed as Firestore client is offline.", error);
+        // Potentially show a less intrusive toast or just log, as main user data might still be available.
+      } else {
+        console.error("Error fetching assessed orders from Firestore:", error);
       }
     });
+
 
     return () => {
       unsubscribeUsers();
       unsubscribeAssessedOrders();
     };
-  }, [seedDefaultManager, toast, logoutCallback]);
+  }, [seedDefaultManager, toast, logoutCallback, allUsersList, user]); // Added allUsersList and user to dependency array
 
 
   const signup = useCallback(async (username: string, mockPasswordNew: string, role: UserRole) => {
@@ -439,60 +480,65 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const usersRef = collection(db, "users");
     const userDocId = username.toLowerCase();
     const userDocRef = doc(db, "users", userDocId);
-    const userDocSnap = await getDoc(userDocRef);
-
-
-    if (userDocSnap.exists()) {
-      toast({ title: "Sign Up Failed", description: "Username already taken. Please choose another.", variant: "destructive" });
-      setIsLoading(false);
-      return;
-    }
-
-    const isCustomer = role === 'customer';
-    const isSupplierOrTransporter = role === 'supplier' || role === 'transporter';
-
-    const newUserFirestoreData: StoredUser = {
-      name: username,
-      role,
-      mockPassword: mockPasswordNew,
-      isApproved: isCustomer,
-      isSuspended: false,
-      address: '',
-      ethereumAddress: '',
-      shippingRates: role === 'transporter' ? { tier1_0_100_km_price: 0, tier2_101_500_km_price_per_km: 0, tier3_501_1000_km_price_per_km: 0} : undefined,
-    };
-
+    
     try {
-      await setDoc(userDocRef, newUserFirestoreData);
-      const newUser: User = {
-        id: userDocRef.id,
-        name: newUserFirestoreData.name,
-        role: newUserFirestoreData.role,
-        isApproved: newUserFirestoreData.isApproved,
-        isSuspended: newUserFirestoreData.isSuspended,
-        address: newUserFirestoreData.address,
-        ethereumAddress: newUserFirestoreData.ethereumAddress,
-        shippingRates: newUserFirestoreData.shippingRates,
-        
-        supplierWeightedRatingSum: 0,
-        supplierTotalWeights: 0,
-        supplierRatingCount: 0,
-      };
+        const userDocSnap = await getDoc(userDocRef);
 
-      if (isCustomer) {
-        setUser(newUser);
-        localStorage.setItem(CURRENT_USER_STORAGE_KEY, JSON.stringify(newUser));
-        toast({ title: "Sign Up Successful!", description: `Welcome, ${username}! Your ${role} account is active and you are now logged in.` });
-      } else if (isSupplierOrTransporter) {
-        toast({ title: "Sign Up Successful!", description: `Account for ${username} (${role}) created. Awaiting manager approval.` });
-      }
-    } catch (error) {
-      console.error("Error adding user to Firestore: ", error);
-      toast({ title: "Sign Up Error", description: "Could not create account. Please try again.", variant: "destructive"});
+        if (userDocSnap.exists()) {
+          toast({ title: "Sign Up Failed", description: "Username already taken. Please choose another.", variant: "destructive" });
+          setIsLoading(false);
+          return;
+        }
+
+        const isCustomer = role === 'customer';
+        const isSupplierOrTransporter = role === 'supplier' || role === 'transporter';
+
+        const newUserFirestoreData: StoredUser = {
+          name: username,
+          role,
+          mockPassword: mockPasswordNew,
+          isApproved: isCustomer,
+          isSuspended: false,
+          address: '',
+          ethereumAddress: '',
+          shippingRates: role === 'transporter' ? { tier1_0_100_km_price: 0, tier2_101_500_km_price_per_km: 0, tier3_501_1000_km_price_per_km: 0} : undefined,
+        };
+
+        await setDoc(userDocRef, newUserFirestoreData);
+        const newUser: User = {
+          id: userDocRef.id,
+          name: newUserFirestoreData.name,
+          role: newUserFirestoreData.role,
+          isApproved: newUserFirestoreData.isApproved,
+          isSuspended: newUserFirestoreData.isSuspended,
+          address: newUserFirestoreData.address,
+          ethereumAddress: newUserFirestoreData.ethereumAddress,
+          shippingRates: newUserFirestoreData.shippingRates,
+          
+          supplierWeightedRatingSum: 0,
+          supplierTotalWeights: 0,
+          supplierRatingCount: 0,
+        };
+
+        if (isCustomer) {
+          setUser(newUser);
+          localStorage.setItem(CURRENT_USER_STORAGE_KEY, JSON.stringify(newUser));
+          toast({ title: "Sign Up Successful!", description: `Welcome, ${username}! Your ${role} account is active and you are now logged in.` });
+        } else if (isSupplierOrTransporter) {
+          toast({ title: "Sign Up Successful!", description: `Account for ${username} (${role}) created. Awaiting manager approval.` });
+        }
+    } catch (error: any) {
+        if (error instanceof FirestoreError && (error.code === 'unavailable' || error.message.includes('offline'))) {
+            console.warn("AuthContext: Signup failed as Firestore client is offline.", error);
+            toast({ title: "Network Issue", description: "Could not create account. Firebase is offline. Please try again later.", variant: "destructive", duration: 7000});
+        } else {
+            console.error("Error adding user to Firestore: ", error);
+            toast({ title: "Sign Up Error", description: "Could not create account. Please try again.", variant: "destructive"});
+        }
     } finally {
       setIsLoading(false);
     }
-  }, [toast]); // db is not a direct dependency here as it's checked upfront.
+  }, [toast]); 
 
   const login = useCallback(async (username: string, mockPasswordAttempt: string) => {
     if (!db) {
@@ -506,34 +552,49 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsLoading(true);
 
     const userDocId = username.toLowerCase();
-    const potentialUser = allUsersList.find(u => u.id === userDocId || u.name.toLowerCase() === userDocId);
+    // Prioritize allUsersList if available and populated
+    const potentialUserFromList = allUsersList.find(u => u.id === userDocId || u.name.toLowerCase() === userDocId);
 
-    if (potentialUser) {
-        const userRef = doc(db, "users", potentialUser.id);
-        const userSnap = await getDoc(userRef);
-        if (userSnap.exists()) {
-            const storedUserDocData = userSnap.data() as StoredUser;
-            if (storedUserDocData.mockPassword === mockPasswordAttempt) {
-                if (potentialUser.isSuspended) {
-                    toast({ title: "Account Suspended", description: "Your account has been suspended due to low ratings. Please contact support.", variant: "destructive", duration: 10000 });
-                    setUser(null);
-                    localStorage.removeItem(CURRENT_USER_STORAGE_KEY);
-                } else if ((potentialUser.role === 'supplier' || potentialUser.role === 'transporter') && !potentialUser.isApproved) {
-                    toast({ title: "Login Blocked", description: "Your account as a " + potentialUser.role + " is awaiting manager approval.", variant: "destructive", duration: 7000 });
-                    setUser(null);
-                    localStorage.removeItem(CURRENT_USER_STORAGE_KEY);
+    if (potentialUserFromList) {
+        // To ensure we have the mockPassword, which is not in `User` type from allUsersList, fetch the doc
+        const userRef = doc(db, "users", potentialUserFromList.id);
+        try {
+            const userSnap = await getDoc(userRef);
+            if (userSnap.exists()) {
+                const storedUserDocData = userSnap.data() as StoredUser;
+                if (storedUserDocData.mockPassword === mockPasswordAttempt) {
+                    const userToLogin = { ...potentialUserFromList }; // Use the enriched user from allUsersList
+
+                    if (userToLogin.isSuspended) {
+                        toast({ title: "Account Suspended", description: "Your account has been suspended due to low ratings. Please contact support.", variant: "destructive", duration: 10000 });
+                        setUser(null);
+                        localStorage.removeItem(CURRENT_USER_STORAGE_KEY);
+                    } else if ((userToLogin.role === 'supplier' || userToLogin.role === 'transporter') && !userToLogin.isApproved) {
+                        toast({ title: "Login Blocked", description: "Your account as a " + userToLogin.role + " is awaiting manager approval.", variant: "destructive", duration: 7000 });
+                        setUser(null);
+                        localStorage.removeItem(CURRENT_USER_STORAGE_KEY);
+                    } else {
+                        setUser(userToLogin); 
+                        localStorage.setItem(CURRENT_USER_STORAGE_KEY, JSON.stringify(userToLogin));
+                        toast({ title: "Login Successful!", description: `Welcome back, ${userToLogin.name}!` });
+                    }
                 } else {
-                    setUser(potentialUser); 
-                    localStorage.setItem(CURRENT_USER_STORAGE_KEY, JSON.stringify(potentialUser));
-                    toast({ title: "Login Successful!", description: `Welcome back, ${potentialUser.name}!` });
+                     toast({ title: "Login Failed", description: "Invalid username or password.", variant: "destructive" });
                 }
             } else {
-                 toast({ title: "Login Failed", description: "Invalid username or password.", variant: "destructive" });
+                toast({ title: "Login Failed", description: "User data not found in DB (user in list but not in DB).", variant: "destructive" });
             }
-        } else {
-            toast({ title: "Login Failed", description: "User data not found in DB (should not happen if found in allUsersList).", variant: "destructive" });
+        } catch (error: any) {
+            if (error instanceof FirestoreError && (error.code === 'unavailable' || error.message.includes('offline'))) {
+                console.warn("AuthContext: Login failed as Firestore client is offline.", error);
+                toast({ title: "Network Issue", description: "Could not log in. Firebase is offline. Please try again later.", variant: "destructive", duration: 7000});
+            } else {
+                console.error("Error fetching user for login:", error);
+                toast({ title: "Login Error", description: "An error occurred while trying to log in.", variant: "destructive" });
+            }
         }
     } else {
+        // Fallback to direct query if allUsersList is empty or user not found (e.g., during initial load race condition)
         const usersRef = collection(db, "users");
         const q = query(usersRef, where("name", "==", username));
         try {
@@ -554,6 +615,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                         address: userDataFromDB.address || '',
                         ethereumAddress: userDataFromDB.ethereumAddress || '',
                         shippingRates: userDataFromDB.shippingRates,
+                        // Rating fields might be stale here if allUsersList wasn't populated yet
                     };
 
                     if (loggedInUser.isSuspended) {
@@ -573,9 +635,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                     toast({ title: "Login Failed", description: "Invalid username or password (pass mismatch).", variant: "destructive" });
                 }
             }
-        } catch (error) {
-            console.error("Error during login query: ", error);
-            toast({ title: "Login Error", description: "An error occurred. Please try again.", variant: "destructive"});
+        } catch (error: any) {
+            if (error instanceof FirestoreError && (error.code === 'unavailable' || error.message.includes('offline'))) {
+                 console.warn("AuthContext: Login query failed as Firestore client is offline.", error);
+                toast({ title: "Network Issue", description: "Could not log in. Firebase is offline. Please try again later.", variant: "destructive", duration: 7000});
+            } else {
+                console.error("Error during login query: ", error);
+                toast({ title: "Login Error", description: "An error occurred. Please try again.", variant: "destructive"});
+            }
         }
     }
     setIsLoading(false);
@@ -595,11 +662,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       await updateDoc(userDocRef, { isApproved: true });
       toast({ title: "User Approved", description: `User has been approved.` });
-    } catch (error) {
-      console.error("Error approving user: ", error);
-      toast({ title: "Error", description: "Could not approve user. Please try again.", variant: "destructive" });
+    } catch (error: any) {
+      if (error instanceof FirestoreError && (error.code === 'unavailable' || error.message.includes('offline'))) {
+        console.warn("AuthContext: Approving user failed as Firestore client is offline.", error);
+        toast({ title: "Network Issue", description: "Could not approve user. Firebase is offline.", variant: "destructive", duration: 7000});
+      } else {
+        console.error("Error approving user: ", error);
+        toast({ title: "Error", description: "Could not approve user. Please try again.", variant: "destructive" });
+      }
     }
-  }, [user, toast]); // db is not a direct dependency
+  }, [user, toast]); 
 
   const addManager = useCallback(async (newManagerUsername: string, newManagerPassword: string): Promise<boolean> => {
     if (!db) {
@@ -617,32 +689,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const managerDocId = newManagerUsername.toLowerCase();
     const managerDocRef = doc(db, "users", managerDocId);
-    const managerDocSnap = await getDoc(managerDocRef);
-
-    if (managerDocSnap.exists()) {
-      toast({ title: "Creation Failed", description: "Username already taken. Please choose another.", variant: "destructive" });
-      return false;
-    }
-
-    const newManagerData: StoredUser = {
-      name: newManagerUsername,
-      mockPassword: newManagerPassword,
-      role: 'manager',
-      isApproved: true,
-      isSuspended: false,
-      address: '1 Admin Way, Suite M, Management City',
-      ethereumAddress: `0xNewManager${Date.now().toString(16)}`,
-    };
+    
     try {
-      await setDoc(managerDocRef, newManagerData);
-      toast({ title: "Manager Created", description: `Manager account for ${newManagerUsername} created successfully.` });
-      return true;
-    } catch (error) {
-      console.error("Error creating new manager: ", error);
-      toast({ title: "Creation Error", description: "Could not create manager account.", variant: "destructive"});
+        const managerDocSnap = await getDoc(managerDocRef);
+
+        if (managerDocSnap.exists()) {
+          toast({ title: "Creation Failed", description: "Username already taken. Please choose another.", variant: "destructive" });
+          return false;
+        }
+
+        const newManagerData: StoredUser = {
+          name: newManagerUsername,
+          mockPassword: newManagerPassword,
+          role: 'manager',
+          isApproved: true,
+          isSuspended: false,
+          address: '1 Admin Way, Suite M, Management City',
+          ethereumAddress: `0xNewManager${Date.now().toString(16)}`,
+        };
+        await setDoc(managerDocRef, newManagerData);
+        toast({ title: "Manager Created", description: `Manager account for ${newManagerUsername} created successfully.` });
+        return true;
+    } catch (error: any) {
+      if (error instanceof FirestoreError && (error.code === 'unavailable' || error.message.includes('offline'))) {
+        console.warn("AuthContext: Adding manager failed as Firestore client is offline.", error);
+        toast({ title: "Network Issue", description: "Could not create manager. Firebase is offline.", variant: "destructive", duration: 7000});
+      } else {
+        console.error("Error creating new manager: ", error);
+        toast({ title: "Creation Error", description: "Could not create manager account.", variant: "destructive"});
+      }
       return false;
     }
-  }, [user, toast]); // db is not a direct dependency
+  }, [user, toast]); 
 
   const updateUserProfile = useCallback(async (userId: string, data: { address?: string; ethereumAddress?: string }): Promise<boolean> => {
     if (!db) {
@@ -671,12 +749,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         await updateDoc(userDocRef, updatePayload);
         toast({ title: "Profile Updated", description: "Your profile information has been successfully updated." });
         return true;
-    } catch (error) {
-        console.error("Error updating user profile:", error);
-        toast({ title: "Update Error", description: "Could not update your profile.", variant: "destructive"});
+    } catch (error: any) {
+        if (error instanceof FirestoreError && (error.code === 'unavailable' || error.message.includes('offline'))) {
+            console.warn("AuthContext: Updating profile failed as Firestore client is offline.", error);
+            toast({ title: "Network Issue", description: "Could not update profile. Firebase is offline.", variant: "destructive", duration: 7000});
+        } else {
+            console.error("Error updating user profile:", error);
+            toast({ title: "Update Error", description: "Could not update your profile.", variant: "destructive"});
+        }
         return false;
     }
-  }, [user, toast]); // db is not a direct dependency
+  }, [user, toast]); 
 
   const updateTransporterShippingRates = useCallback(async (userId: string, rates: UserShippingRates): Promise<boolean> => {
     if (!db) {
@@ -692,12 +775,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await updateDoc(userDocRef, { shippingRates: rates });
       toast({ title: "Shipping Rates Updated", description: "Your shipping rates have been successfully updated."});
       return true;
-    } catch (error) {
-      console.error("Error updating shipping rates: ", error);
-      toast({ title: "Update Error", description: "Could not update shipping rates.", variant: "destructive"});
+    } catch (error: any) {
+      if (error instanceof FirestoreError && (error.code === 'unavailable' || error.message.includes('offline'))) {
+        console.warn("AuthContext: Updating shipping rates failed as Firestore client is offline.", error);
+        toast({ title: "Network Issue", description: "Could not update shipping rates. Firebase is offline.", variant: "destructive", duration: 7000});
+      } else {
+        console.error("Error updating shipping rates: ", error);
+        toast({ title: "Update Error", description: "Could not update shipping rates.", variant: "destructive"});
+      }
       return false;
     }
-  }, [user, toast]); // db is not a direct dependency
+  }, [user, toast]); 
 
 
   return (
@@ -726,6 +814,3 @@ export function useAuth() {
   }
   return context;
 }
-
-
-    
