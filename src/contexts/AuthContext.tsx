@@ -16,7 +16,8 @@ import {
   onSnapshot,
   setDoc,
   getDoc,
-  FirestoreError
+  FirestoreError, // Import FirestoreError
+  serverTimestamp
 } from 'firebase/firestore';
 import type { StoredOrder, OrderStatus } from '@/types/transaction'; // Added OrderStatus
 
@@ -86,7 +87,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const seedDefaultManager = useCallback(async () => {
     if (!db) { 
-      console.warn("AuthContext: Firestore (db) is not available. Skipping seedDefaultManager.");
+      console.info("AuthContext: Firestore (db) is not available for seedDefaultManager. Skipping.");
       return;
     }
     const usersRef = collection(db, "users");
@@ -128,8 +129,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       }
     } catch (error: any) {
-        if (error instanceof FirestoreError && (error.code === 'unavailable' || error.message.includes('offline'))) {
-            console.warn("AuthContext: seedDefaultManager failed as Firestore client is offline.", error);
+        if (error instanceof FirestoreError && (error.code === 'unavailable' || error.message.includes('client is offline'))) {
+            console.info("AuthContext: seedDefaultManager failed as Firestore client is offline.", error.message);
             toast({ title: "Network Issue", description: "Could not connect to Firebase to verify manager data. Some functions may be limited.", variant: "destructive", duration: 7000});
         } else {
             console.error("Error in seedDefaultManager:", error);
@@ -148,21 +149,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsLoading(true);
     setIsLoadingUsers(true);
 
-    if (!db) {
-      console.error("AuthContext: Firestore (db) is not initialized. Firebase configuration might be missing or incorrect. User authentication and data fetching will not work.");
-      toast({
-        title: "Firebase Not Configured",
-        description: "Essential Firebase services are not available. Please check configuration and restart.",
-        variant: "destructive",
-        duration: 15000,
-      });
-      setIsLoading(false);
-      setIsLoadingUsers(false);
-      setUser(null); 
-      localStorage.removeItem(CURRENT_USER_STORAGE_KEY); 
-      return; 
-    }
-
     let storedUser: User | null = null;
     try {
       const storedCurrentUserJson = localStorage.getItem(CURRENT_USER_STORAGE_KEY);
@@ -174,15 +160,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       localStorage.removeItem(CURRENT_USER_STORAGE_KEY);
     }
 
-    // Attempt to seed manager, handling offline errors internally
-    seedDefaultManager();
-
-    const allOrdersQuery = query(collection(db, "orders"));
-    let allOrderDocsForHistory: StoredOrder[] = [];
     const customerSupplierPurchaseCount = new Map<string, Map<string, number>>();
 
     const fetchAllOrdersForHistory = async () => {
-      if (!db) return; 
+      if (!db) {
+          console.info("AuthContext: Firestore (db) not available for fetchAllOrdersForHistory. Skipping.");
+          return;
+      }
+      const allOrdersQuery = query(collection(db, "orders"));
+      let allOrderDocsForHistory: StoredOrder[] = [];
       try {
         const allOrdersSnap = await getDocs(allOrdersQuery);
         allOrderDocsForHistory = [];
@@ -200,266 +186,261 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             }
         });
       } catch (error: any) {
-        if (error instanceof FirestoreError && (error.code === 'unavailable' || error.message.includes('offline'))) {
-            console.warn("AuthContext: fetchAllOrdersForHistory failed as Firestore client is offline.", error);
+        if (error instanceof FirestoreError && (error.code === 'unavailable' || error.message.includes('client is offline'))) {
+            console.info("AuthContext: fetchAllOrdersForHistory failed as Firestore client is offline.", error.message);
             toast({ title: "Network Issue", description: "Could not fetch order history for rating calculation. Firebase is offline.", variant: "destructive", duration: 7000});
         } else {
             console.error("Error in fetchAllOrdersForHistory:", error);
             toast({ title: "Order History Error", description: "Could not fetch order history for rating calculation.", variant: "destructive"});
         }
-        allOrderDocsForHistory = [];
-        customerSupplierPurchaseCount.clear();
+        allOrderDocsForHistory = []; // Ensure it's cleared on error
+        customerSupplierPurchaseCount.clear(); // Ensure it's cleared on error
       }
     };
 
-    const usersQuery = query(collection(db, "users"));
-    const unsubscribeUsers = onSnapshot(usersQuery, async (querySnapshot) => {
-      if (!db) { 
-        setIsLoadingUsers(false);
-        setIsLoading(false);
-        return;
-      }
-      try {
-        await fetchAllOrdersForHistory();
 
-        const baseUsers: User[] = [];
-        querySnapshot.forEach((docSnapshot) => {
-          const data = docSnapshot.data() as StoredUser;
-          baseUsers.push({
-              id: docSnapshot.id,
-              name: data.name,
-              role: data.role,
-              isApproved: data.isApproved,
-              address: data.address,
-              ethereumAddress: data.ethereumAddress || '',
-              isSuspended: data.isSuspended ?? false,
-              shippingRates: data.shippingRates
+    const initializeAuthContext = async () => {
+        if (!db) {
+          console.error("AuthContext: Firestore (db) is not initialized. Firebase configuration might be missing or incorrect. User authentication and data fetching will not work.");
+          toast({
+            title: "Firebase Not Configured",
+            description: "Essential Firebase services are not available. Please check configuration and restart. App functionality will be severely limited.",
+            variant: "destructive",
+            duration: 15000,
           });
-        });
+          setIsLoading(false);
+          setIsLoadingUsers(false);
+          setUser(null); 
+          localStorage.removeItem(CURRENT_USER_STORAGE_KEY); 
+          return () => {}; // Return an empty function for cleanup
+        }
 
-        const ordersRef = collection(db, "orders");
-        const assessedOrdersQueryForThisSnapshot = query(ordersRef, where("assessmentSubmitted", "==", true));
-        const assessedOrdersSnap = await getDocs(assessedOrdersQueryForThisSnapshot);
+        try {
+            await seedDefaultManager(); // Await this important setup step
 
-        const supplierWeightedRatingSumMap: Record<string, number> = {};
-        const supplierTotalWeightsMap: Record<string, number> = {};
-        const supplierRatingCountMap: Record<string, number> = {};
-        const transporterRatingsMap: Record<string, { total: number; count: number }> = {};
+            const usersQuery = query(collection(db, "users"));
+            const unsubscribeUsers = onSnapshot(usersQuery, async (querySnapshot) => {
+              try {
+                await fetchAllOrdersForHistory(); // Fetch latest orders before processing users
 
+                const baseUsers: User[] = [];
+                querySnapshot.forEach((docSnapshot) => {
+                  const data = docSnapshot.data() as StoredUser;
+                  baseUsers.push({
+                      id: docSnapshot.id, name: data.name, role: data.role, isApproved: data.isApproved,
+                      address: data.address, ethereumAddress: data.ethereumAddress || '',
+                      isSuspended: data.isSuspended ?? false, shippingRates: data.shippingRates
+                  });
+                });
 
-        assessedOrdersSnap.forEach(orderDoc => {
-          const orderData = orderDoc.data() as StoredOrder;
+                const ordersRef = collection(db, "orders");
+                const assessedOrdersQueryForThisSnapshot = query(ordersRef, where("assessmentSubmitted", "==", true));
+                const assessedOrdersSnap = await getDocs(assessedOrdersQueryForThisSnapshot);
 
-          if (orderData.supplierId && typeof orderData.supplierRating === 'number' && orderData.customerId) {
-            const purchaseCount = customerSupplierPurchaseCount.get(orderData.customerId)?.get(orderData.supplierId) || 0;
-            let weight = 0.05;
-            if (purchaseCount > 10) {
-              weight = 0.80;
-            } else if (purchaseCount >= 2) {
-              weight = 0.15;
-            }
-            
-            supplierWeightedRatingSumMap[orderData.supplierId] = (supplierWeightedRatingSumMap[orderData.supplierId] || 0) + (orderData.supplierRating * weight);
-            supplierTotalWeightsMap[orderData.supplierId] = (supplierTotalWeightsMap[orderData.supplierId] || 0) + weight;
-            supplierRatingCountMap[orderData.supplierId] = (supplierRatingCountMap[orderData.supplierId] || 0) + 1;
-          }
+                const supplierWeightedRatingSumMap: Record<string, number> = {};
+                const supplierTotalWeightsMap: Record<string, number> = {};
+                const supplierRatingCountMap: Record<string, number> = {};
+                const transporterRatingsMap: Record<string, { total: number; count: number }> = {};
 
-          if (orderData.transporterId && typeof orderData.transporterRating === 'number') {
-            transporterRatingsMap[orderData.transporterId] = transporterRatingsMap[orderData.transporterId] || { total: 0, count: 0 };
-            transporterRatingsMap[orderData.transporterId].total += orderData.transporterRating;
-            transporterRatingsMap[orderData.transporterId].count += 1;
-          }
-        });
+                assessedOrdersSnap.forEach(orderDoc => {
+                  const orderData = orderDoc.data() as StoredOrder;
+                  if (orderData.supplierId && typeof orderData.supplierRating === 'number' && orderData.customerId) {
+                    const purchaseCount = customerSupplierPurchaseCount.get(orderData.customerId)?.get(orderData.supplierId) || 0;
+                    let weight = 0.05; // Default for first purchase
+                    if (purchaseCount > 10) weight = 0.80;
+                    else if (purchaseCount >= 2) weight = 0.15;
+                    
+                    supplierWeightedRatingSumMap[orderData.supplierId] = (supplierWeightedRatingSumMap[orderData.supplierId] || 0) + (orderData.supplierRating * weight);
+                    supplierTotalWeightsMap[orderData.supplierId] = (supplierTotalWeightsMap[orderData.supplierId] || 0) + weight;
+                    supplierRatingCountMap[orderData.supplierId] = (supplierRatingCountMap[orderData.supplierId] || 0) + 1;
+                  }
+                  if (orderData.transporterId && typeof orderData.transporterRating === 'number') {
+                    transporterRatingsMap[orderData.transporterId] = transporterRatingsMap[orderData.transporterId] || { total: 0, count: 0 };
+                    transporterRatingsMap[orderData.transporterId].total += orderData.transporterRating;
+                    transporterRatingsMap[orderData.transporterId].count += 1;
+                  }
+                });
 
-        const enrichedUsersPromises = baseUsers.map(async (u) => {
-          let userWithRatings = { ...u } as User;
+                const enrichedUsersPromises = baseUsers.map(async (u) => {
+                  let userWithRatings = { ...u } as User;
+                  const sWeightedRatingSum = supplierWeightedRatingSumMap[u.id] || 0;
+                  const sTotalWeights = supplierTotalWeightsMap[u.id] || 0;
+                  const sRatingCount = supplierRatingCountMap[u.id] || 0;
+                  userWithRatings.supplierWeightedRatingSum = sWeightedRatingSum;
+                  userWithRatings.supplierTotalWeights = sTotalWeights;
+                  userWithRatings.averageSupplierRating = sTotalWeights > 0 ? sWeightedRatingSum / sTotalWeights : undefined;
+                  userWithRatings.supplierRatingCount = sRatingCount;
 
-          const sWeightedRatingSum = supplierWeightedRatingSumMap[u.id] || 0;
-          const sTotalWeights = supplierTotalWeightsMap[u.id] || 0;
-          const sRatingCount = supplierRatingCountMap[u.id] || 0;
+                  const tRatingData = transporterRatingsMap[u.id];
+                  userWithRatings.averageTransporterRating = tRatingData && tRatingData.count > 0 ? tRatingData.total / tRatingData.count : undefined;
+                  userWithRatings.transporterRatingCount = tRatingData ? tRatingData.count : 0;
 
-          userWithRatings.supplierWeightedRatingSum = sWeightedRatingSum;
-          userWithRatings.supplierTotalWeights = sTotalWeights;
-          userWithRatings.averageSupplierRating = sTotalWeights > 0 ? sWeightedRatingSum / sTotalWeights : undefined;
-          userWithRatings.supplierRatingCount = sRatingCount;
+                  let shouldSuspend = false;
+                  if (u.role === 'supplier' && userWithRatings.supplierRatingCount >= MIN_RATINGS_FOR_SUSPENSION && userWithRatings.averageSupplierRating !== undefined && userWithRatings.averageSupplierRating < RATING_THRESHOLD_FOR_SUSPENSION) shouldSuspend = true;
+                  if (u.role === 'transporter' && userWithRatings.transporterRatingCount >= MIN_RATINGS_FOR_SUSPENSION && userWithRatings.averageTransporterRating !== undefined && userWithRatings.averageTransporterRating < RATING_THRESHOLD_FOR_SUSPENSION) shouldSuspend = true;
+                  
+                  if (shouldSuspend && !userWithRatings.isSuspended) {
+                    userWithRatings.isSuspended = true;
+                    try {
+                      await updateDoc(doc(db, "users", u.id), { isSuspended: true });
+                      console.log(`User ${u.name} (${u.id}) automatically suspended due to low ratings.`);
+                      toast({ title: user?.id === u.id ? "Account Suspended" : "User Suspended", description: `${user?.id === u.id ? 'Your account has' : `User ${u.name} has`} been automatically suspended due to consistently low ratings.`, variant: "destructive", duration: 10000});
+                    } catch (suspendError) { console.error(`Failed to update suspension for user ${u.id}:`, suspendError); }
+                  }
+                  return userWithRatings;
+                });
 
-          const tRatingData = transporterRatingsMap[u.id];
-          userWithRatings.averageTransporterRating = tRatingData && tRatingData.count > 0 ? tRatingData.total / tRatingData.count : undefined;
-          userWithRatings.transporterRatingCount = tRatingData ? tRatingData.count : 0;
+                const enrichedUsers = await Promise.all(enrichedUsersPromises);
+                setAllUsersList(enrichedUsers);
 
-          let shouldSuspend = false;
-          if (u.role === 'supplier' && userWithRatings.supplierRatingCount >= MIN_RATINGS_FOR_SUSPENSION && userWithRatings.averageSupplierRating !== undefined && userWithRatings.averageSupplierRating < RATING_THRESHOLD_FOR_SUSPENSION) {
-            shouldSuspend = true;
-          }
-          if (u.role === 'transporter' && userWithRatings.transporterRatingCount >= MIN_RATINGS_FOR_SUSPENSION && userWithRatings.averageTransporterRating !== undefined && userWithRatings.averageTransporterRating < RATING_THRESHOLD_FOR_SUSPENSION) {
-            shouldSuspend = true;
-          }
-
-          if (shouldSuspend && !userWithRatings.isSuspended) {
-            userWithRatings.isSuspended = true;
-            try {
-              await updateDoc(doc(db, "users", u.id), { isSuspended: true });
-              console.log(`User ${u.name} (${u.id}) automatically suspended due to low ratings.`);
-              if (user?.id === u.id) { 
-                   toast({ title: "Account Suspended", description: `Your account has been automatically suspended due to consistently low ratings.`, variant: "destructive", duration: 10000});
+                if (storedUser) {
+                  const latestUserData = enrichedUsers.find(u => u.id === storedUser!.id);
+                  if (latestUserData && JSON.stringify(latestUserData) !== JSON.stringify(storedUser)) {
+                    setUser(latestUserData);
+                    localStorage.setItem(CURRENT_USER_STORAGE_KEY, JSON.stringify(latestUserData));
+                  } else if (latestUserData) {
+                      setUser(latestUserData);
+                  } else {
+                      logoutCallback(); 
+                  }
+                } else {
+                  setUser(null);
+                }
+              } catch (innerError: any) {
+                 if (innerError instanceof FirestoreError && (innerError.code === 'unavailable' || innerError.message.includes('client is offline'))) {
+                    console.info("AuthContext: User data snapshot processing failed as Firestore client is offline.", innerError.message);
+                    toast({ title: "Network Issue", description: "Could not update user data. Firebase is offline.", variant: "destructive", duration: 7000});
+                } else {
+                    console.error("Error processing user data snapshot:", innerError);
+                    toast({ title: "Data Processing Error", description: "Failed to process user data.", variant: "destructive" });
+                }
+                if (!storedUser) setUser(null);
+              } finally {
+                setIsLoadingUsers(false);
+                setIsLoading(false); // Overall loading done once users (even if empty/error) are processed
+              }
+            }, (error) => {
+              if (error instanceof FirestoreError && (error.code === 'unavailable' || error.message.includes('client is offline'))) {
+                console.info("AuthContext: onSnapshot listener for users failed as Firestore client is offline.", error.message);
+                toast({ title: "Network Issue", description: "Could not connect to Firebase for live user updates. Some functions may be limited.", variant: "destructive", duration: 10000});
               } else {
-                   toast({ title: "User Suspended", description: `User ${u.name} has been automatically suspended due to consistently low ratings.`, variant: "destructive", duration: 10000});
+                console.error("Error fetching users from Firestore (onSnapshot):", error);
+                toast({ title: "Error Loading Users", description: error.message, variant: "destructive"});
               }
-            } catch (error) {
-              console.error(`Failed to update suspension status for user ${u.id}:`, error);
-            }
-          }
-          return userWithRatings;
-        });
-
-        const enrichedUsers = await Promise.all(enrichedUsersPromises);
-        setAllUsersList(enrichedUsers);
-
-        if (storedUser) {
-          const latestUserData = enrichedUsers.find(u => u.id === storedUser!.id);
-          if (latestUserData && JSON.stringify(latestUserData) !== JSON.stringify(storedUser)) {
-            setUser(latestUserData);
-            localStorage.setItem(CURRENT_USER_STORAGE_KEY, JSON.stringify(latestUserData));
-          } else if (latestUserData) {
-              setUser(latestUserData);
-          } else {
-              logoutCallback(); 
-          }
-        } else {
-          setUser(null);
-        }
-      } catch (innerError: any) {
-         if (innerError instanceof FirestoreError && (innerError.code === 'unavailable' || innerError.message.includes('offline'))) {
-            console.warn("AuthContext: User data snapshot processing failed as Firestore client is offline.", innerError);
-            toast({ title: "Network Issue", description: "Could not update user data. Firebase is offline.", variant: "destructive", duration: 7000});
-        } else {
-            console.error("Error processing user data snapshot:", innerError);
-            toast({ title: "Data Processing Error", description: "Failed to process user data.", variant: "destructive" });
-        }
-        if (!storedUser) { 
-            setUser(null);
-        }
-      } finally {
-        setIsLoadingUsers(false);
-        setIsLoading(false);
-      }
-    }, (error) => {
-      if (error instanceof FirestoreError && (error.code === 'unavailable' || error.message.includes('offline'))) {
-        console.warn("AuthContext: onSnapshot listener for users failed as Firestore client is offline.", error);
-        toast({ title: "Network Issue", description: "Could not connect to Firebase for live user updates. Some functions may be limited.", variant: "destructive", duration: 10000});
-      } else {
-        console.error("Error fetching users from Firestore:", error);
-        toast({ title: "Error Loading Users", description: error.message, variant: "destructive"});
-      }
-      setIsLoadingUsers(false);
-      setIsLoading(false);
-    });
-
-    const assessedOrdersListenerQuery = query(collection(db, "orders"), where("assessmentSubmitted", "==", true));
-    const unsubscribeAssessedOrders = onSnapshot(assessedOrdersListenerQuery, async (snapshot) => {
-      if (!db) return; 
-      try {
-        if (allUsersList.length > 0) {
-            console.log("New assessment submitted or initial load of assessed orders, recalculating ratings...");
-            
-            await fetchAllOrdersForHistory();
-            const baseUsersForAssessmentUpdate = [...allUsersList]; 
-
-            const supplierWeightedRatingSumMap: Record<string, number> = {};
-            const supplierTotalWeightsMap: Record<string, number> = {};
-            const supplierRatingCountMap: Record<string, number> = {};
-            const transporterRatingsMap: Record<string, { total: number; count: number }> = {};
-
-            snapshot.forEach(orderDoc => {
-              const orderData = orderDoc.data() as StoredOrder;
-              if (orderData.supplierId && typeof orderData.supplierRating === 'number' && orderData.customerId) {
-                const purchaseCount = customerSupplierPurchaseCount.get(orderData.customerId)?.get(orderData.supplierId) || 0;
-                let weight = 0.05;
-                if (purchaseCount > 10) weight = 0.80;
-                else if (purchaseCount >= 2) weight = 0.15;
-                supplierWeightedRatingSumMap[orderData.supplierId] = (supplierWeightedRatingSumMap[orderData.supplierId] || 0) + (orderData.supplierRating * weight);
-                supplierTotalWeightsMap[orderData.supplierId] = (supplierTotalWeightsMap[orderData.supplierId] || 0) + weight;
-                supplierRatingCountMap[orderData.supplierId] = (supplierRatingCountMap[orderData.supplierId] || 0) + 1;
-              }
-              if (orderData.transporterId && typeof orderData.transporterRating === 'number') {
-                transporterRatingsMap[orderData.transporterId] = transporterRatingsMap[orderData.transporterId] || { total: 0, count: 0 };
-                transporterRatingsMap[orderData.transporterId].total += orderData.transporterRating;
-                transporterRatingsMap[orderData.transporterId].count += 1;
-              }
+              setIsLoadingUsers(false);
+              setIsLoading(false);
             });
 
-            const reEnrichedUsersPromises = baseUsersForAssessmentUpdate.map(async (u) => {
-              let userWithRatings = { ...u };
-              const sWeightedRatingSum = supplierWeightedRatingSumMap[u.id] || 0;
-              const sTotalWeights = supplierTotalWeightsMap[u.id] || 0;
-              const sRatingCount = supplierRatingCountMap[u.id] || 0;
-              userWithRatings.supplierWeightedRatingSum = sWeightedRatingSum;
-              userWithRatings.supplierTotalWeights = sTotalWeights;
-              userWithRatings.averageSupplierRating = sTotalWeights > 0 ? sWeightedRatingSum / sTotalWeights : undefined;
-              userWithRatings.supplierRatingCount = sRatingCount;
+            const assessedOrdersListenerQuery = query(collection(db, "orders"), where("assessmentSubmitted", "==", true));
+            const unsubscribeAssessedOrders = onSnapshot(assessedOrdersListenerQuery, async (snapshot) => {
+              try {
+                if (allUsersList.length > 0) { // Only run if base users are already loaded
+                    console.log("Assessment update detected, recalculating ratings...");
+                    await fetchAllOrdersForHistory(); // Refresh order counts
+                    const baseUsersForAssessmentUpdate = [...allUsersList]; 
 
-              const tRatingData = transporterRatingsMap[u.id];
-              userWithRatings.averageTransporterRating = tRatingData && tRatingData.count > 0 ? tRatingData.total / tRatingData.count : undefined;
-              userWithRatings.transporterRatingCount = tRatingData ? tRatingData.count : 0;
-              
-              let shouldSuspend = false;
-              if (userWithRatings.role === 'supplier' && userWithRatings.supplierRatingCount >= MIN_RATINGS_FOR_SUSPENSION && userWithRatings.averageSupplierRating !== undefined && userWithRatings.averageSupplierRating < RATING_THRESHOLD_FOR_SUSPENSION) {
-                shouldSuspend = true;
-              }
-              if (userWithRatings.role === 'transporter' && userWithRatings.transporterRatingCount >= MIN_RATINGS_FOR_SUSPENSION && userWithRatings.averageTransporterRating !== undefined && userWithRatings.averageTransporterRating < RATING_THRESHOLD_FOR_SUSPENSION) {
-                shouldSuspend = true;
-              }
-              if (shouldSuspend && !userWithRatings.isSuspended) {
-                userWithRatings.isSuspended = true;
-                 try {
-                    await updateDoc(doc(db, "users", u.id), { isSuspended: true });
-                    console.log(`User ${u.name} (${u.id}) automatically suspended due to low ratings (triggered by assessment update).`);
-                     if (user?.id === u.id) {
-                         toast({ title: "Account Suspended", description: `Your account has been automatically suspended due to consistently low ratings.`, variant: "destructive", duration: 10000});
-                    } else {
-                         toast({ title: "User Suspended", description: `User ${u.name} has been automatically suspended due to consistently low ratings.`, variant: "destructive", duration: 10000});
+                    const supplierWeightedRatingSumMap: Record<string, number> = {};
+                    const supplierTotalWeightsMap: Record<string, number> = {};
+                    const supplierRatingCountMap: Record<string, number> = {};
+                    const transporterRatingsMap: Record<string, { total: number; count: number }> = {};
+
+                    snapshot.forEach(orderDoc => {
+                      const orderData = orderDoc.data() as StoredOrder;
+                      if (orderData.supplierId && typeof orderData.supplierRating === 'number' && orderData.customerId) {
+                        const purchaseCount = customerSupplierPurchaseCount.get(orderData.customerId)?.get(orderData.supplierId) || 0;
+                        let weight = 0.05;
+                        if (purchaseCount > 10) weight = 0.80; else if (purchaseCount >= 2) weight = 0.15;
+                        supplierWeightedRatingSumMap[orderData.supplierId] = (supplierWeightedRatingSumMap[orderData.supplierId] || 0) + (orderData.supplierRating * weight);
+                        supplierTotalWeightsMap[orderData.supplierId] = (supplierTotalWeightsMap[orderData.supplierId] || 0) + weight;
+                        supplierRatingCountMap[orderData.supplierId] = (supplierRatingCountMap[orderData.supplierId] || 0) + 1;
+                      }
+                      if (orderData.transporterId && typeof orderData.transporterRating === 'number') {
+                        transporterRatingsMap[orderData.transporterId] = transporterRatingsMap[orderData.transporterId] || { total: 0, count: 0 };
+                        transporterRatingsMap[orderData.transporterId].total += orderData.transporterRating;
+                        transporterRatingsMap[orderData.transporterId].count += 1;
+                      }
+                    });
+
+                    const reEnrichedUsersPromises = baseUsersForAssessmentUpdate.map(async (u) => {
+                      let userWithRatings = { ...u };
+                      const sWeightedRatingSum = supplierWeightedRatingSumMap[u.id] || 0;
+                      const sTotalWeights = supplierTotalWeightsMap[u.id] || 0;
+                      const sRatingCount = supplierRatingCountMap[u.id] || 0;
+                      userWithRatings.supplierWeightedRatingSum = sWeightedRatingSum;
+                      userWithRatings.supplierTotalWeights = sTotalWeights;
+                      userWithRatings.averageSupplierRating = sTotalWeights > 0 ? sWeightedRatingSum / sTotalWeights : undefined;
+                      userWithRatings.supplierRatingCount = sRatingCount;
+
+                      const tRatingData = transporterRatingsMap[u.id];
+                      userWithRatings.averageTransporterRating = tRatingData && tRatingData.count > 0 ? tRatingData.total / tRatingData.count : undefined;
+                      userWithRatings.transporterRatingCount = tRatingData ? tRatingData.count : 0;
+                      
+                      let shouldSuspend = false;
+                      if (userWithRatings.role === 'supplier' && userWithRatings.supplierRatingCount >= MIN_RATINGS_FOR_SUSPENSION && userWithRatings.averageSupplierRating !== undefined && userWithRatings.averageSupplierRating < RATING_THRESHOLD_FOR_SUSPENSION) shouldSuspend = true;
+                      if (userWithRatings.role === 'transporter' && userWithRatings.transporterRatingCount >= MIN_RATINGS_FOR_SUSPENSION && userWithRatings.averageTransporterRating !== undefined && userWithRatings.averageTransporterRating < RATING_THRESHOLD_FOR_SUSPENSION) shouldSuspend = true;
+                      
+                      if (shouldSuspend && !userWithRatings.isSuspended) {
+                        userWithRatings.isSuspended = true;
+                        try {
+                           await updateDoc(doc(db, "users", u.id), { isSuspended: true });
+                           console.log(`User ${u.name} (${u.id}) automatically suspended (assessment listener).`);
+                           toast({ title: user?.id === u.id ? "Account Suspended" : "User Suspended", description: `${user?.id === u.id ? 'Your account has' : `User ${u.name} has`} been automatically suspended.`, variant: "destructive", duration: 10000});
+                         } catch (suspendError) { console.error(`Failed to update suspension for ${u.id} (assessment listener):`, suspendError); }
+                      }
+                      return userWithRatings;
+                    });
+                    const reEnrichedUsers = await Promise.all(reEnrichedUsersPromises);
+                    setAllUsersList(reEnrichedUsers); 
+                    
+                    if (user) { 
+                      const updatedCurrentUser = reEnrichedUsers.find(ru => ru.id === user.id);
+                      if (updatedCurrentUser && JSON.stringify(updatedCurrentUser) !== JSON.stringify(user)) { 
+                          setUser(updatedCurrentUser);
+                          localStorage.setItem(CURRENT_USER_STORAGE_KEY, JSON.stringify(updatedCurrentUser));
+                      }
                     }
-                  } catch (error) {
-                    console.error(`Failed to update suspension status for user ${u.id} (assessment listener):`, error);
+                }
+              } catch (assessmentError: any) {
+                  if (assessmentError instanceof FirestoreError && (assessmentError.code === 'unavailable' || assessmentError.message.includes('client is offline'))) {
+                    console.info("AuthContext: Assessed orders snapshot processing failed as Firestore client is offline.", assessmentError.message);
+                    toast({ title: "Network Issue", description: "Could not update ratings from new assessments. Firebase is offline.", variant: "destructive", duration: 7000});
+                  } else {
+                    console.error("Error processing assessed orders snapshot:", assessmentError);
+                    toast({ title: "Rating Update Error", description: "Failed to update ratings from new assessments.", variant: "destructive" });
                   }
               }
-              return userWithRatings;
-            });
-            const reEnrichedUsers = await Promise.all(reEnrichedUsersPromises);
-            setAllUsersList(reEnrichedUsers); 
-            
-            if (user) { 
-              const updatedCurrentUser = reEnrichedUsers.find(ru => ru.id === user.id);
-              if (updatedCurrentUser && JSON.stringify(updatedCurrentUser) !== JSON.stringify(user)) { 
-                  setUser(updatedCurrentUser);
-                  localStorage.setItem(CURRENT_USER_STORAGE_KEY, JSON.stringify(updatedCurrentUser));
+            }, (error) => {
+              if (error instanceof FirestoreError && (error.code === 'unavailable' || error.message.includes('client is offline'))) {
+                console.info("AuthContext: onSnapshot listener for assessed orders failed as Firestore client is offline.", error.message);
+              } else {
+                console.error("Error fetching assessed orders from Firestore (onSnapshot):", error);
               }
+            });
+
+            return () => {
+                unsubscribeUsers();
+                unsubscribeAssessedOrders();
+            };
+
+        } catch (error: any) {
+            if (error instanceof FirestoreError && (error.code === 'unavailable' || error.message.includes('client is offline'))) {
+                console.info(`AuthContext: Initialization (useEffect) failed as Firestore client is offline.`, error.message);
+                toast({ title: "Network Issue", description: `AuthContext initialization error: ${error.message}. Firebase might be offline.`, variant: "destructive", duration: 10000});
+            } else {
+                console.error('AuthContext: Unhandled error during initialization (useEffect):', error);
+                toast({ title: "Initialization Error", description: `An unexpected error occurred: ${error.message || 'Unknown error'}`, variant: "destructive" });
             }
+            setIsLoading(false);
+            setIsLoadingUsers(false);
+            setUser(null); // Ensure user is null if init fails
+            localStorage.removeItem(CURRENT_USER_STORAGE_KEY);
+            return () => {}; // Return an empty function for cleanup
         }
-      } catch (assessmentError: any) {
-          if (assessmentError instanceof FirestoreError && (assessmentError.code === 'unavailable' || assessmentError.message.includes('offline'))) {
-            console.warn("AuthContext: Assessed orders snapshot processing failed as Firestore client is offline.", assessmentError);
-            toast({ title: "Network Issue", description: "Could not update ratings based on new assessments. Firebase is offline.", variant: "destructive", duration: 7000});
-          } else {
-            console.error("Error processing assessed orders snapshot:", assessmentError);
-            toast({ title: "Rating Update Error", description: "Failed to update ratings based on new assessments.", variant: "destructive" });
-          }
-      }
-    }, (error) => {
-      if (error instanceof FirestoreError && (error.code === 'unavailable' || error.message.includes('offline'))) {
-        console.warn("AuthContext: onSnapshot listener for assessed orders failed as Firestore client is offline.", error);
-        // Potentially show a less intrusive toast or just log, as main user data might still be available.
-      } else {
-        console.error("Error fetching assessed orders from Firestore:", error);
-      }
-    });
-
-
-    return () => {
-      unsubscribeUsers();
-      unsubscribeAssessedOrders();
     };
-  }, [seedDefaultManager, toast, logoutCallback, allUsersList, user]); // Added allUsersList and user to dependency array
+
+    initializeAuthContext();
+
+  }, [toast, logoutCallback, allUsersList, user]);
 
 
   const signup = useCallback(async (username: string, mockPasswordNew: string, role: UserRole) => {
@@ -477,7 +458,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     setIsLoading(true);
-    const usersRef = collection(db, "users");
     const userDocId = username.toLowerCase();
     const userDocRef = doc(db, "users", userDocId);
     
@@ -494,30 +474,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const isSupplierOrTransporter = role === 'supplier' || role === 'transporter';
 
         const newUserFirestoreData: StoredUser = {
-          name: username,
-          role,
-          mockPassword: mockPasswordNew,
-          isApproved: isCustomer,
-          isSuspended: false,
-          address: '',
-          ethereumAddress: '',
+          name: username, role, mockPassword: mockPasswordNew, isApproved: isCustomer, isSuspended: false,
+          address: '', ethereumAddress: '',
           shippingRates: role === 'transporter' ? { tier1_0_100_km_price: 0, tier2_101_500_km_price_per_km: 0, tier3_501_1000_km_price_per_km: 0} : undefined,
         };
 
         await setDoc(userDocRef, newUserFirestoreData);
         const newUser: User = {
-          id: userDocRef.id,
-          name: newUserFirestoreData.name,
-          role: newUserFirestoreData.role,
-          isApproved: newUserFirestoreData.isApproved,
-          isSuspended: newUserFirestoreData.isSuspended,
-          address: newUserFirestoreData.address,
-          ethereumAddress: newUserFirestoreData.ethereumAddress,
+          id: userDocRef.id, name: newUserFirestoreData.name, role: newUserFirestoreData.role,
+          isApproved: newUserFirestoreData.isApproved, isSuspended: newUserFirestoreData.isSuspended,
+          address: newUserFirestoreData.address, ethereumAddress: newUserFirestoreData.ethereumAddress,
           shippingRates: newUserFirestoreData.shippingRates,
-          
-          supplierWeightedRatingSum: 0,
-          supplierTotalWeights: 0,
-          supplierRatingCount: 0,
+          supplierWeightedRatingSum: 0, supplierTotalWeights: 0, supplierRatingCount: 0,
         };
 
         if (isCustomer) {
@@ -528,8 +496,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           toast({ title: "Sign Up Successful!", description: `Account for ${username} (${role}) created. Awaiting manager approval.` });
         }
     } catch (error: any) {
-        if (error instanceof FirestoreError && (error.code === 'unavailable' || error.message.includes('offline'))) {
-            console.warn("AuthContext: Signup failed as Firestore client is offline.", error);
+        if (error instanceof FirestoreError && (error.code === 'unavailable' || error.message.includes('client is offline'))) {
+            console.info("AuthContext: Signup failed as Firestore client is offline.", error.message);
             toast({ title: "Network Issue", description: "Could not create account. Firebase is offline. Please try again later.", variant: "destructive", duration: 7000});
         } else {
             console.error("Error adding user to Firestore: ", error);
@@ -552,41 +520,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsLoading(true);
 
     const userDocId = username.toLowerCase();
-    // Prioritize allUsersList if available and populated
     const potentialUserFromList = allUsersList.find(u => u.id === userDocId || u.name.toLowerCase() === userDocId);
 
     if (potentialUserFromList) {
-        // To ensure we have the mockPassword, which is not in `User` type from allUsersList, fetch the doc
         const userRef = doc(db, "users", potentialUserFromList.id);
         try {
             const userSnap = await getDoc(userRef);
             if (userSnap.exists()) {
                 const storedUserDocData = userSnap.data() as StoredUser;
                 if (storedUserDocData.mockPassword === mockPasswordAttempt) {
-                    const userToLogin = { ...potentialUserFromList }; // Use the enriched user from allUsersList
-
+                    const userToLogin = { ...potentialUserFromList };
                     if (userToLogin.isSuspended) {
                         toast({ title: "Account Suspended", description: "Your account has been suspended due to low ratings. Please contact support.", variant: "destructive", duration: 10000 });
-                        setUser(null);
-                        localStorage.removeItem(CURRENT_USER_STORAGE_KEY);
+                        setUser(null); localStorage.removeItem(CURRENT_USER_STORAGE_KEY);
                     } else if ((userToLogin.role === 'supplier' || userToLogin.role === 'transporter') && !userToLogin.isApproved) {
                         toast({ title: "Login Blocked", description: "Your account as a " + userToLogin.role + " is awaiting manager approval.", variant: "destructive", duration: 7000 });
-                        setUser(null);
-                        localStorage.removeItem(CURRENT_USER_STORAGE_KEY);
+                        setUser(null); localStorage.removeItem(CURRENT_USER_STORAGE_KEY);
                     } else {
-                        setUser(userToLogin); 
-                        localStorage.setItem(CURRENT_USER_STORAGE_KEY, JSON.stringify(userToLogin));
+                        setUser(userToLogin); localStorage.setItem(CURRENT_USER_STORAGE_KEY, JSON.stringify(userToLogin));
                         toast({ title: "Login Successful!", description: `Welcome back, ${userToLogin.name}!` });
                     }
                 } else {
                      toast({ title: "Login Failed", description: "Invalid username or password.", variant: "destructive" });
                 }
             } else {
-                toast({ title: "Login Failed", description: "User data not found in DB (user in list but not in DB).", variant: "destructive" });
+                toast({ title: "Login Failed", description: "User data not found in DB.", variant: "destructive" });
             }
         } catch (error: any) {
-            if (error instanceof FirestoreError && (error.code === 'unavailable' || error.message.includes('offline'))) {
-                console.warn("AuthContext: Login failed as Firestore client is offline.", error);
+            if (error instanceof FirestoreError && (error.code === 'unavailable' || error.message.includes('client is offline'))) {
+                console.info("AuthContext: Login failed as Firestore client is offline.", error.message);
                 toast({ title: "Network Issue", description: "Could not log in. Firebase is offline. Please try again later.", variant: "destructive", duration: 7000});
             } else {
                 console.error("Error fetching user for login:", error);
@@ -594,50 +556,39 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             }
         }
     } else {
-        // Fallback to direct query if allUsersList is empty or user not found (e.g., during initial load race condition)
         const usersRef = collection(db, "users");
         const q = query(usersRef, where("name", "==", username));
         try {
             const querySnapshot = await getDocs(q);
             if (querySnapshot.empty) {
-                toast({ title: "Login Failed", description: "Invalid username or password (query).", variant: "destructive" });
+                toast({ title: "Login Failed", description: "Invalid username or password.", variant: "destructive" });
             } else {
                 const userDocFromQuery = querySnapshot.docs[0];
                 const userDataFromDB = userDocFromQuery.data() as StoredUser;
-
                 if (userDataFromDB.mockPassword === mockPasswordAttempt) {
                     const loggedInUser: User = {
-                        id: userDocFromQuery.id,
-                        name: userDataFromDB.name,
-                        role: userDataFromDB.role,
-                        isApproved: userDataFromDB.isApproved,
-                        isSuspended: userDataFromDB.isSuspended ?? false,
-                        address: userDataFromDB.address || '',
-                        ethereumAddress: userDataFromDB.ethereumAddress || '',
+                        id: userDocFromQuery.id, name: userDataFromDB.name, role: userDataFromDB.role,
+                        isApproved: userDataFromDB.isApproved, isSuspended: userDataFromDB.isSuspended ?? false,
+                        address: userDataFromDB.address || '', ethereumAddress: userDataFromDB.ethereumAddress || '',
                         shippingRates: userDataFromDB.shippingRates,
-                        // Rating fields might be stale here if allUsersList wasn't populated yet
                     };
-
                     if (loggedInUser.isSuspended) {
                         toast({ title: "Account Suspended", description: "Your account has been suspended. Contact support.", variant: "destructive", duration: 10000 });
-                        setUser(null);
-                        localStorage.removeItem(CURRENT_USER_STORAGE_KEY);
+                        setUser(null); localStorage.removeItem(CURRENT_USER_STORAGE_KEY);
                     } else if ((loggedInUser.role === 'supplier' || loggedInUser.role === 'transporter') && !loggedInUser.isApproved) {
                         toast({ title: "Login Blocked", description: `Account (${loggedInUser.role}) awaiting approval.`, variant: "destructive", duration: 7000 });
-                        setUser(null);
-                        localStorage.removeItem(CURRENT_USER_STORAGE_KEY);
+                        setUser(null); localStorage.removeItem(CURRENT_USER_STORAGE_KEY);
                     } else {
-                        setUser(loggedInUser);
-                        localStorage.setItem(CURRENT_USER_STORAGE_KEY, JSON.stringify(loggedInUser));
+                        setUser(loggedInUser); localStorage.setItem(CURRENT_USER_STORAGE_KEY, JSON.stringify(loggedInUser));
                         toast({ title: "Login Successful!", description: `Welcome back, ${loggedInUser.name}!` });
                     }
                 } else {
-                    toast({ title: "Login Failed", description: "Invalid username or password (pass mismatch).", variant: "destructive" });
+                    toast({ title: "Login Failed", description: "Invalid username or password.", variant: "destructive" });
                 }
             }
         } catch (error: any) {
-            if (error instanceof FirestoreError && (error.code === 'unavailable' || error.message.includes('offline'))) {
-                 console.warn("AuthContext: Login query failed as Firestore client is offline.", error);
+            if (error instanceof FirestoreError && (error.code === 'unavailable' || error.message.includes('client is offline'))) {
+                 console.info("AuthContext: Login query failed as Firestore client is offline.", error.message);
                 toast({ title: "Network Issue", description: "Could not log in. Firebase is offline. Please try again later.", variant: "destructive", duration: 7000});
             } else {
                 console.error("Error during login query: ", error);
@@ -663,8 +614,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await updateDoc(userDocRef, { isApproved: true });
       toast({ title: "User Approved", description: `User has been approved.` });
     } catch (error: any) {
-      if (error instanceof FirestoreError && (error.code === 'unavailable' || error.message.includes('offline'))) {
-        console.warn("AuthContext: Approving user failed as Firestore client is offline.", error);
+      if (error instanceof FirestoreError && (error.code === 'unavailable' || error.message.includes('client is offline'))) {
+        console.info("AuthContext: Approving user failed as Firestore client is offline.", error.message);
         toast({ title: "Network Issue", description: "Could not approve user. Firebase is offline.", variant: "destructive", duration: 7000});
       } else {
         console.error("Error approving user: ", error);
@@ -692,27 +643,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     
     try {
         const managerDocSnap = await getDoc(managerDocRef);
-
         if (managerDocSnap.exists()) {
           toast({ title: "Creation Failed", description: "Username already taken. Please choose another.", variant: "destructive" });
           return false;
         }
-
         const newManagerData: StoredUser = {
-          name: newManagerUsername,
-          mockPassword: newManagerPassword,
-          role: 'manager',
-          isApproved: true,
-          isSuspended: false,
-          address: '1 Admin Way, Suite M, Management City',
-          ethereumAddress: `0xNewManager${Date.now().toString(16)}`,
+          name: newManagerUsername, mockPassword: newManagerPassword, role: 'manager', isApproved: true, isSuspended: false,
+          address: '1 Admin Way, Suite M, Management City', ethereumAddress: `0xNewManager${Date.now().toString(16)}`,
         };
         await setDoc(managerDocRef, newManagerData);
         toast({ title: "Manager Created", description: `Manager account for ${newManagerUsername} created successfully.` });
         return true;
     } catch (error: any) {
-      if (error instanceof FirestoreError && (error.code === 'unavailable' || error.message.includes('offline'))) {
-        console.warn("AuthContext: Adding manager failed as Firestore client is offline.", error);
+      if (error instanceof FirestoreError && (error.code === 'unavailable' || error.message.includes('client is offline'))) {
+        console.info("AuthContext: Adding manager failed as Firestore client is offline.", error.message);
         toast({ title: "Network Issue", description: "Could not create manager. Firebase is offline.", variant: "destructive", duration: 7000});
       } else {
         console.error("Error creating new manager: ", error);
@@ -734,24 +678,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const userDocRef = doc(db, "users", userId);
     try {
         const updatePayload: Partial<StoredUser> = {};
-        if (data.address !== undefined) {
-            updatePayload.address = data.address.trim();
-        }
-        if (data.ethereumAddress !== undefined) {
-            updatePayload.ethereumAddress = data.ethereumAddress.trim();
-        }
-
+        if (data.address !== undefined) updatePayload.address = data.address.trim();
+        if (data.ethereumAddress !== undefined) updatePayload.ethereumAddress = data.ethereumAddress.trim();
         if (Object.keys(updatePayload).length === 0) {
             toast({ title: "No Changes", description: "No new information to save."});
             return true;
         }
-
         await updateDoc(userDocRef, updatePayload);
         toast({ title: "Profile Updated", description: "Your profile information has been successfully updated." });
         return true;
     } catch (error: any) {
-        if (error instanceof FirestoreError && (error.code === 'unavailable' || error.message.includes('offline'))) {
-            console.warn("AuthContext: Updating profile failed as Firestore client is offline.", error);
+        if (error instanceof FirestoreError && (error.code === 'unavailable' || error.message.includes('client is offline'))) {
+            console.info("AuthContext: Updating profile failed as Firestore client is offline.", error.message);
             toast({ title: "Network Issue", description: "Could not update profile. Firebase is offline.", variant: "destructive", duration: 7000});
         } else {
             console.error("Error updating user profile:", error);
@@ -776,31 +714,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       toast({ title: "Shipping Rates Updated", description: "Your shipping rates have been successfully updated."});
       return true;
     } catch (error: any) {
-      if (error instanceof FirestoreError && (error.code === 'unavailable' || error.message.includes('offline'))) {
-        console.warn("AuthContext: Updating shipping rates failed as Firestore client is offline.", error);
-        toast({ title: "Network Issue", description: "Could not update shipping rates. Firebase is offline.", variant: "destructive", duration: 7000});
+      if (error instanceof FirestoreError && (error.code === 'unavailable' || error.message.includes('client is offline'))) {
+          console.info("AuthContext: Updating shipping rates failed as Firestore client is offline.", error.message);
+          toast({ title: "Network Issue", description: "Could not update shipping rates. Firebase is offline.", variant: "destructive", duration: 7000});
       } else {
-        console.error("Error updating shipping rates: ", error);
-        toast({ title: "Update Error", description: "Could not update shipping rates.", variant: "destructive"});
+          console.error("Error updating transporter shipping rates:", error);
+          toast({ title: "Update Error", description: "Could not update shipping rates.", variant: "destructive"});
       }
       return false;
     }
-  }, [user, toast]); 
-
+  }, [user, toast]);
 
   return (
     <AuthContext.Provider value={{
-      user,
-      login,
-      signup,
-      logout: logoutCallback,
-      isLoading,
-      approveUser,
-      addManager,
-      updateUserProfile,
-      updateTransporterShippingRates,
-      allUsersList,
-      isLoadingUsers
+      user, login, signup, logout: logoutCallback, isLoading,
+      approveUser, addManager, updateUserProfile, updateTransporterShippingRates,
+      allUsersList, isLoadingUsers
     }}>
       {children}
     </AuthContext.Provider>
