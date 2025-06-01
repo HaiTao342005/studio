@@ -5,7 +5,7 @@ import type { Timestamp } from 'firebase/firestore';
 export type OrderStatus =
   | 'Pending' // Initial state before supplier action
   | 'Awaiting Supplier Confirmation' // Customer placed initial order
-  | 'Awaiting Transporter Assignment' // Supplier confirmed, needs transporter (legacy or alternative flow)
+  // | 'Awaiting Transporter Assignment' // Supplier confirmed, needs transporter (legacy or alternative flow)
   | 'AwaitingOnChainCreation' // Supplier finalized, ready to be created on smart contract
   | 'AwaitingOnChainFunding' // Order created on smart contract, awaiting customer's ETH deposit
   | 'FundedOnChain' // Customer has successfully funded the order on the smart contract
@@ -58,18 +58,18 @@ export interface StoredOrder {
 
   // Fields related to on-chain payout and contract state
   contractOrderId?: string; // bytes32 version of id, stored for reference
+  contractCreationTxHash?: string; // Hash of the createOrder transaction
   contractConfirmationTxHash?: string; // Hash of the confirmDelivery transaction
-  contractPayoutsTxHash?: string; // Could be same as confirmDelivery or from PayoutsMade event
-  
-  // These might become less relevant if contract handles payouts directly & amounts are viewable on-chain
+  // Payouts are handled by the contract, individual tx hashes for payouts might be from events
   supplierPayoutAmount?: number; // For record, matches productAmount in SC
   transporterPayoutAmount?: number; // For record, matches shippingFee in SC
-  payoutTimestamp?: Timestamp; // When confirmDelivery was successfully mined
-  refundTimestamp?: Timestamp;
+  payoutTimestamp?: Timestamp; // When confirmDelivery was successfully mined and payouts initiated by contract
+  refundTimestamp?: Timestamp; // If a dispute is resolved with a refund
 }
 
 export interface Order extends Omit<StoredOrder, 'orderDate' | 'predictedDeliveryDate' | 'payoutTimestamp' | 'refundTimestamp'> {
-  date: Date;
+  date: Date; // This might be redundant if orderDate is always Timestamp and converted in components
+  orderDate: Date; // Ensuring components use Date object
   FruitIcon?: ElementType<SVGProps<SVGSVGElement>>;
   predictedDeliveryDate?: Date;
   payoutTimestamp?: Date;
