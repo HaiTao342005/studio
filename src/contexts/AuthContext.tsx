@@ -4,7 +4,7 @@
 import type { ReactNode} from 'react';
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { useToast } from '@/hooks/use-toast';
-import { db } from '@/lib/firebase/config';
+import { db } from '@/lib/firebase/config'; // db can be null if Firebase fails to init
 import {
   collection,
   doc,
@@ -84,6 +84,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const { toast } = useToast();
 
   const seedDefaultManager = useCallback(async () => {
+    if (!db) { // Check if db is available
+      console.warn("AuthContext: Firestore (db) is not available. Skipping seedDefaultManager.");
+      return;
+    }
     const usersRef = collection(db, "users");
     const managerDocRef = doc(db, "users", DEFAULT_MANAGER_USERNAME.toLowerCase());
     const managerSnap = await getDoc(managerDocRef);
@@ -120,7 +124,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         console.log("Default manager details updated in Firestore.");
       }
     }
-  }, []);
+  }, [toast]); // db is not a direct dependency as it's checked internally
 
   const logoutCallback = useCallback(() => {
     setUser(null);
@@ -131,6 +135,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     setIsLoading(true);
     setIsLoadingUsers(true);
+
+    if (!db) {
+      console.error("AuthContext: Firestore (db) is not initialized. Firebase configuration might be missing or incorrect. User authentication and data fetching will not work.");
+      toast({
+        title: "Firebase Not Configured",
+        description: "Essential Firebase services are not available. Please check configuration and restart.",
+        variant: "destructive",
+        duration: 15000,
+      });
+      setIsLoading(false);
+      setIsLoadingUsers(false);
+      setUser(null); // Ensure user is null if Firebase is not up
+      localStorage.removeItem(CURRENT_USER_STORAGE_KEY); // Clear any stored user
+      return; // Stop further execution in this useEffect
+    }
+
     let storedUser: User | null = null;
     try {
       const storedCurrentUserJson = localStorage.getItem(CURRENT_USER_STORAGE_KEY);
@@ -149,6 +169,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const customerSupplierPurchaseCount = new Map<string, Map<string, number>>();
 
     const fetchAllOrdersForHistory = async () => {
+      if (!db) return; // Guard against db being null
       try {
         const allOrdersSnap = await getDocs(allOrdersQuery);
         allOrderDocsForHistory = [];
@@ -168,7 +189,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } catch (error) {
         console.error("Error in fetchAllOrdersForHistory:", error);
         toast({ title: "Order History Error", description: "Could not fetch order history for rating calculation.", variant: "destructive"});
-        // Depending on how critical this is, you might want to stop further processing or use empty data
         allOrderDocsForHistory = [];
         customerSupplierPurchaseCount.clear();
       }
@@ -176,6 +196,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const usersQuery = query(collection(db, "users"));
     const unsubscribeUsers = onSnapshot(usersQuery, async (querySnapshot) => {
+      if (!db) { // Secondary check in case db becomes null during listener lifecycle (unlikely but safe)
+        setIsLoadingUsers(false);
+        setIsLoading(false);
+        return;
+      }
       try {
         await fetchAllOrdersForHistory();
 
@@ -257,7 +282,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             try {
               await updateDoc(doc(db, "users", u.id), { isSuspended: true });
               console.log(`User ${u.name} (${u.id}) automatically suspended due to low ratings.`);
-              if (user?.id === u.id) { // Check current user, not storedUser
+              if (user?.id === u.id) { 
                    toast({ title: "Account Suspended", description: `Your account has been automatically suspended due to consistently low ratings.`, variant: "destructive", duration: 10000});
               } else {
                    toast({ title: "User Suspended", description: `User ${u.name} has been automatically suspended due to consistently low ratings.`, variant: "destructive", duration: 10000});
@@ -280,7 +305,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           } else if (latestUserData) {
               setUser(latestUserData);
           } else {
-              logoutCallback(); // User might have been deleted
+              logoutCallback(); 
           }
         } else {
           setUser(null);
@@ -288,7 +313,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } catch (innerError) {
         console.error("Error processing user data snapshot:", innerError);
         toast({ title: "Data Processing Error", description: "Failed to process user data.", variant: "destructive" });
-        if (!storedUser) { // If no stored user, set user to null to allow login
+        if (!storedUser) { 
             setUser(null);
         }
       } finally {
@@ -304,20 +329,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const assessedOrdersListenerQuery = query(collection(db, "orders"), where("assessmentSubmitted", "==", true));
     const unsubscribeAssessedOrders = onSnapshot(assessedOrdersListenerQuery, async (snapshot) => {
+      if (!db) return; // Guard
       try {
-        // Check if allUsersList is already populated to avoid issues during initial load sequence
         if (allUsersList.length > 0) {
             console.log("New assessment submitted or initial load of assessed orders, recalculating ratings...");
             
             await fetchAllOrdersForHistory();
-            const baseUsersForAssessmentUpdate = [...allUsersList]; // Use current allUsersList
+            const baseUsersForAssessmentUpdate = [...allUsersList]; 
 
             const supplierWeightedRatingSumMap: Record<string, number> = {};
             const supplierTotalWeightsMap: Record<string, number> = {};
             const supplierRatingCountMap: Record<string, number> = {};
             const transporterRatingsMap: Record<string, { total: number; count: number }> = {};
 
-            // No need to re-fetch assessedOrdersSnap, the listener gives us the current snapshot
             snapshot.forEach(orderDoc => {
               const orderData = orderDoc.data() as StoredOrder;
               if (orderData.supplierId && typeof orderData.supplierRating === 'number' && orderData.customerId) {
@@ -359,7 +383,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               }
               if (shouldSuspend && !userWithRatings.isSuspended) {
                 userWithRatings.isSuspended = true;
-                // Update Firestore if suspension state changes
                  try {
                     await updateDoc(doc(db, "users", u.id), { isSuspended: true });
                     console.log(`User ${u.name} (${u.id}) automatically suspended due to low ratings (triggered by assessment update).`);
@@ -375,11 +398,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               return userWithRatings;
             });
             const reEnrichedUsers = await Promise.all(reEnrichedUsersPromises);
-            setAllUsersList(reEnrichedUsers); // Update the main list
+            setAllUsersList(reEnrichedUsers); 
             
-            if (user) { // Check if there is a current user to update
+            if (user) { 
               const updatedCurrentUser = reEnrichedUsers.find(ru => ru.id === user.id);
-              if (updatedCurrentUser && JSON.stringify(updatedCurrentUser) !== JSON.stringify(user)) { // Only update if different
+              if (updatedCurrentUser && JSON.stringify(updatedCurrentUser) !== JSON.stringify(user)) { 
                   setUser(updatedCurrentUser);
                   localStorage.setItem(CURRENT_USER_STORAGE_KEY, JSON.stringify(updatedCurrentUser));
               }
@@ -395,10 +418,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       unsubscribeUsers();
       unsubscribeAssessedOrders();
     };
-  }, [seedDefaultManager, toast, logoutCallback]); // Simplified dependencies
+  }, [seedDefaultManager, toast, logoutCallback]);
 
 
   const signup = useCallback(async (username: string, mockPasswordNew: string, role: UserRole) => {
+    if (!db) {
+      toast({ title: "Sign Up Error", description: "Firebase is not configured. Cannot sign up.", variant: "destructive" });
+      return;
+    }
     if (!username || !mockPasswordNew || !role) {
       toast({ title: "Sign Up Error", description: "Username, password, and role are required.", variant: "destructive" });
       return;
@@ -465,9 +492,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } finally {
       setIsLoading(false);
     }
-  }, [toast]);
+  }, [toast]); // db is not a direct dependency here as it's checked upfront.
 
   const login = useCallback(async (username: string, mockPasswordAttempt: string) => {
+    if (!db) {
+      toast({ title: "Login Error", description: "Firebase is not configured. Cannot login.", variant: "destructive" });
+      return;
+    }
      if (!username || !mockPasswordAttempt) {
       toast({ title: "Login Error", description: "Username and password are required.", variant: "destructive" });
       return;
@@ -475,17 +506,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsLoading(true);
 
     const userDocId = username.toLowerCase();
-    // Use allUsersList which should be up-to-date from the snapshot listener
     const potentialUser = allUsersList.find(u => u.id === userDocId || u.name.toLowerCase() === userDocId);
 
     if (potentialUser) {
-        // We need to fetch the storedUser doc to get the mockPassword
         const userRef = doc(db, "users", potentialUser.id);
         const userSnap = await getDoc(userRef);
         if (userSnap.exists()) {
             const storedUserDocData = userSnap.data() as StoredUser;
             if (storedUserDocData.mockPassword === mockPasswordAttempt) {
-                // Use the enriched potentialUser from allUsersList for checks
                 if (potentialUser.isSuspended) {
                     toast({ title: "Account Suspended", description: "Your account has been suspended due to low ratings. Please contact support.", variant: "destructive", duration: 10000 });
                     setUser(null);
@@ -495,7 +523,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                     setUser(null);
                     localStorage.removeItem(CURRENT_USER_STORAGE_KEY);
                 } else {
-                    setUser(potentialUser); // Set the enriched user
+                    setUser(potentialUser); 
                     localStorage.setItem(CURRENT_USER_STORAGE_KEY, JSON.stringify(potentialUser));
                     toast({ title: "Login Successful!", description: `Welcome back, ${potentialUser.name}!` });
                 }
@@ -503,11 +531,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                  toast({ title: "Login Failed", description: "Invalid username or password.", variant: "destructive" });
             }
         } else {
-            // This case should be rare if allUsersList is working correctly
             toast({ title: "Login Failed", description: "User data not found in DB (should not happen if found in allUsersList).", variant: "destructive" });
         }
     } else {
-       // Fallback if not in allUsersList (e.g., list is still loading, though isLoading should prevent this)
         const usersRef = collection(db, "users");
         const q = query(usersRef, where("name", "==", username));
         try {
@@ -519,7 +545,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 const userDataFromDB = userDocFromQuery.data() as StoredUser;
 
                 if (userDataFromDB.mockPassword === mockPasswordAttempt) {
-                    // Manually construct the User object for session, as it's not from allUsersList enriched data
                     const loggedInUser: User = {
                         id: userDocFromQuery.id,
                         name: userDataFromDB.name,
@@ -529,7 +554,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                         address: userDataFromDB.address || '',
                         ethereumAddress: userDataFromDB.ethereumAddress || '',
                         shippingRates: userDataFromDB.shippingRates,
-                        // Rating fields would be undefined here, or need separate calculation if critical at login
                     };
 
                     if (loggedInUser.isSuspended) {
@@ -559,6 +583,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
 
   const approveUser = useCallback(async (userId: string) => {
+    if (!db) {
+      toast({ title: "Action Error", description: "Firebase is not configured. Cannot approve user.", variant: "destructive" });
+      return;
+    }
     if (user?.role !== 'manager') {
       toast({ title: "Permission Denied", description: "Only managers can approve users.", variant: "destructive" });
       return;
@@ -567,14 +595,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       await updateDoc(userDocRef, { isApproved: true });
       toast({ title: "User Approved", description: `User has been approved.` });
-      // allUsersList will update via onSnapshot
     } catch (error) {
       console.error("Error approving user: ", error);
       toast({ title: "Error", description: "Could not approve user. Please try again.", variant: "destructive" });
     }
-  }, [user, toast]);
+  }, [user, toast]); // db is not a direct dependency
 
   const addManager = useCallback(async (newManagerUsername: string, newManagerPassword: string): Promise<boolean> => {
+    if (!db) {
+      toast({ title: "Action Error", description: "Firebase is not configured. Cannot add manager.", variant: "destructive" });
+      return false;
+    }
     if (user?.role !== 'manager') {
         toast({ title: "Permission Denied", description: "Only managers can create new manager accounts.", variant: "destructive" });
         return false;
@@ -605,16 +636,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       await setDoc(managerDocRef, newManagerData);
       toast({ title: "Manager Created", description: `Manager account for ${newManagerUsername} created successfully.` });
-      // allUsersList will update via onSnapshot
       return true;
     } catch (error) {
       console.error("Error creating new manager: ", error);
       toast({ title: "Creation Error", description: "Could not create manager account.", variant: "destructive"});
       return false;
     }
-  }, [user, toast]);
+  }, [user, toast]); // db is not a direct dependency
 
   const updateUserProfile = useCallback(async (userId: string, data: { address?: string; ethereumAddress?: string }): Promise<boolean> => {
+    if (!db) {
+      toast({ title: "Update Error", description: "Firebase is not configured. Cannot update profile.", variant: "destructive" });
+      return false;
+    }
     if (!user || user.id !== userId) {
         toast({ title: "Permission Denied", description: "You can only update your own profile.", variant: "destructive" });
         return false;
@@ -635,7 +669,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
 
         await updateDoc(userDocRef, updatePayload);
-        // user and allUsersList will update via onSnapshot
         toast({ title: "Profile Updated", description: "Your profile information has been successfully updated." });
         return true;
     } catch (error) {
@@ -643,9 +676,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         toast({ title: "Update Error", description: "Could not update your profile.", variant: "destructive"});
         return false;
     }
-  }, [user, toast]);
+  }, [user, toast]); // db is not a direct dependency
 
   const updateTransporterShippingRates = useCallback(async (userId: string, rates: UserShippingRates): Promise<boolean> => {
+    if (!db) {
+      toast({ title: "Update Error", description: "Firebase is not configured. Cannot update rates.", variant: "destructive" });
+      return false;
+    }
     if (!user || user.id !== userId || user.role !== 'transporter') {
       toast({ title: "Permission Denied", description: "You can only update your own shipping rates.", variant: "destructive"});
       return false;
@@ -653,7 +690,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const userDocRef = doc(db, "users", userId);
     try {
       await updateDoc(userDocRef, { shippingRates: rates });
-      // user and allUsersList will update via onSnapshot
       toast({ title: "Shipping Rates Updated", description: "Your shipping rates have been successfully updated."});
       return true;
     } catch (error) {
@@ -661,7 +697,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       toast({ title: "Update Error", description: "Could not update shipping rates.", variant: "destructive"});
       return false;
     }
-  }, [user, toast]);
+  }, [user, toast]); // db is not a direct dependency
 
 
   return (
@@ -691,3 +727,5 @@ export function useAuth() {
   return context;
 }
 
+
+    
