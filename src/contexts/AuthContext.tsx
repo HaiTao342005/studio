@@ -142,7 +142,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (error.code) {
             description += ` (Code: ${error.code})`;
         }
-        console.error("Error in seedDefaultManager:", error);
+        console.error("Error in seedDefaultManager:", error, JSON.stringify(error));
         toast({
             title: "Setup Error",
             description: description,
@@ -255,7 +255,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const potentialUserFromList = currentAllUsers.find(u => u.id === userDocId || u.name.toLowerCase() === userDocId);
 
     if (isLoadingUsers && !potentialUserFromList) {
-        toast({ title: "Login Info", description: "User data is still loading, please try again shortly.", variant: "outline" });
+        toast({ title: "Login Info", description: "why", variant: "outline" });
         setIsLoading(false);
         return;
     }
@@ -286,6 +286,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 console.log("[LoginAttempt] Found user via direct query:", userToVerify.name);
             } else {
                 console.log("[LoginAttempt] Direct query found no user with username:", username);
+                 toast({ title: "Login Failed", description: "User account not found. Please check your username.", variant: "destructive" });
+                 setIsLoading(false);
+                 return;
             }
         } catch (error: any) {
             setIsLoading(false);
@@ -499,13 +502,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (!db) {
         console.error("AuthContext Critical Error: Firestore (db) instance is not available. Firebase may have failed to initialize in firebase/config.ts or is offline.");
-        toast({
-          title: "Firebase Unavailable",
-          description: "The application cannot connect to Firebase. Core features are disabled. Please check console for Firebase config errors or network issues.",
-          variant: "destructive",
-          duration: 0, 
-        });
         if (isMounted) {
+          toast({
+            title: "Firebase Unavailable",
+            description: "The application cannot connect to Firebase. Core features are disabled. Please check console for Firebase config errors or network issues.",
+            variant: "destructive",
+            duration: 0, 
+          });
           setUser(null);
           setAllUsersList([]);
           setIsLoading(false);
@@ -826,8 +829,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (isMounted) {
           setUser(null);
           setAllUsersList([]);
-          setIsLoading(false); 
-          setIsLoadingUsers(false); 
         }
         localStorage.removeItem(CURRENT_USER_STORAGE_KEY);
       } finally {
@@ -881,3 +882,4 @@ export function useAuth() {
   }
   return context;
 }
+
