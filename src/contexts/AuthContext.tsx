@@ -33,7 +33,7 @@ export interface User {
   role: UserRole;
   isApproved: boolean;
   address?: string;
-  ethereumAddress?: string; // New field for Ethereum wallet address
+  ethereumAddress?: string; 
   averageSupplierRating?: number;
   supplierRatingCount?: number;
   averageTransporterRating?: number;
@@ -45,7 +45,7 @@ export interface User {
 export interface StoredUser extends Omit<User, 'id' | 'averageSupplierRating' | 'supplierRatingCount' | 'averageTransporterRating' | 'transporterRatingCount' | 'isSuspended' | 'shippingRates' | 'ethereumAddress'> {
   mockPassword?: string;
   address?: string;
-  ethereumAddress?: string; // New field
+  ethereumAddress?: string; 
   isSuspended?: boolean;
   shippingRates?: UserShippingRates;
 }
@@ -58,7 +58,7 @@ interface AuthContextType {
   isLoading: boolean;
   approveUser: (userId: string) => void;
   addManager: (newManagerUsername: string, newManagerPassword: string) => Promise<boolean>;
-  updateUserProfile: (userId: string, data: { address?: string; ethereumAddress?: string }) => Promise<boolean>; // Modified
+  updateUserProfile: (userId: string, data: { address?: string; ethereumAddress?: string }) => Promise<boolean>; 
   updateTransporterShippingRates: (userId: string, rates: UserShippingRates) => Promise<boolean>;
   allUsersList: User[];
   isLoadingUsers: boolean;
@@ -81,25 +81,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const seedDefaultManager = useCallback(async () => {
     const usersRef = collection(db, "users");
-    const qManager = query(usersRef, where("name", "==", DEFAULT_MANAGER_USERNAME));
-    const managerSnap = await getDocs(qManager);
+    // Use .toLowerCase() for the document ID to ensure case-insensitivity for this default manager
+    const managerDocRef = doc(db, "users", DEFAULT_MANAGER_USERNAME.toLowerCase());
+    const managerSnap = await getDoc(managerDocRef);
 
-    if (managerSnap.empty) {
+    if (!managerSnap.exists()) {
       const defaultManagerData: StoredUser = {
-        name: DEFAULT_MANAGER_USERNAME,
+        name: DEFAULT_MANAGER_USERNAME, // Keep original casing for display name
         mockPassword: DEFAULT_MANAGER_PASSWORD,
         role: 'manager',
         isApproved: true,
         isSuspended: false,
         address: '1 Management Plaza, Admin City, AC 10001',
-        ethereumAddress: '',
+        ethereumAddress: '0xManagerEthAddressPlaceholder', // Add a placeholder ETH address
       };
-      const managerDocRef = doc(db, "users", DEFAULT_MANAGER_USERNAME.toLowerCase());
       await setDoc(managerDocRef, defaultManagerData);
-      console.log("Default manager seeded in Firestore.");
+      console.log("Default manager seeded in Firestore with ID:", managerDocRef.id);
     } else {
-      const managerDoc = managerSnap.docs[0];
-      const managerData = managerDoc.data() as StoredUser;
+      const managerData = managerSnap.data() as StoredUser;
       let updates: Partial<StoredUser> = {};
       if (managerData.mockPassword !== DEFAULT_MANAGER_PASSWORD) {
         updates.mockPassword = DEFAULT_MANAGER_PASSWORD;
@@ -107,14 +106,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!managerData.address) {
         updates.address = '1 Management Plaza, Admin City, AC 10001';
       }
-       if (managerData.ethereumAddress === undefined) {
-        updates.ethereumAddress = '';
+       if (managerData.ethereumAddress === undefined || managerData.ethereumAddress === '') { // Check if undefined or empty
+        updates.ethereumAddress = '0xManagerEthAddressPlaceholder'; // Add a placeholder if missing
       }
       if (managerData.isSuspended === undefined) {
         updates.isSuspended = false;
       }
       if (Object.keys(updates).length > 0) {
-        await updateDoc(managerDoc.ref, updates);
+        await updateDoc(managerDocRef, updates);
         console.log("Default manager details updated in Firestore.");
       }
     }
@@ -145,15 +144,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const usersQuery = query(collection(db, "users"));
     const unsubscribeUsers = onSnapshot(usersQuery, async (querySnapshot) => {
       const baseUsers: User[] = [];
-      querySnapshot.forEach((doc) => {
-        const data = doc.data() as StoredUser;
+      querySnapshot.forEach((docSnapshot) => { // Renamed doc to docSnapshot to avoid conflict
+        const data = docSnapshot.data() as StoredUser;
         baseUsers.push({
-            id: doc.id,
+            id: docSnapshot.id,
             name: data.name,
             role: data.role,
             isApproved: data.isApproved,
             address: data.address,
-            ethereumAddress: data.ethereumAddress,
+            ethereumAddress: data.ethereumAddress || '', // Ensure ethereumAddress is always a string
             isSuspended: data.isSuspended ?? false,
             shippingRates: data.shippingRates
         });
@@ -203,7 +202,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           try {
             await updateDoc(doc(db, "users", u.id), { isSuspended: true });
             console.log(`User ${u.name} (${u.id}) automatically suspended due to low ratings.`);
-            toast({ title: "Account Suspended", description: `User ${u.name} has been automatically suspended due to consistently low ratings.`, variant: "destructive", duration: 10000});
+            if (user?.id === u.id) { // If current user is suspended
+                 toast({ title: "Account Suspended", description: `Your account has been automatically suspended due to consistently low ratings.`, variant: "destructive", duration: 10000});
+            } else {
+                 toast({ title: "User Suspended", description: `User ${u.name} has been automatically suspended due to consistently low ratings.`, variant: "destructive", duration: 10000});
+            }
           } catch (error) {
             console.error(`Failed to update suspension status for user ${u.id}:`, error);
           }
@@ -218,11 +221,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (storedUser) {
         const latestUserData = enrichedUsers.find(u => u.id === storedUser!.id);
         if (latestUserData && JSON.stringify(latestUserData) !== JSON.stringify(storedUser)) {
-          setUser(latestUserData);
+          setUser(latestUserData); // Update with fresh data from DB (including ratings/suspension)
           localStorage.setItem(CURRENT_USER_STORAGE_KEY, JSON.stringify(latestUserData));
         } else if (latestUserData) {
             setUser(latestUserData);
-        } else {
+        } else { // User in storage no longer exists in DB
             logoutCallback();
         }
       } else {
@@ -239,7 +242,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => {
       unsubscribeUsers();
     };
-  }, [seedDefaultManager, toast, logoutCallback]);
+  }, [seedDefaultManager, toast, logoutCallback, user?.id]); // Added user?.id to dependency for suspension toast
 
 
   const signup = useCallback(async (username: string, mockPasswordNew: string, role: UserRole) => {
@@ -254,10 +257,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     setIsLoading(true);
     const usersRef = collection(db, "users");
-    const q = query(usersRef, where("name", "==", username));
-    const querySnapshot = await getDocs(q);
+    // Use .toLowerCase() for the document ID to ensure case-insensitivity for username checks and new user creation
+    const userDocId = username.toLowerCase();
+    const userDocRef = doc(db, "users", userDocId);
+    const userDocSnap = await getDoc(userDocRef);
 
-    if (!querySnapshot.empty) {
+
+    if (userDocSnap.exists()) {
       toast({ title: "Sign Up Failed", description: "Username already taken. Please choose another.", variant: "destructive" });
       setIsLoading(false);
       return;
@@ -267,20 +273,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const isSupplierOrTransporter = role === 'supplier' || role === 'transporter';
 
     const newUserFirestoreData: StoredUser = {
-      name: username,
+      name: username, // Store original casing for display name
       role,
       mockPassword: mockPasswordNew,
       isApproved: isCustomer,
       isSuspended: false,
       address: '',
-      ethereumAddress: '', // Initialize ethereumAddress
-      shippingRates: role === 'transporter' ? undefined : undefined,
+      ethereumAddress: '', 
+      shippingRates: role === 'transporter' ? { tier1_0_100_km_price: 0, tier2_101_500_km_price_per_km: 0, tier3_501_1000_km_price_per_km: 0} : undefined,
     };
 
     try {
-      const docRef = await addDoc(usersRef, newUserFirestoreData);
+      // Set document with the predetermined lowercase ID
+      await setDoc(userDocRef, newUserFirestoreData);
       const newUser: User = {
-        id: docRef.id,
+        id: userDocRef.id, // This is the lowercase ID
         name: newUserFirestoreData.name,
         role: newUserFirestoreData.role,
         isApproved: newUserFirestoreData.isApproved,
@@ -312,40 +319,55 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     setIsLoading(true);
 
-    const potentialUser = allUsersList.find(u => u.name === username);
-    const storedUserDocData = potentialUser ? (await getDoc(doc(db, "users", potentialUser.id))).data() as StoredUser : null;
+    // Use .toLowerCase() for lookup to match how IDs are created/queried
+    const userDocId = username.toLowerCase();
+    const potentialUser = allUsersList.find(u => u.id === userDocId || u.name.toLowerCase() === userDocId); // Check by ID first, then name
 
-    if (potentialUser && storedUserDocData && storedUserDocData.mockPassword === mockPasswordAttempt) {
-        if (potentialUser.isSuspended) {
-          toast({ title: "Account Suspended", description: "Your account has been suspended due to low ratings. Please contact support.", variant: "destructive", duration: 10000 });
-          setUser(null);
-          localStorage.removeItem(CURRENT_USER_STORAGE_KEY);
-        } else if ((potentialUser.role === 'supplier' || potentialUser.role === 'transporter') && !potentialUser.isApproved) {
-          toast({ title: "Login Blocked", description: "Your account as a " + potentialUser.role + " is awaiting manager approval.", variant: "destructive", duration: 7000 });
-          setUser(null);
-          localStorage.removeItem(CURRENT_USER_STORAGE_KEY);
+    if (potentialUser) {
+        // Fetch the document directly to get the stored mockPassword
+        const userRef = doc(db, "users", potentialUser.id); // Use the actual ID from allUsersList
+        const userSnap = await getDoc(userRef);
+        if (userSnap.exists()) {
+            const storedUserDocData = userSnap.data() as StoredUser;
+            if (storedUserDocData.mockPassword === mockPasswordAttempt) {
+                if (potentialUser.isSuspended) {
+                    toast({ title: "Account Suspended", description: "Your account has been suspended due to low ratings. Please contact support.", variant: "destructive", duration: 10000 });
+                    setUser(null);
+                    localStorage.removeItem(CURRENT_USER_STORAGE_KEY);
+                } else if ((potentialUser.role === 'supplier' || potentialUser.role === 'transporter') && !potentialUser.isApproved) {
+                    toast({ title: "Login Blocked", description: "Your account as a " + potentialUser.role + " is awaiting manager approval.", variant: "destructive", duration: 7000 });
+                    setUser(null);
+                    localStorage.removeItem(CURRENT_USER_STORAGE_KEY);
+                } else {
+                    setUser(potentialUser);
+                    localStorage.setItem(CURRENT_USER_STORAGE_KEY, JSON.stringify(potentialUser));
+                    toast({ title: "Login Successful!", description: `Welcome back, ${potentialUser.name}!` });
+                }
+            } else {
+                 toast({ title: "Login Failed", description: "Invalid username or password.", variant: "destructive" });
+            }
         } else {
-          setUser(potentialUser);
-          localStorage.setItem(CURRENT_USER_STORAGE_KEY, JSON.stringify(potentialUser));
-          toast({ title: "Login Successful!", description: `Welcome back, ${username}!` });
+            toast({ title: "Login Failed", description: "User data not found.", variant: "destructive" });
         }
     } else {
-        // Fallback if allUsersList wasn't fully populated yet or user not found in it.
+        // Fallback: query by name if not found in allUsersList (e.g., if list is stale or user not there for some reason)
         const usersRef = collection(db, "users");
+        // This query might find multiple if names are not unique, but IDs should be. Better to rely on ID if possible.
         const q = query(usersRef, where("name", "==", username));
         try {
             const querySnapshot = await getDocs(q);
             if (querySnapshot.empty) {
-                toast({ title: "Login Failed", description: "Invalid username or password.", variant: "destructive" });
+                toast({ title: "Login Failed", description: "Invalid username or password (query).", variant: "destructive" });
                 setIsLoading(false);
                 return;
             }
-            const userDoc = querySnapshot.docs[0];
-            const userDataFromDB = userDoc.data() as StoredUser;
+            const userDocFromQuery = querySnapshot.docs[0]; // Assuming username is unique for login purposes here.
+            const userDataFromDB = userDocFromQuery.data() as StoredUser;
 
             if (userDataFromDB.mockPassword === mockPasswordAttempt) {
-                const loggedInUserEnriched = allUsersList.find(u => u.id === userDoc.id) || {
-                    id: userDoc.id,
+                 // Attempt to find the enriched user data from allUsersList if it now exists
+                const loggedInUserEnriched = allUsersList.find(u => u.id === userDocFromQuery.id) || {
+                    id: userDocFromQuery.id,
                     name: userDataFromDB.name,
                     role: userDataFromDB.role,
                     isApproved: userDataFromDB.isApproved,
@@ -366,13 +388,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 } else {
                     setUser(loggedInUserEnriched);
                     localStorage.setItem(CURRENT_USER_STORAGE_KEY, JSON.stringify(loggedInUserEnriched));
-                    toast({ title: "Login Successful!", description: `Welcome back, ${username}!` });
+                    toast({ title: "Login Successful!", description: `Welcome back, ${loggedInUserEnriched.name}!` });
                 }
             } else {
-                toast({ title: "Login Failed", description: "Invalid username or password.", variant: "destructive" });
+                toast({ title: "Login Failed", description: "Invalid username or password (pass mismatch).", variant: "destructive" });
             }
         } catch (error) {
-            console.error("Error during login: ", error);
+            console.error("Error during login query: ", error);
             toast({ title: "Login Error", description: "An error occurred. Please try again.", variant: "destructive"});
         }
     }
@@ -388,6 +410,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const userDocRef = doc(db, "users", userId);
     try {
       await updateDoc(userDocRef, { isApproved: true });
+      // No need to manually update allUsersList here; onSnapshot will refresh it.
       toast({ title: "User Approved", description: `User has been approved.` });
     } catch (error) {
       console.error("Error approving user: ", error);
@@ -405,27 +428,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return false;
     }
 
-    const usersRef = collection(db, "users");
-    const q = query(usersRef, where("name", "==", newManagerUsername));
-    const querySnapshot = await getDocs(q);
+    const managerDocId = newManagerUsername.toLowerCase();
+    const managerDocRef = doc(db, "users", managerDocId);
+    const managerDocSnap = await getDoc(managerDocRef);
 
-    if (!querySnapshot.empty) {
+    if (managerDocSnap.exists()) {
       toast({ title: "Creation Failed", description: "Username already taken. Please choose another.", variant: "destructive" });
       return false;
     }
 
     const newManagerData: StoredUser = {
-      name: newManagerUsername,
+      name: newManagerUsername, // Original casing for display name
       mockPassword: newManagerPassword,
       role: 'manager',
       isApproved: true,
       isSuspended: false,
       address: '1 Admin Way, Suite M, Management City',
-      ethereumAddress: '',
+      ethereumAddress: `0xNewManager${Date.now().toString(16)}`, // Unique placeholder
     };
     try {
-      const managerDocRef = doc(db, "users", newManagerUsername.toLowerCase());
       await setDoc(managerDocRef, newManagerData);
+      // No need to manually update allUsersList; onSnapshot handles it.
       toast({ title: "Manager Created", description: `Manager account for ${newManagerUsername} created successfully.` });
       return true;
     } catch (error) {
@@ -444,28 +467,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
         const updatePayload: Partial<StoredUser> = {};
         if (data.address !== undefined) {
-            updatePayload.address = data.address;
+            updatePayload.address = data.address.trim(); // Trim whitespace
         }
         if (data.ethereumAddress !== undefined) {
-            updatePayload.ethereumAddress = data.ethereumAddress;
+            updatePayload.ethereumAddress = data.ethereumAddress.trim(); // Trim whitespace
         }
 
         if (Object.keys(updatePayload).length === 0) {
             toast({ title: "No Changes", description: "No new information to save."});
-            return true; // No changes, but not an error
+            return true; 
         }
         
         await updateDoc(userDocRef, updatePayload);
         
-        const updatedUser = { 
+        // Update local state (user and allUsersList) after successful DB update
+        // This is optimistic but usually fine. onSnapshot will eventually catch up.
+        const updatedUserForState = { 
             ...user, 
-            ...(data.address !== undefined && { address: data.address }),
-            ...(data.ethereumAddress !== undefined && { ethereumAddress: data.ethereumAddress })
+            ...(updatePayload.address !== undefined && { address: updatePayload.address }),
+            ...(updatePayload.ethereumAddress !== undefined && { ethereumAddress: updatePayload.ethereumAddress })
         };
-        setUser(updatedUser);
-        localStorage.setItem(CURRENT_USER_STORAGE_KEY, JSON.stringify(updatedUser));
-
-        setAllUsersList(prevList => prevList.map(u => u.id === userId ? updatedUser : u));
+        setUser(updatedUserForState);
+        localStorage.setItem(CURRENT_USER_STORAGE_KEY, JSON.stringify(updatedUserForState));
+        setAllUsersList(prevList => prevList.map(u => u.id === userId ? updatedUserForState : u));
 
         toast({ title: "Profile Updated", description: "Your profile information has been successfully updated." });
         return true;
@@ -484,10 +508,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const userDocRef = doc(db, "users", userId);
     try {
       await updateDoc(userDocRef, { shippingRates: rates });
-      const updatedUser = { ...user, shippingRates: rates };
-      setUser(updatedUser);
-      localStorage.setItem(CURRENT_USER_STORAGE_KEY, JSON.stringify(updatedUser));
-      
+      const updatedUserForState = { ...user, shippingRates: rates };
+      setUser(updatedUserForState);
+      localStorage.setItem(CURRENT_USER_STORAGE_KEY, JSON.stringify(updatedUserForState));
       setAllUsersList(prevList => prevList.map(u => u.id === userId ? { ...u, shippingRates: rates } : u));
 
       toast({ title: "Shipping Rates Updated", description: "Your shipping rates have been successfully updated."});
@@ -509,7 +532,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isLoading,
       approveUser,
       addManager,
-      updateUserProfile, // Use new function
+      updateUserProfile, 
       updateTransporterShippingRates,
       allUsersList,
       isLoadingUsers
@@ -526,5 +549,3 @@ export function useAuth() {
   }
   return context;
 }
-
-    

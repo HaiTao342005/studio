@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
-import { UserCircle, Home, Save, Loader2, Wallet } from 'lucide-react'; // Added Wallet icon
+import { UserCircle, Home, Save, Loader2, Wallet } from 'lucide-react'; 
 
 interface ProfilePageProps {
   params: {};
@@ -17,16 +17,16 @@ interface ProfilePageProps {
 }
 
 export default function ProfilePage({ params, searchParams }: ProfilePageProps) {
-  const { user, updateUserProfile, isLoading: authLoading } = useAuth(); // Using updateUserProfile
+  const { user, updateUserProfile, isLoading: authLoading } = useAuth(); 
   const [address, setAddress] = useState('');
-  const [ethereumAddress, setEthereumAddress] = useState(''); // New state for Ethereum address
+  const [ethereumAddress, setEthereumAddress] = useState(''); 
   const [isSaving, setIsSaving] = useState(false);
   const { toast } = useToast();
 
   useEffect(() => {
     if (user) {
       setAddress(user.address || '');
-      setEthereumAddress(user.ethereumAddress || ''); // Set Ethereum address from user context
+      setEthereumAddress(user.ethereumAddress || ''); 
     }
   }, [user]);
 
@@ -37,14 +37,12 @@ export default function ProfilePage({ params, searchParams }: ProfilePageProps) 
       return;
     }
     setIsSaving(true);
-    // Call updateUserProfile with both addresses
+    
     const success = await updateUserProfile(user.id, { 
       address: address.trim(), 
       ethereumAddress: ethereumAddress.trim() 
     });
-    if (success) {
-      // Toast is handled within updateUserProfile
-    }
+    // Toast for success/failure is handled within updateUserProfile
     setIsSaving(false);
   };
 
@@ -71,7 +69,8 @@ export default function ProfilePage({ params, searchParams }: ProfilePageProps) 
               Your Profile Information
             </CardTitle>
             <CardDescription>
-              View and update your contact and Ethereum wallet addresses.
+              View and update your physical and Ethereum wallet addresses.
+              Your Ethereum address is crucial for receiving payouts if you are a Supplier or Transporter.
             </CardDescription>
           </CardHeader>
           <form onSubmit={handleSubmit}>
@@ -106,7 +105,7 @@ export default function ProfilePage({ params, searchParams }: ProfilePageProps) 
               <div className="space-y-1">
                 <Label htmlFor="ethereumAddress" className="flex items-center gap-1.5">
                   <Wallet className="h-4 w-4 text-muted-foreground" />
-                  Ethereum Wallet Address (Optional)
+                  Ethereum Wallet Address
                 </Label>
                 <Input
                   id="ethereumAddress"
@@ -115,9 +114,13 @@ export default function ProfilePage({ params, searchParams }: ProfilePageProps) 
                   onChange={(e) => setEthereumAddress(e.target.value)}
                   placeholder="0x..."
                   className="mt-1"
+                  required={(user.role === 'supplier' || user.role === 'transporter')} // Make it visually required for them
                 />
                 <p className="text-xs text-muted-foreground mt-1">
-                  Used for simulated payouts if you are a supplier or transporter.
+                  {(user.role === 'supplier' || user.role === 'transporter') 
+                    ? "Required for receiving payouts via the smart contract." 
+                    : "Optional. Used for on-chain interactions if applicable."
+                  }
                 </p>
               </div>
             </CardContent>
@@ -134,5 +137,3 @@ export default function ProfilePage({ params, searchParams }: ProfilePageProps) 
     </>
   );
 }
-
-    
