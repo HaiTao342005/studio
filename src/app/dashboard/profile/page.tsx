@@ -9,7 +9,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
-import { UserCircle, Home, Save, Loader2, Wallet } from 'lucide-react'; 
+import { UserCircle, Home, Save, Loader2, Wallet, AlertTriangle } from 'lucide-react';
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 interface ProfilePageProps {
   params: {};
@@ -17,16 +18,16 @@ interface ProfilePageProps {
 }
 
 export default function ProfilePage({ params, searchParams }: ProfilePageProps) {
-  const { user, updateUserProfile, isLoading: authLoading } = useAuth(); 
+  const { user, updateUserProfile, isLoading: authLoading } = useAuth();
   const [address, setAddress] = useState('');
-  const [ethereumAddress, setEthereumAddress] = useState(''); 
+  const [ethereumAddress, setEthereumAddress] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const { toast } = useToast();
 
   useEffect(() => {
     if (user) {
       setAddress(user.address || '');
-      setEthereumAddress(user.ethereumAddress || ''); 
+      setEthereumAddress(user.ethereumAddress || '');
     }
   }, [user]);
 
@@ -37,12 +38,11 @@ export default function ProfilePage({ params, searchParams }: ProfilePageProps) 
       return;
     }
     setIsSaving(true);
-    
-    const success = await updateUserProfile(user.id, { 
-      address: address.trim(), 
-      ethereumAddress: ethereumAddress.trim() 
+
+    const success = await updateUserProfile(user.id, {
+      address: address.trim(),
+      ethereumAddress: ethereumAddress.trim()
     });
-    // Toast for success/failure is handled within updateUserProfile
     setIsSaving(false);
   };
 
@@ -75,6 +75,25 @@ export default function ProfilePage({ params, searchParams }: ProfilePageProps) 
           </CardHeader>
           <form onSubmit={handleSubmit}>
             <CardContent className="space-y-6">
+              {user.role === 'transporter' && !user.ethereumAddress && !user.isSuspended && (
+                <Alert variant="default" className="border-yellow-400 dark:border-yellow-600">
+                  <AlertTriangle className="h-5 w-5 text-yellow-500 dark:text-yellow-400" />
+                  <AlertTitle className="text-yellow-700 dark:text-yellow-300">Ethereum Address Required for Payouts!</AlertTitle>
+                  <AlertDescription className="text-yellow-600 dark:text-yellow-200">
+                    Your Ethereum Wallet Address is crucial for receiving on-chain payouts for completed shipments. Please add it in the field below to ensure you can receive payments.
+                  </AlertDescription>
+                </Alert>
+              )}
+               {user.role === 'supplier' && !user.ethereumAddress && !user.isSuspended && (
+                <Alert variant="default" className="border-yellow-400 dark:border-yellow-600">
+                  <AlertTriangle className="h-5 w-5 text-yellow-500 dark:text-yellow-400" />
+                  <AlertTitle className="text-yellow-700 dark:text-yellow-300">Ethereum Address Required for Payouts!</AlertTitle>
+                  <AlertDescription className="text-yellow-600 dark:text-yellow-200">
+                    Your Ethereum Wallet Address is crucial for receiving on-chain payouts for completed orders. Please add it in the field below.
+                  </AlertDescription>
+                </Alert>
+              )}
+
               <div>
                 <Label className="text-sm font-medium text-muted-foreground">Username</Label>
                 <p className="text-lg font-semibold">{user.name}</p>
@@ -83,7 +102,7 @@ export default function ProfilePage({ params, searchParams }: ProfilePageProps) 
                 <Label className="text-sm font-medium text-muted-foreground">Role</Label>
                 <p className="text-lg">{user.role?.charAt(0).toUpperCase() + (user.role?.slice(1) || '')}</p>
               </div>
-              
+
               <div className="space-y-1 pt-4 border-t">
                 <Label htmlFor="address" className="flex items-center gap-1.5">
                   <Home className="h-4 w-4 text-muted-foreground" />
@@ -114,11 +133,11 @@ export default function ProfilePage({ params, searchParams }: ProfilePageProps) 
                   onChange={(e) => setEthereumAddress(e.target.value)}
                   placeholder="0x..."
                   className="mt-1"
-                  required={(user.role === 'supplier' || user.role === 'transporter')} // Make it visually required for them
+                  required={(user.role === 'supplier' || user.role === 'transporter')}
                 />
                 <p className="text-xs text-muted-foreground mt-1">
-                  {(user.role === 'supplier' || user.role === 'transporter') 
-                    ? "Required for receiving payouts via the smart contract." 
+                  {(user.role === 'supplier' || user.role === 'transporter')
+                    ? "Required for receiving payouts via the smart contract."
                     : "Optional. Used for on-chain interactions if applicable."
                   }
                 </p>

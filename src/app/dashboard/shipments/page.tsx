@@ -2,6 +2,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from 'react';
+import Link from 'next/link'; // Added Link
 import { Header } from '@/components/dashboard/Header';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -12,10 +13,11 @@ import { db } from '@/lib/firebase/config';
 import { collection, onSnapshot, query, where, doc, updateDoc, Timestamp } from 'firebase/firestore';
 import { useAuth, type UserShippingRates } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
-import { Truck, Loader2, Info, DollarSign, Ban } from 'lucide-react';
+import { Truck, Loader2, Info, AlertTriangle, Ban } from 'lucide-react'; // Added AlertTriangle
 import { format } from 'date-fns';
 import { Badge } from '@/components/ui/badge';
 import { calculateDistance, type CalculateDistanceOutput } from '@/ai/flows/calculate-distance-flow';
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"; // Added Alert components
 
 
 const shipmentStatuses: OrderShipmentStatus[] = ['Ready for Pickup', 'In Transit', 'Out for Delivery', 'Delivered', 'Delivery Failed', 'Shipment Cancelled'];
@@ -25,7 +27,6 @@ interface ManageShipmentsPageProps {
   searchParams: { [key: string]: string | string[] | undefined };
 }
 
-// Helper function to calculate tiered shipping price - copied from TransactionHistoryTable
 const calculateTieredShippingPrice = (distanceKm: number, rates?: UserShippingRates): number | null => {
   if (!rates || rates.tier1_0_100_km_price === undefined || rates.tier2_101_500_km_price_per_km === undefined || rates.tier3_501_1000_km_price_per_km === undefined) {
     return null;
@@ -55,10 +56,13 @@ const calculateTieredShippingPrice = (distanceKm: number, rates?: UserShippingRa
 
 const getStatusBadgeVariant = (status: OrderStatus | OrderShipmentStatus): "default" | "secondary" | "destructive" | "outline" => {
   switch (status) {
-    case 'Paid': case 'Delivered': case 'Receipt Confirmed': case 'Completed': return 'default';
-    case 'Shipped': case 'Ready for Pickup': case 'In Transit': case 'Out for Delivery': return 'secondary';
-    case 'Awaiting Supplier Confirmation': case 'Awaiting Transporter Assignment': case 'Awaiting Payment': case 'Pending': return 'outline';
-    case 'Cancelled': case 'Delivery Failed': case 'Shipment Cancelled': case 'Disputed': return 'destructive';
+    case 'FundedOnChain': case 'CompletedOnChain': return 'default';
+    case 'Shipped': case 'Ready for Pickup': case 'In Transit': case 'Out for Delivery': case 'Delivered': return 'secondary';
+    case 'Awaiting Supplier Confirmation': case 'AwaitingOnChainCreation': case 'AwaitingOnChainFunding': case 'Pending': return 'outline';
+    case 'Cancelled': case 'Delivery Failed': case 'Shipment Cancelled': case 'DisputedOnChain': return 'destructive';
+    // Legacy statuses
+    case 'Paid': case 'Receipt Confirmed': case 'Awaiting Payment': case 'Awaiting Transporter Assignment':
+       return 'outline';
     default: return 'secondary';
   }
 };
@@ -66,7 +70,7 @@ const getStatusBadgeVariant = (status: OrderStatus | OrderShipmentStatus): "defa
 interface ShipmentWithDistance extends StoredOrder {
     distanceInfo?: CalculateDistanceOutput | null;
     isLoadingDistance?: boolean;
-    shippingPrice?: number | null; // Can be null if rates not set
+    shippingPrice?: number | null;
 }
 
 
@@ -92,7 +96,7 @@ export default function ManageShipmentsPage({ params, searchParams }: ManageShip
         if (distanceResult.distanceKm && typeof distanceResult.distanceKm === 'number' && user?.shippingRates) {
           updatedShipment.shippingPrice = calculateTieredShippingPrice(distanceResult.distanceKm, user.shippingRates);
         } else if (distanceResult.distanceKm && !user?.shippingRates) {
-            updatedShipment.shippingPrice = null; // Transporter hasn't set rates
+            updatedShipment.shippingPrice = null;
             console.warn(`Transporter ${user?.name} has not set shipping rates for order ${shipment.id}`);
         }
       } catch (error) {
@@ -161,21 +165,29 @@ export default function ManageShipmentsPage({ params, searchParams }: ManageShip
       if (newStatus === 'Shipment Cancelled') {
         updateData = {
           ...updateData,
-          status: 'Awaiting Transporter Assignment', // Revert main status
+          status: 'AwaitingOnChainCreation', // Revert main status to allow supplier to re-assign
           transporterId: null,
           transporterName: null,
+          transporterEthereumAddress: null,
           estimatedTransporterFee: undefined,
-          finalTotalAmount: currentOrder?.totalAmount, // Revert to original product total
+          finalTotalAmount: currentOrder?.totalAmount,
+          contractOrderId: undefined, // Clear contract specific fields
+          contractCreationTxHash: undefined,
+          pickupAddress: undefined,
+          deliveryAddress: undefined,
+          predictedDeliveryDate: undefined,
         };
-        toast({ title: "Shipment Cancelled", description: `Order ${orderId} is now awaiting re-assignment by the supplier.` });
+        toast({ title: "Shipment Cancelled", description: `Order ${orderId} is now awaiting re-assignment by the supplier for on-chain creation.` });
       } else if (newStatus === 'Delivered') {
-        if (currentOrder && (currentOrder.status === 'Paid' || currentOrder.status === 'Shipped')) {
-            updateData.status = 'Delivered' as OrderStatus; // Update main order status
+        if (currentOrder && (currentOrder.status === 'FundedOnChain' || currentOrder.status === 'Shipped')) {
+            // Keep main status as 'FundedOnChain' or 'Shipped'. Customer confirmation will move it to 'CompletedOnChain'
         }
-        toast({ title: "Success", description: `Shipment status updated to ${newStatus}. Customer will be prompted to confirm receipt.` });
+        toast({ title: "Success", description: `Shipment status updated to ${newStatus}. Customer will be prompted to confirm receipt on-chain.` });
       } else if (newStatus === 'In Transit' || newStatus === 'Out for Delivery' || newStatus === 'Ready for Pickup') {
-        if (currentOrder && (currentOrder.status === 'Paid' || currentOrder.status === 'Ready for Pickup')) { // Ensure order is paid or already set for pickup
-             updateData.status = 'Shipped' as OrderStatus; // Update main order status if appropriate
+        if (currentOrder && currentOrder.status === 'FundedOnChain' && newStatus !== 'Ready for Pickup') { // If funded, can move to transit/delivery
+             updateData.status = 'Shipped' as OrderStatus;
+        } else if (currentOrder && currentOrder.status === 'FundedOnChain' && newStatus === 'Ready for Pickup'){
+            // No main status change if moving to Ready for Pickup from FundedOnChain
         }
         toast({ title: "Success", description: `Shipment status updated to ${newStatus}.` });
       } else {
@@ -244,6 +256,15 @@ export default function ManageShipmentsPage({ params, searchParams }: ManageShip
             </CardDescription>
           </CardHeader>
           <CardContent>
+            {user && user.role === 'transporter' && !user.ethereumAddress && !user.isSuspended && (
+              <Alert variant="default" className="mb-4 border-yellow-400 dark:border-yellow-600">
+                <AlertTriangle className="h-5 w-5 text-yellow-500 dark:text-yellow-400" />
+                <AlertTitle className="text-yellow-700 dark:text-yellow-300">Set Your Ethereum Address for Payouts!</AlertTitle>
+                <AlertDescription className="text-yellow-600 dark:text-yellow-200">
+                  To receive on-chain payouts for your completed shipments, please ensure your Ethereum Wallet Address is set in your <Link href="/dashboard/profile" className="font-medium text-primary underline hover:text-primary/90">Profile</Link>.
+                </AlertDescription>
+              </Alert>
+            )}
             {assignedShipments.length === 0 ? (
               <div className="py-10 text-center">
                 <Info className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
@@ -298,7 +319,7 @@ export default function ManageShipmentsPage({ params, searchParams }: ManageShip
                             }
                           </TableCell>
                           <TableCell>
-                            {shipment.distanceInfo?.predictedDeliveryIsoDate ? format(new Date(shipment.distanceInfo.predictedDeliveryIsoDate), "MMM d, yyyy") : 
+                            {shipment.distanceInfo?.predictedDeliveryIsoDate ? format(new Date(shipment.distanceInfo.predictedDeliveryIsoDate), "MMM d, yyyy") :
                             (shipment.predictedDeliveryDate ? format((shipment.predictedDeliveryDate as Timestamp).toDate(), "MMM d, yyyy") : <span className="text-xs text-muted-foreground">N/A</span>)}
                           </TableCell>
                           <TableCell className="text-right font-medium">
@@ -320,7 +341,7 @@ export default function ManageShipmentsPage({ params, searchParams }: ManageShip
                               <Select
                                 value={shipment.shipmentStatus || ''}
                                 onValueChange={(value) => handleStatusUpdate(shipment.id, value as OrderShipmentStatus)}
-                                disabled={updatingShipmentId === shipment.id || shipment.shipmentStatus === 'Delivered' || shipment.shipmentStatus === 'Shipment Cancelled' || user?.isSuspended}
+                                disabled={updatingShipmentId === shipment.id || shipment.shipmentStatus === 'Delivered' || shipment.shipmentStatus === 'Shipment Cancelled' || user?.isSuspended || shipment.status === 'CompletedOnChain' || shipment.status === 'DisputedOnChain' || shipment.status === 'Cancelled'}
                               >
                                 <SelectTrigger className="w-[180px] h-9 text-xs">
                                   <SelectValue placeholder="Select status" />
