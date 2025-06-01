@@ -1,4 +1,5 @@
 
+
 import { ethers } from 'ethers';
 import { toast } from '@/hooks/use-toast';
 
@@ -17,7 +18,13 @@ export async function getSignerAndProvider() {
   const provider = new ethers.BrowserProvider(window.ethereum);
   // Request accounts every time to ensure the user is prompted if not connected
   // or if accounts have changed.
-  await provider.send("eth_requestAccounts", []); 
+  try {
+    await provider.send("eth_requestAccounts", []); 
+  } catch (error: any) {
+    // Handle cases where user rejects connection or Metamask is locked
+    toast({ title: "Metamask Connection Required", description: error.message || "Please connect/unlock Metamask to proceed.", variant: "destructive" });
+    throw new Error(error.message || 'Metamask connection rejected or failed.');
+  }
   const signer = await provider.getSigner();
   return { signer, provider };
 }
@@ -75,3 +82,4 @@ export async function getCurrentWalletAddress(): Promise<string | null> {
         return null;
     }
 }
+

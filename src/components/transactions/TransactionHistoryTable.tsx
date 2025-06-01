@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import { useState, useEffect, type SVGProps, type ElementType, useCallback } from 'react';
@@ -182,7 +183,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
 
     const unsubscribe = onSnapshot(ordersQuery, (querySnapshot) => {
       const fetchedOrders: StoredOrder[] = [];
-      querySnapshot.forEach((docSnapshot) => {
+      querySnapshot.forEach((docSnapshot) => { // Renamed doc to docSnapshot to avoid conflict
         const data = docSnapshot.data() as Omit<StoredOrder, 'id'>;
         fetchedOrders.push({
           ...data,
@@ -253,7 +254,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
     }
   };
 
-  const handleCreateOrderOnChain = useCallback(async (orderToAssign: StoredOrder, selectedTransporterId: string) => {
+  const handleCreateOrderOnChain = useCallback(async (orderToAssign: StoredOrder, selectedTransporterId: string): Promise<boolean> => {
     setActionOrderId(orderToAssign.id);
     const supplier = allUsersList.find(u => u.id === orderToAssign.supplierId);
     const customer = allUsersList.find(u => u.id === orderToAssign.customerId);
@@ -293,20 +294,36 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
           finalTotalOrderAmountUSD = orderToAssign.totalAmount + calculatedTransporterFeeUSD;
         } else {
            toast({title: "Transporter Rates Error", description: `${transporter.name} has incomplete shipping rates. Using product total for now.`, variant: "outline", duration: 8000});
-           calculatedTransporterFeeUSD = 0; // Default to 0 if not calculable
+           calculatedTransporterFeeUSD = 0; 
         }
       } else {
         toast({title: "Distance Error", description: `Could not estimate distance for fee. ${distanceInfo.note || ''} Using product total.`, variant: "outline", duration: 7000});
-        calculatedTransporterFeeUSD = 0; // Default to 0 if no distance
+        calculatedTransporterFeeUSD = 0; 
       }
     } catch (err) {
       toast({title: "Distance/Fee Calc Error", description: "Could not estimate shipping fee. Using product total.", variant: "outline", duration: 7000});
-      calculatedTransporterFeeUSD = 0; // Default to 0 on error
+      calculatedTransporterFeeUSD = 0; 
+    }
+
+    if (calculatedTransporterFeeUSD === null || calculatedTransporterFeeUSD <= 0) {
+        toast({
+            title: "Shipping Fee Error",
+            description: `Cannot create order on-chain. The shipping fee for transporter ${transporter.name} must be greater than zero. Ensure transporter rates are set and yield a positive fee for this distance. Current calculated fee: $${(calculatedTransporterFeeUSD ?? 0).toFixed(2)}`,
+            variant: "destructive",
+            duration: 12000
+        });
+        setActionOrderId(null);
+        return false;
+    }
+    if (orderToAssign.totalAmount <= 0) {
+        toast({ title: "Product Amount Error", description: "Product amount must be greater than zero to create an order on-chain.", variant: "destructive", duration: 8000 });
+        setActionOrderId(null);
+        return false;
     }
     
     const currentEthUsdPrice = await fetchEthPrice();
     const productAmountInWei = ethers.parseEther((orderToAssign.totalAmount / currentEthUsdPrice).toFixed(18));
-    const shippingFeeInWei = ethers.parseEther(((calculatedTransporterFeeUSD ?? 0) / currentEthUsdPrice).toFixed(18));
+    const shippingFeeInWei = ethers.parseEther(((calculatedTransporterFeeUSD) / currentEthUsdPrice).toFixed(18)); // No ?? 0, already checked > 0
 
     try {
         const contract = await getEscrowContract();
@@ -314,7 +331,6 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
 
         toast({ title: "Creating Order On-Chain...", description: "Please confirm in Metamask. This involves a gas fee.", duration: 10000});
         
-        // Ensure current user (supplier) is connected via Metamask
         const { signer } = await getSignerAndProvider();
         const connectedSupplierAddress = await signer.getAddress();
         if (connectedSupplierAddress.toLowerCase() !== supplier.ethereumAddress.toLowerCase()) {
@@ -330,7 +346,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
             transporter.ethereumAddress,
             productAmountInWei,
             shippingFeeInWei,
-            ethers.ZeroAddress // For ETH payments
+            ethers.ZeroAddress 
         );
         await tx.wait();
         toast({ title: "Order Created On-Chain!", description: `Smart contract order ID: ${orderIdBytes32.substring(0,10)}... Tx: ${tx.hash.substring(0,10)}...`});
@@ -340,13 +356,13 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
             transporterId: selectedTransporterId,
             transporterName: transporter.name,
             transporterEthereumAddress: transporter.ethereumAddress,
-            supplierEthereumAddress: supplier.ethereumAddress, // Already there but good to ensure
-            customerEthereumAddress: customer.ethereumAddress, // Already there but good to ensure
+            supplierEthereumAddress: supplier.ethereumAddress, 
+            customerEthereumAddress: customer.ethereumAddress, 
             status: 'AwaitingOnChainFunding' as OrderStatus,
             shipmentStatus: 'Ready for Pickup' as OrderShipmentStatus,
             pickupAddress: supplier.address || 'N/A',
             deliveryAddress: customer.address || 'N/A',
-            estimatedTransporterFee: calculatedTransporterFeeUSD ?? 0,
+            estimatedTransporterFee: calculatedTransporterFeeUSD,
             finalTotalAmount: finalTotalOrderAmountUSD,
             contractOrderId: orderIdBytes32,
             contractCreationTxHash: tx.hash,
@@ -720,7 +736,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
                 )}
                  {isCustomerView && (order.status === 'CompletedOnChain' || order.status === 'DisputedOnChain') && !canEvaluate && (
                     <Badge variant={order.status === 'CompletedOnChain' ? 'default' : 'destructive'} className="text-xs bg-opacity-70">
-                       <CheckCircle className="h-3 w-3 mr-1"/> {order.status === 'CompletedOnChain' ? 'Evaluated' : 'Disputed & Evaluated'}
+                       <CheckCircle className="h-3 w-3 mr-1"/> {order.assessmentSubmitted ? (order.status === 'CompletedOnChain' ? 'Evaluated' : 'Disputed & Evaluated') : (order.status === 'CompletedOnChain' ? 'Completed' : 'Disputed')}
                     </Badge>
                 )}
               </TableCell>
@@ -793,3 +809,4 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
     </>
   );
 }
+
