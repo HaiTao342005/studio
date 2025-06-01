@@ -4,33 +4,32 @@ import { initializeApp, getApps, type FirebaseApp } from "firebase/app";
 import { getFirestore, type Firestore } from "firebase/firestore";
 import { getAuth, type Auth } from "firebase/auth";
 
-// Your web app's Firebase configuration will be read from environment variables
+// Your web app's Firebase configuration
 const firebaseConfigValues = {
-  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
-  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
-  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
-  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
-  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
-  measurementId: process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID // Optional
+  apiKey: "AIzaSyATvTpaQCEcmRWYisPERQnh63acaIvnzlc",
+  authDomain: "newtech-83nd6.firebaseapp.com",
+  projectId: "newtech-83nd6",
+  storageBucket: "newtech-83nd6.appspot.com", // Corrected to .appspot.com, common for config
+  messagingSenderId: "19640126702",
+  appId: "1:19640126702:web:15d34a0cc15682c4f577ff"
+  // measurementId is optional and not provided, so it will be undefined
 };
 
 let appInternal: FirebaseApp | null = null;
 let dbInternal: Firestore | null = null;
 let authInternal: Auth | null = null;
 
-// Check for essential config variables first
+// Check if essential config values are present (even if hardcoded, good practice for future changes)
 if (!firebaseConfigValues.apiKey || !firebaseConfigValues.projectId) {
   console.error(
     "CRITICAL FIREBASE CONFIGURATION ERROR:\n" +
-    "NEXT_PUBLIC_FIREBASE_API_KEY or NEXT_PUBLIC_FIREBASE_PROJECT_ID is missing in your environment variables (.env.local or .env).\n" +
-    "Please ensure these are correctly set and that you have RESTARTED your Next.js development server.\n" +
+    "Hardcoded apiKey or projectId is missing or empty in src/lib/firebase/config.ts.\n" +
     "Firebase SDK will NOT be initialized, and app functionality relying on Firebase will be affected."
   );
 } else {
   try {
     if (!getApps().length) {
-      appInternal = initializeApp(firebaseConfigValues as any); // Cast as any to satisfy initializeApp if some optional vars are undefined
+      appInternal = initializeApp(firebaseConfigValues);
     } else {
       appInternal = getApps()[0];
     }
