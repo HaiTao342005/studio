@@ -2,7 +2,6 @@
 "use client";
 
 import { useState, useEffect, useCallback } from 'react';
-import Link from 'next/link'; // Added Link
 import { Header } from '@/components/dashboard/Header';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -13,12 +12,10 @@ import { db } from '@/lib/firebase/config';
 import { collection, onSnapshot, query, where, doc, updateDoc, Timestamp } from 'firebase/firestore';
 import { useAuth, type UserShippingRates } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
-import { Truck, Loader2, Info, AlertTriangle, Ban } from 'lucide-react'; // Added AlertTriangle
+import { Truck, Loader2, Info, Ban } from 'lucide-react'; 
 import { format } from 'date-fns';
 import { Badge } from '@/components/ui/badge';
 import { calculateDistance, type CalculateDistanceOutput } from '@/ai/flows/calculate-distance-flow';
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"; // Added Alert components
-
 
 const shipmentStatuses: OrderShipmentStatus[] = ['Ready for Pickup', 'In Transit', 'Out for Delivery', 'Delivered', 'Delivery Failed', 'Shipment Cancelled'];
 
@@ -256,15 +253,6 @@ export default function ManageShipmentsPage({ params, searchParams }: ManageShip
             </CardDescription>
           </CardHeader>
           <CardContent>
-            {user && user.role === 'transporter' && !user.ethereumAddress && !user.isSuspended && (
-              <Alert variant="default" className="mb-4 border-yellow-400 dark:border-yellow-600">
-                <AlertTriangle className="h-5 w-5 text-yellow-500 dark:text-yellow-400" />
-                <AlertTitle className="text-yellow-700 dark:text-yellow-300">Set Your Ethereum Address for Payouts!</AlertTitle>
-                <AlertDescription className="text-yellow-600 dark:text-yellow-200">
-                  To receive on-chain payouts for your completed shipments, please ensure your Ethereum Wallet Address is set in your <Link href="/dashboard/profile" className="font-medium text-primary underline hover:text-primary/90">Profile</Link>.
-                </AlertDescription>
-              </Alert>
-            )}
             {assignedShipments.length === 0 ? (
               <div className="py-10 text-center">
                 <Info className="mx-auto h-12 w-12 text-muted-foreground mb-4" />

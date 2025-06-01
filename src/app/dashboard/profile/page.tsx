@@ -9,8 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
-import { UserCircle, Home, Save, Loader2, Wallet, AlertTriangle } from 'lucide-react';
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { UserCircle, Home, Save, Loader2, Wallet } from 'lucide-react';
 
 interface ProfilePageProps {
   params: {};
@@ -75,25 +74,6 @@ export default function ProfilePage({ params, searchParams }: ProfilePageProps) 
           </CardHeader>
           <form onSubmit={handleSubmit}>
             <CardContent className="space-y-6">
-              {user.role === 'transporter' && !user.ethereumAddress && !user.isSuspended && (
-                <Alert variant="default" className="border-yellow-400 dark:border-yellow-600">
-                  <AlertTriangle className="h-5 w-5 text-yellow-500 dark:text-yellow-400" />
-                  <AlertTitle className="text-yellow-700 dark:text-yellow-300">Ethereum Address Required for Payouts!</AlertTitle>
-                  <AlertDescription className="text-yellow-600 dark:text-yellow-200">
-                    Your Ethereum Wallet Address is crucial for receiving on-chain payouts for completed shipments. Please add it in the field below to ensure you can receive payments.
-                  </AlertDescription>
-                </Alert>
-              )}
-               {user.role === 'supplier' && !user.ethereumAddress && !user.isSuspended && (
-                <Alert variant="default" className="border-yellow-400 dark:border-yellow-600">
-                  <AlertTriangle className="h-5 w-5 text-yellow-500 dark:text-yellow-400" />
-                  <AlertTitle className="text-yellow-700 dark:text-yellow-300">Ethereum Address Required for Payouts!</AlertTitle>
-                  <AlertDescription className="text-yellow-600 dark:text-yellow-200">
-                    Your Ethereum Wallet Address is crucial for receiving on-chain payouts for completed orders. Please add it in the field below.
-                  </AlertDescription>
-                </Alert>
-              )}
-
               <div>
                 <Label className="text-sm font-medium text-muted-foreground">Username</Label>
                 <p className="text-lg font-semibold">{user.name}</p>
