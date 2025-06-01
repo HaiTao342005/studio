@@ -303,14 +303,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             // Let's try to simulate a re-evaluation for now, by just re-setting a dummy state,
             // or more cleanly, re-fetch users or re-run parts of the user snapshot logic.
             // The most robust way is to re-trigger the main effect or parts of it.
+            // For now, let's assume the user snapshot will handle it, or make it more explicit.
+            // A simpler approach: if the user list exists, simulate a usersQuery snapshot to re-run its logic.
+            // This is a bit hacky. Better would be to lift rating calc into a shared func.
             // For now, the user snapshot will run if any user doc changes.
             // If only an order changes (new assessment), the user snapshot might not rerun.
             // So, it's better to make the rating calculation part of the assessedOrders listener too.
             // OR, have the assessment submission trigger a refresh of the user data.
 
-            // For now, let's assume the user snapshot will handle it, or make it more explicit.
-            // A simpler approach: if the user list exists, simulate a usersQuery snapshot to re-run its logic.
-            // This is a bit hacky. Better would be to lift rating calc into a shared func.
             // For now, let's rely on the fact that changing an order for assessment
             // will likely make the UI re-render and if `user` object changes, things refresh.
             // This part might need further refinement if ratings don't update immediately after assessment.
@@ -319,7 +319,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
              // Re-process baseUsers with new ratings
              const baseUsers = [...allUsersList]; // Use a copy of the current user list
 
-             const assessedOrdersSnap = await getDocs(assessedOrdersQuery); // Re-fetch assessed orders
+             // Use assessedOrdersListenerQuery (defined in this scope) instead of assessedOrdersQuery
+             const assessedOrdersSnap = await getDocs(assessedOrdersListenerQuery); // Re-fetch assessed orders
 
              const supplierWeightedRatingSumMap: Record<string, number> = {};
              const supplierTotalWeightsMap: Record<string, number> = {};
@@ -377,7 +378,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       unsubscribeUsers();
       unsubscribeAssessedOrders();
     };
-  }, [seedDefaultManager, toast, logoutCallback, user?.id, isLoadingUsers]); // Added isLoadingUsers to dependencies to ensure rating calc runs after users are loaded
+  }, [seedDefaultManager, toast, logoutCallback, user?.id, isLoadingUsers, allUsersList]); // Added allUsersList as a dependency
 
 
   const signup = useCallback(async (username: string, mockPasswordNew: string, role: UserRole) => {
