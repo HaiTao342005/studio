@@ -252,10 +252,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
     }
 
-    const potentialUserFromList = currentAllUsers.find(u => u.id === userDocId || u.name.toLowerCase() === userDocId);
+    let potentialUserFromList = currentAllUsers.find(u => u.id === userDocId || u.name.toLowerCase() === userDocId);
 
     if (isLoadingUsers && !potentialUserFromList) {
-        toast({ title: "Login Info", description: "why", variant: "outline" });
+        toast({ title: "Login Info", description: "User data is still loading, please try again shortly.", variant: "outline" });
         setIsLoading(false);
         return;
     }
@@ -310,7 +310,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
     }
 
-    const userDocFirestoreRef = doc(db, "users", userRefPath); // Renamed to avoid conflict with userRef (React ref)
+    const userDocFirestoreRef = doc(db, "users", userRefPath); 
     try {
         const userSnap = await getDoc(userDocFirestoreRef);
         if (userSnap.exists()) {
@@ -369,7 +369,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       toast({ title: "Action Error", description: "Firebase is not configured or offline. Cannot approve user.", variant: "destructive", duration: 7000 });
       return;
     }
-    if (userRef.current?.role !== 'manager') { // Use userRef.current
+    if (userRef.current?.role !== 'manager') { 
       toast({ title: "Permission Denied", description: "Only managers can approve users.", variant: "destructive" });
       return;
     }
@@ -688,11 +688,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               if (!storedUserFromLocalStorage && isMounted) setUser(null);
           } finally {
             if (isMounted) {
-              // setIsLoadingUsers(false); // This one is tricky, as this is inside a listener.
-              // Let the outer finally handle setIsLoading, and setIsLoadingUsers will be set here.
-              // If this is the *first* snapshot, it's appropriate to set isLoadingUsers to false.
-              // However, subsequent snapshots shouldn't toggle the main app loading.
-              // This is already handled by the main setIsLoading(false) in the outer finally.
             }
           }
         }, (error) => {
@@ -705,8 +700,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             if(isMounted) toast({ title: "Error Loading Users", description: error.message, variant: "destructive"});
           }
           if (isMounted) {
-            setIsLoadingUsers(false); // Definitely set to false on error
-            // setIsLoading(false); // Outer finally will handle this
+            setIsLoadingUsers(false); 
           }
         });
         unsubscribers.push(unsubscribeUsersSnapshot);
