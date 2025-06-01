@@ -329,7 +329,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
         const contract = await getEscrowContract();
         toast({ title: "Creating Order On-Chain...", description: "Please confirm in Metamask. This involves a gas fee.", duration: 10000});
         
-        const { signer } = await getSignerAndProvider(); // Gets current signer
+        const { signer } = await getSignerAndProvider();
         const connectedSupplierAddress = await signer.getAddress();
         if (connectedSupplierAddress.toLowerCase() !== supplier.ethereumAddress.toLowerCase()) {
             toast({ title: "Wallet Mismatch", description: `Please ensure Metamask is connected with the supplier's registered wallet: ${supplier.ethereumAddress}. Currently connected: ${connectedSupplierAddress}`, variant: "destructive", duration: 10000 });
@@ -372,7 +372,6 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
         await updateDoc(orderRef, updatePayload);
         toast({ title: "Firestore Updated", description: `Order ${orderToAssign.id} status to AwaitingOnChainFunding.`});
 
-        // Manually update the local state to ensure immediate UI feedback
         setOrders(prevOrders =>
           prevOrders.map(o =>
             o.id === orderToAssign.id
@@ -390,7 +389,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
     } finally {
         setActionOrderId(null);
     }
-  }, [allUsersList, toast, user]); // Added user to dependencies of useCallback
+  }, [allUsersList, toast, user]); 
 
 
   const handlePayWithMetamaskOnChain = useCallback(async (orderId: string): Promise<boolean> => {
@@ -426,7 +425,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
     toast({ title: "Initiating On-Chain Payment", description: `Order: ${orderToPay.finalTotalAmount.toFixed(2)} USD. Sending: ${ethAmount.toFixed(6)} ETH. Confirm in Metamask.`, duration: 10000 });
 
     try {
-      const contract = await getEscrowContract(); // Signer will be picked up from getSignerAndProvider
+      const contract = await getEscrowContract(); 
       const tx = await contract.fundOrder(orderToPay.contractOrderId, { value: amountInWei });
       toast({ title: "Transaction Submitted", description: `Tx Hash: ${tx.hash.substring(0,10)}... Waiting for confirmation.` });
       await tx.wait();
@@ -465,7 +464,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
     } finally {
       setActionOrderId(null);
     }
-  }, [orders, toast, allUsersList]); // Removed user from here as signer is obtained fresh
+  }, [orders, toast, allUsersList]); 
 
 
   const handleOpenAssignTransporterDialog = (order: StoredOrder) => {
@@ -473,6 +472,26 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
       toast({ title: "Action Denied", description: "Your account is suspended.", variant: "destructive" });
       return;
     }
+    if (!user?.ethereumAddress) {
+      toast({
+        title: "ETH Address Required",
+        description: "Please set your (Supplier) Ethereum address in 'My Profile' before creating an on-chain order.",
+        variant: "destructive",
+        duration: 8000,
+      });
+      return;
+    }
+    const customerForThisOrder = allUsersList.find(u => u.id === order.customerId);
+    if (!customerForThisOrder?.ethereumAddress) {
+        toast({
+            title: "Customer ETH Address Missing",
+            description: `Customer ${order.customerName} needs to set their Ethereum address in their profile. You cannot create an on-chain order until they do.`,
+            variant: "destructive",
+            duration: 10000,
+        });
+        return;
+    }
+
     setCurrentOrderToAssign(order);
     setSelectedTransporter(null);
     setIsAssignTransporterDialogOpen(true);
@@ -770,7 +789,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
               {isManagerView && <TableCell className="text-xs" title={order.contractConfirmationTxHash || undefined}>{truncateText(order.contractConfirmationTxHash, 12)}</TableCell>}
               <TableCell className="space-x-1 text-center">
                 {canCreateOnChain && (
-                  <Button variant="outline" size="sm" onClick={() => handleOpenAssignTransporterDialog(order)} disabled={actionOrderId === order.id || !!actionOrderId} className="h-8 px-2 text-blue-600 border-blue-600 hover:text-blue-700 hover:bg-blue-50" title="Assign Transporter &amp; Create On-Chain">
+                  <Button variant="outline" size="sm" onClick={() => handleOpenAssignTransporterDialog(order)} disabled={actionOrderId === order.id || !!actionOrderId || isCurrentUserSupplierSuspended} className="h-8 px-2 text-blue-600 border-blue-600 hover:text-blue-700 hover:bg-blue-50" title="Assign Transporter &amp; Create On-Chain">
                      {actionOrderId === order.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSignature className="h-4 w-4" />} <span className="ml-1">Finalize &amp; Create</span>
                   </Button>
                 )}
@@ -827,6 +846,13 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
             <p className="text-sm">Product Cost: ${currentOrderToAssign.totalAmount.toFixed(2)} USD</p>
             <p className="text-xs text-muted-foreground">Select a transporter. Their shipping fee will be calculated and added. This total will be used for the on-chain escrow order.</p>
             
+            {!user?.ethereumAddress && (
+                <p className="text-xs text-destructive mt-2">Your (Supplier) Ethereum address is missing. Please set it in 'My Profile'.</p>
+            )}
+            {currentOrderToAssign && !customerForDialog?.ethereumAddress && (
+                 <p className="text-xs text-destructive mt-2">Customer ({customerForDialog?.name || currentOrderToAssign.customerName}) Ethereum address is missing. They need to set it in their profile.</p>
+            )}
+
             {availableTransporters.length > 0 ? (
               <>
                 <Label htmlFor="transporter-select">Select Transporter (Must have ETH address &amp; rates)</Label>
@@ -835,6 +861,9 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
                   <SelectContent>{availableTransporters.map(t => (<SelectItem key={t.id} value={t.id}>{t.name} ({truncateText(t.ethereumAddress,10)}) {t.averageTransporterRating !== undefined && (<span className="ml-2 text-xs text-muted-foreground">(<Star className="inline-block h-3 w-3 mr-0.5 text-yellow-400 fill-yellow-400" />{t.averageTransporterRating.toFixed(1)} - {t.transporterRatingCount} ratings)</span>)}</SelectItem>))}
                   </SelectContent>
                 </Select>
+                 {selectedTransporterDetails && !selectedTransporterDetails.ethereumAddress && (
+                    <p className="text-xs text-destructive mt-2">Selected Transporter ({selectedTransporterDetails.name}) does not have an Ethereum address set. It's required for on-chain creation.</p>
+                )}
               </>
             ) : (
               <div className="p-4 text-sm text-muted-foreground text-center border rounded-md bg-secondary/50">
@@ -842,15 +871,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
                 No transporters are currently eligible (must be approved, not suspended, have ETH address, and shipping rates set).
               </div>
             )}
-             {!user?.ethereumAddress && (
-                <p className="text-xs text-destructive mt-2">Warning: Your (Supplier) Ethereum address is not set in your profile. It's required for on-chain creation.</p>
-            )}
-            {currentOrderToAssign && !customerForDialog?.ethereumAddress && (
-                 <p className="text-xs text-destructive mt-2">Warning: Customer ({customerForDialog?.name || currentOrderToAssign.customerName}) Ethereum address is not set. It's required for on-chain creation.</p>
-            )}
-            {selectedTransporterDetails && !selectedTransporterDetails.ethereumAddress && (
-                 <p className="text-xs text-destructive mt-2">Warning: Selected Transporter ({selectedTransporterDetails.name}) does not have an Ethereum address set. It's required for on-chain creation.</p>
-            )}
+           
           </div>
           <DialogFooter>
             <DialogClose asChild><Button type="button" variant="outline">Cancel</Button></DialogClose>
