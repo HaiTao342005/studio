@@ -88,6 +88,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const seedDefaultManager = useCallback(async () => {
     if (!db) { 
       console.info("AuthContext: Firestore (db) is not available for seedDefaultManager. Skipping.");
+      // This specific console log indicates Firebase itself (db instance) is null, likely from config.ts
       return;
     }
     const usersRef = collection(db, "users");
@@ -133,8 +134,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             console.info("AuthContext: seedDefaultManager failed as Firestore client is offline.", error.message);
             toast({ title: "Network Issue", description: "Could not connect to Firebase to verify manager data. Some functions may be limited.", variant: "destructive", duration: 7000});
         } else {
-            console.error("Error in seedDefaultManager:", error);
-            toast({ title: "Setup Error", description: "Could not verify default manager data.", variant: "destructive"});
+            console.error("Error in seedDefaultManager (likely Firestore operation issue):", error); 
+            let description = "Could not verify default manager data. Please check your Firebase project console for issues with Firestore (e.g., database creation, rules, or billing).";
+            if (error.message) {
+                description += ` Error: ${error.message}`;
+            }
+            if (error.code) {
+                description += ` Code: ${error.code}`;
+            }
+            toast({ 
+                title: "Setup Error", 
+                description: description, 
+                variant: "destructive",
+                duration: 10000 
+            });
         }
     }
   }, [toast]);
@@ -193,8 +206,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             console.error("Error in fetchAllOrdersForHistory:", error);
             toast({ title: "Order History Error", description: "Could not fetch order history for rating calculation.", variant: "destructive"});
         }
-        allOrderDocsForHistory = []; // Ensure it's cleared on error
-        customerSupplierPurchaseCount.clear(); // Ensure it's cleared on error
+        allOrderDocsForHistory = []; 
+        customerSupplierPurchaseCount.clear(); 
       }
     };
 
@@ -206,22 +219,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             title: "Firebase Unavailable",
             description: "The application cannot connect to Firebase. Core features will be unavailable. Please check console and Firebase configuration.",
             variant: "destructive",
-            duration: 0, // Persistent toast
+            duration: 0, 
           });
           setIsLoading(false);
           setIsLoadingUsers(false);
           setUser(null); 
           localStorage.removeItem(CURRENT_USER_STORAGE_KEY); 
-          return () => {}; // Return an empty function for cleanup
+          return () => {}; 
         }
 
         try {
-            await seedDefaultManager(); // Await this important setup step
+            await seedDefaultManager(); 
 
             const usersQuery = query(collection(db, "users"));
             const unsubscribeUsers = onSnapshot(usersQuery, async (querySnapshot) => {
               try {
-                await fetchAllOrdersForHistory(); // Fetch latest orders before processing users
+                await fetchAllOrdersForHistory(); 
 
                 const baseUsers: User[] = [];
                 querySnapshot.forEach((docSnapshot) => {
@@ -246,7 +259,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                   const orderData = orderDoc.data() as StoredOrder;
                   if (orderData.supplierId && typeof orderData.supplierRating === 'number' && orderData.customerId) {
                     const purchaseCount = customerSupplierPurchaseCount.get(orderData.customerId)?.get(orderData.supplierId) || 0;
-                    let weight = 0.05; // Default for first purchase
+                    let weight = 0.05; 
                     if (purchaseCount > 10) weight = 0.80;
                     else if (purchaseCount >= 2) weight = 0.15;
                     
@@ -317,7 +330,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 if (!storedUser) setUser(null);
               } finally {
                 setIsLoadingUsers(false);
-                setIsLoading(false); // Overall loading done once users (even if empty/error) are processed
+                setIsLoading(false); 
               }
             }, (error) => {
               if (error instanceof FirestoreError && (error.code === 'unavailable' || (error.message && error.message.includes('client is offline')))) {
@@ -334,9 +347,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             const assessedOrdersListenerQuery = query(collection(db, "orders"), where("assessmentSubmitted", "==", true));
             const unsubscribeAssessedOrders = onSnapshot(assessedOrdersListenerQuery, async (snapshot) => {
               try {
-                if (allUsersList.length > 0) { // Only run if base users are already loaded
+                if (allUsersList.length > 0) { 
                     console.log("Assessment update detected, recalculating ratings...");
-                    await fetchAllOrdersForHistory(); // Refresh order counts
+                    await fetchAllOrdersForHistory(); 
                     const baseUsersForAssessmentUpdate = [...allUsersList]; 
 
                     const supplierWeightedRatingSumMap: Record<string, number> = {};
@@ -432,9 +445,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             }
             setIsLoading(false);
             setIsLoadingUsers(false);
-            setUser(null); // Ensure user is null if init fails
+            setUser(null); 
             localStorage.removeItem(CURRENT_USER_STORAGE_KEY);
-            return () => {}; // Return an empty function for cleanup
+            return () => {}; 
         }
     };
 
@@ -549,7 +562,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                      toast({ title: "Login Failed", description: "Invalid username or password.", variant: "destructive" });
                 }
             } else {
-                // This case should ideally not happen if user is in allUsersList which comes from onSnapshot
+                
                 toast({ title: "Login Failed", description: "User data inconsistency. Please try again.", variant: "destructive" });
             }
         } catch (error: any) {
@@ -562,7 +575,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             }
         }
     } else {
-        // User not in allUsersList, try a direct query (this is a fallback)
+        
         const usersRef = collection(db, "users");
         const q = query(usersRef, where("name", "==", username));
         try {
@@ -573,15 +586,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 const userDocFromQuery = querySnapshot.docs[0];
                 const userDataFromDB = userDocFromQuery.data() as StoredUser;
                 if (userDataFromDB.mockPassword === mockPasswordAttempt) {
-                    // Construct the full User object, including potential calculated fields
+                    
                     const loggedInUser: User = {
                         id: userDocFromQuery.id, name: userDataFromDB.name, role: userDataFromDB.role,
                         isApproved: userDataFromDB.isApproved, isSuspended: userDataFromDB.isSuspended ?? false,
                         address: userDataFromDB.address || '', ethereumAddress: userDataFromDB.ethereumAddress || '',
                         shippingRates: userDataFromDB.shippingRates,
-                        // Rating fields would ideally come from allUsersList or be re-calculated,
-                        // but for this direct login path, we might not have them immediately.
-                        // This path is less ideal as allUsersList should be the source of truth.
+                        
+                        
                     };
                     if (loggedInUser.isSuspended) {
                         toast({ title: "Account Suspended", description: "Your account has been suspended. Contact support.", variant: "destructive", duration: 10000 });
@@ -754,5 +766,3 @@ export function useAuth() {
   }
   return context;
 }
-
-
