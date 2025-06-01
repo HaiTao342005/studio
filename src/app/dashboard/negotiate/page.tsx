@@ -42,8 +42,6 @@ function NegotiationPageContent({ productId, supplierId }: NegotiationPageConten
   const [isLoadingDistance, setIsLoadingDistance] = useState(false);
   const [distanceError, setDistanceError] = useState<string | null>(null);
 
-  // const { allUsersList } = useAuth(); // Already destructured above
-
   useEffect(() => {
     console.log("[NegotiatePage] useEffect triggered. productId:", productId, "supplierId:", supplierId);
     if (!productId || !supplierId) {
@@ -80,7 +78,6 @@ function NegotiationPageContent({ productId, supplierId }: NegotiationPageConten
           console.error("[NegotiatePage] Product not found in Firestore with id:", productId);
         }
 
-        // Use the supplier from allUsersList which includes rating info
         const foundSupplier = allUsersList.find(u => u.id === supplierId && u.role === 'supplier');
         if (foundSupplier) {
           setSupplier(foundSupplier);
@@ -111,7 +108,7 @@ function NegotiationPageContent({ productId, supplierId }: NegotiationPageConten
             setIsLoadingDistance(false);
           }
         } else if (fetchedProduct && !customer?.address) {
-             setDistanceError("Customer address not set. Please update your profile.");
+             setDistanceError("Customer address not set. Please update your profile to get shipping estimates.");
              setIsLoadingDistance(false);
         }
 
@@ -155,12 +152,6 @@ function NegotiationPageContent({ productId, supplierId }: NegotiationPageConten
       return;
     }
 
-    console.log("[NegotiatePage] Product:", product);
-    console.log("[NegotiatePage] Supplier:", supplier);
-    console.log("[NegotiatePage] Customer:", customer);
-    console.log("[NegotiatePage] Desired Quantity:", desiredQuantity);
-    console.log("[NegotiatePage] Total Price:", totalPrice);
-
     if (!product || !supplier || !customer || desiredQuantity <= 0) {
       console.error("[NegotiatePage] Validation failed: Missing product, supplier, customer, or invalid quantity.");
       toast({ title: "Order Error", description: "Missing information or invalid quantity.", variant: "destructive" });
@@ -168,8 +159,6 @@ function NegotiationPageContent({ productId, supplierId }: NegotiationPageConten
     }
 
     const availableStock = product.stockQuantity ?? 0;
-    console.log("[NegotiatePage] Available Stock:", availableStock);
-
     if (desiredQuantity > availableStock) {
       console.error("[NegotiatePage] Validation failed: Not enough stock.");
       toast({ title: "Order Error", description: `Not enough stock. Available: ${availableStock} ${product.unit}(s).`, variant: "destructive" });
@@ -177,7 +166,6 @@ function NegotiationPageContent({ productId, supplierId }: NegotiationPageConten
     }
 
     setIsSubmittingOrder(true);
-    console.log("[NegotiatePage] Attempting to create orderData...");
     try {
       const orderData = {
         productId: product.id,
@@ -188,27 +176,23 @@ function NegotiationPageContent({ productId, supplierId }: NegotiationPageConten
         customerName: customer.name,
         quantity: desiredQuantity,
         pricePerUnit: product.price,
-        totalAmount: totalPrice,
+        totalAmount: totalPrice, // This is the initial product total
+        // finalTotalAmount will be set by supplier later
         currency: 'USD', 
         unit: product.unit,
         status: 'Awaiting Supplier Confirmation' as OrderStatus,
         orderDate: serverTimestamp(),
         podSubmitted: false,
-        assessmentSubmitted: false, // Initialize assessment status
+        assessmentSubmitted: false,
       };
-      console.log("[NegotiatePage] OrderData to be sent to Firestore:", orderData);
-      console.log("[NegotiatePage] Saving order with supplierId:", orderData.supplierId, "and customerId:", orderData.customerId);
       const docRef = await addDoc(collection(db, "orders"), orderData);
-      console.log("[NegotiatePage] Order placed successfully in Firestore, doc ID:", docRef.id);
-
-      toast({ title: "Order Placed!", description: `Your order for ${desiredQuantity} ${product.unit}(s) of ${product.name} has been placed and is awaiting supplier confirmation.`, });
+      toast({ title: "Order Placed!", description: `Your order for ${desiredQuantity} ${product.unit}(s) of ${product.name} has been placed. The supplier will confirm and provide final pricing including shipping.`, });
       router.push('/dashboard/my-orders');
     } catch (err) {
       console.error("[NegotiatePage] Error placing order in try-catch:", err);
       toast({ title: "Order Failed", description: `Could not place your order. ${(err as Error).message || 'Please try again.'}`, variant: "destructive" });
     } finally {
       setIsSubmittingOrder(false);
-      console.log("[NegotiatePage] handleMakeOrder finished.");
     }
   };
 
@@ -322,8 +306,9 @@ function NegotiationPageContent({ productId, supplierId }: NegotiationPageConten
         <Card className="shadow-md">
             <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-xl">
-                    <Pin className="h-5 w-5 text-primary" /> AI Estimated Shipping Information
+                    <Pin className="h-5 w-5 text-primary" /> AI Estimated Shipping Information (for reference)
                 </CardTitle>
+                 <CardDescription>The supplier will confirm the final shipping cost before payment.</CardDescription>
             </CardHeader>
             <CardContent>
                 {isLoadingDistance && <div className="flex items-center"><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Fetching distance...</div>}
@@ -353,9 +338,16 @@ function NegotiationPageContent({ productId, supplierId }: NegotiationPageConten
         <Card className="shadow-md">
           <CardHeader>
             <CardTitle>Your Offer</CardTitle>
-            <CardDescription>Specify the quantity you wish to purchase. Please ensure your delivery address is updated in your profile.</CardDescription>
+            <CardDescription>Specify the quantity you wish to purchase. The displayed price is for the product only. The supplier will add shipping costs to determine the final price before payment.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+             <Alert variant="outline" className="border-blue-400 text-blue-700">
+                <Info className="h-4 w-4" />
+                <AlertTitle>Pricing Note</AlertTitle>
+                <AlertDescription>
+                  The total price shown below is for the product(s) only. After you place the order, the supplier will assign a transporter and add the shipping cost. You will then be prompted to pay the final total amount.
+                </AlertDescription>
+              </Alert>
             {isOutOfStock && (
                 <Alert variant="destructive" className="mb-4">
                     <AlertCircle className="h-4 w-4" />
@@ -391,7 +383,7 @@ function NegotiationPageContent({ productId, supplierId }: NegotiationPageConten
             </div>
             {!isOutOfStock && desiredQuantity > 0 && (
               <div className="p-4 bg-secondary/50 rounded-md border">
-                <p className="text-sm text-muted-foreground">Calculated Total:</p>
+                <p className="text-sm text-muted-foreground">Calculated Product Total (excluding shipping):</p>
                 <p className="text-3xl font-bold text-primary">${totalPrice.toFixed(2)}</p>
                 <p className="text-xs text-muted-foreground">
                   ({desiredQuantity} {product.unit}{desiredQuantity !== 1 ? 's' : ''} x ${product.price.toFixed(2)}/{product.unit})
@@ -419,7 +411,7 @@ function NegotiationPageContent({ productId, supplierId }: NegotiationPageConten
               ) : (
                 <CheckCircle className="mr-2 h-4 w-4" />
               )}
-              {isOutOfStock ? 'Out of Stock' : customerAddressMissing ? 'Update Profile to Order' : 'Make Order'}
+              {isOutOfStock ? 'Out of Stock' : customerAddressMissing ? 'Update Profile to Order' : 'Place Order (Pending Final Price)'}
             </Button>
           </CardFooter>
         </Card>

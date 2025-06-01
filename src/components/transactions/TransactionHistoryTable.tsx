@@ -17,7 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
-import { Trash2, Wallet, Loader2, Eye, ThumbsUp, Truck, AlertTriangle, ThumbsDown, Star, CheckCircle, Ban } from 'lucide-react';
+import { Trash2, Wallet, Loader2, Eye, ThumbsUp, Truck, AlertTriangle, ThumbsDown, Star, CheckCircle, Ban, Edit } from 'lucide-react'; // Added Edit
 import type { OrderStatus, StoredOrder, OrderShipmentStatus } from '@/types/transaction';
 import { AppleIcon, BananaIcon, OrangeIcon, GrapeIcon, MangoIcon, FruitIcon } from '@/components/icons/FruitIcons';
 import { format } from 'date-fns';
@@ -88,7 +88,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
   const [orders, setOrders] = useState<StoredOrder[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [payingOrderId, setPayingOrderId] = useState<string | null>(null);
-  const [confirmingOrderId, setConfirmingOrderId] = useState<string | null>(null);
+  // const [confirmingOrderId, setConfirmingOrderId] = useState<string | null>(null); // Replaced by assign transporter flow
   const [assigningTransporterOrderId, setAssigningTransporterOrderId] = useState<string | null>(null);
   const [confirmingReceiptOrderId, setConfirmingReceiptOrderId] = useState<string | null>(null);
   const [denyingReceiptOrderId, setDenyingReceiptOrderId] = useState<string | null>(null);
@@ -226,7 +226,10 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
       toast({ title: "Error", description: "Order not found.", variant: "destructive" });
       return false;
     }
-    if (orderToPay.totalAmount <= 0) {
+
+    const amountToPay = orderToPay.finalTotalAmount ?? orderToPay.totalAmount;
+
+    if (amountToPay <= 0) {
       toast({ title: "Payment Error", description: "Order amount must be > 0.", variant: "destructive" });
       return false;
     }
@@ -237,8 +240,8 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
 
     setPayingOrderId(orderId);
     const currentEthUsdPrice = await fetchEthPrice();
-    const ethAmount = parseFloat((orderToPay.totalAmount / currentEthUsdPrice).toFixed(18));
-    toast({ title: "Initiating Payment", description: `Order: ${orderToPay.totalAmount.toFixed(2)} USD. Sending: ${ethAmount.toFixed(6)} ETH. Confirm in Metamask.` });
+    const ethAmount = parseFloat((amountToPay / currentEthUsdPrice).toFixed(18));
+    toast({ title: "Initiating Payment", description: `Order: ${amountToPay.toFixed(2)} USD. Sending: ${ethAmount.toFixed(6)} ETH. Confirm in Metamask.` });
 
     try {
       const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' }) as string[];
@@ -284,22 +287,6 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
     }
   }, [orders, toast]);
 
-  const handleSupplierConfirmOrder = async (orderId: string) => {
-    if (user?.isSuspended) {
-      toast({ title: "Action Denied", description: "Your account is suspended.", variant: "destructive" });
-      return;
-    }
-    setConfirmingOrderId(orderId);
-    try {
-      const orderRef = doc(db, "orders", orderId);
-      await updateDoc(orderRef, { status: 'Awaiting Payment' as OrderStatus }); 
-      toast({ title: "Order Confirmed", description: "Order confirmed. Customer will be prompted to pay." });
-    } catch (error) {
-      toast({ title: "Error", description: "Could not confirm order.", variant: "destructive" });
-    } finally {
-      setConfirmingOrderId(null);
-    }
-  };
 
   const handleOpenAssignTransporterDialog = (order: StoredOrder) => {
     if (user?.isSuspended) {
@@ -332,6 +319,8 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
     let supplierAddress = 'N/A', customerAddress = 'N/A';
     let predictedDeliveryTimestamp: Timestamp | null = null;
     let calculatedTransporterFee: number | undefined = undefined;
+    let finalTotalOrderAmount: number = currentOrderToAssign.totalAmount;
+
 
     try {
       const supplierDetails = allUsersList.find(u => u.id === currentOrderToAssign.supplierId);
@@ -347,11 +336,14 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
         }
         if (distanceInfo.distanceKm && typeof distanceInfo.distanceKm === 'number') {
           calculatedTransporterFee = BASE_FARE + (distanceInfo.distanceKm * RATE_PER_KM);
+          finalTotalOrderAmount = currentOrderToAssign.totalAmount + calculatedTransporterFee;
         }
-        toast({ title: "Logistics Estimated", description: `Delivery: ${predictedDeliveryTimestamp ? format(predictedDeliveryTimestamp.toDate(), "MMM d, yyyy") : 'N/A'}. Fee: ${calculatedTransporterFee ? '$'+calculatedTransporterFee.toFixed(2) : 'N/A'}. Note: ${distanceInfo.note || ''}`});
+        toast({ title: "Logistics Estimated", description: `Delivery: ${predictedDeliveryTimestamp ? format(predictedDeliveryTimestamp.toDate(), "MMM d, yyyy") : 'N/A'}. Fee: ${calculatedTransporterFee ? '$'+calculatedTransporterFee.toFixed(2) : 'N/A'}. New Total: $${finalTotalOrderAmount.toFixed(2)}. Note: ${distanceInfo.note || ''}`});
+      } else {
+        toast({title: "Address Info Missing", description: "Supplier or customer address not found. Cannot accurately estimate delivery/fee. Using product total.", variant: "outline"});
       }
     } catch (err) {
-      toast({title: "Address/Distance Error", description: "Could not estimate delivery/fee.", variant: "outline"});
+      toast({title: "Distance/Fee Error", description: "Could not estimate delivery/fee. Using product total.", variant: "outline"});
     }
 
     try {
@@ -359,19 +351,20 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
       const updateData: Partial<StoredOrder> = {
         transporterId: selectedTransporter,
         transporterName: transporterUser.name,
-        status: 'Ready for Pickup' as OrderStatus, 
-        shipmentStatus: 'Ready for Pickup' as OrderShipmentStatus,
+        status: 'Awaiting Payment' as OrderStatus, 
+        shipmentStatus: 'Ready for Pickup' as OrderShipmentStatus, // Transporter is assigned, ready for pickup
         pickupAddress: supplierAddress,
         deliveryAddress: customerAddress,
         estimatedTransporterFee: calculatedTransporterFee,
+        finalTotalAmount: finalTotalOrderAmount,
       };
       if (predictedDeliveryTimestamp) updateData.predictedDeliveryDate = predictedDeliveryTimestamp;
 
       await updateDoc(orderRef, updateData);
-      toast({ title: "Transporter Assigned", description: `${transporterUser.name} assigned. Order ready for pickup.` });
+      toast({ title: "Transporter Assigned & Final Price Set", description: `${transporterUser.name} assigned. Order status updated to 'Awaiting Payment' with final price $${finalTotalOrderAmount.toFixed(2)}.` });
       setIsAssignTransporterDialogOpen(false);
     } catch (error) {
-      toast({ title: "Error", description: "Could not assign transporter.", variant: "destructive" });
+      toast({ title: "Error", description: "Could not assign transporter or finalize price.", variant: "destructive" });
     } finally {
       setAssigningTransporterOrderId(null);
     }
@@ -388,7 +381,8 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
 
     try {
       const orderRef = doc(db, "orders", orderId);
-      const supplierPayout = order.totalAmount - (order.estimatedTransporterFee || 0);
+      const basisAmount = order.finalTotalAmount ?? order.totalAmount;
+      const supplierPayout = basisAmount - (order.estimatedTransporterFee || 0);
       const transporterPayout = order.estimatedTransporterFee || 0;
 
       await updateDoc(orderRef, {
@@ -501,6 +495,10 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
             const transporterForOrder = order.transporterId ? allUsersList.find(u => u.id === order.transporterId) : null;
             const isCurrentUserSupplierSuspended = user?.role === 'supplier' && user?.isSuspended;
 
+            const displayAmount = (order.status === 'Awaiting Payment' || order.status === 'Paid' || order.status === 'Delivered' || order.status === 'Receipt Confirmed' || order.status === 'Completed' || order.status === 'Disputed') && order.finalTotalAmount !== undefined
+                                ? order.finalTotalAmount
+                                : order.totalAmount;
+
             return (
             <TableRow key={order.id}>
               <TableCell>{order.FruitIcon ? <order.FruitIcon className="h-6 w-6 text-accent" /> : <FruitIcon className="h-6 w-6 text-gray-400" />}</TableCell>
@@ -517,7 +515,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
                 {order.transporterName || 'N/A'}
                 {transporterForOrder?.averageTransporterRating !== undefined && (<Badge variant="outline" className="ml-1 text-xs font-normal py-0.5"><Star className="h-3 w-3 mr-1 text-yellow-400 fill-yellow-400" />{transporterForOrder.averageTransporterRating.toFixed(1)}</Badge>)}
               </TableCell>
-              <TableCell className="text-right">{order.currency} {order.totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</TableCell>
+              <TableCell className="text-right">{order.currency} {displayAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</TableCell>
               <TableCell className="text-right">{order.quantity.toLocaleString()} {order.unit}</TableCell>
               <TableCell><Badge variant={getStatusBadgeVariant(order.status)}>{order.status}</Badge></TableCell>
               <TableCell>{order.shipmentStatus ? <Badge variant={getStatusBadgeVariant(order.shipmentStatus)}>{order.shipmentStatus}</Badge> : <span className="text-xs text-muted-foreground">N/A</span>}</TableCell>
@@ -544,21 +542,17 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
                   </Button>
                 )}
                 {!isCustomerView && user?.role === 'supplier' && order.status === 'Awaiting Supplier Confirmation' && (
-                  <Button variant="outline" size="sm" onClick={() => handleSupplierConfirmOrder(order.id)} disabled={confirmingOrderId === order.id || !!confirmingOrderId || isCurrentUserSupplierSuspended} className="h-8 px-2 text-green-600 border-green-600 hover:text-green-700 hover:bg-green-50" title="Confirm Order">
-                    {confirmingOrderId === order.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <ThumbsUp className="h-4 w-4" />} <span className="ml-1">Confirm Order</span>
+                  <Button variant="outline" size="sm" onClick={() => handleOpenAssignTransporterDialog(order)} disabled={assigningTransporterOrderId === order.id || !!assigningTransporterOrderId || isCurrentUserSupplierSuspended} className="h-8 px-2 text-blue-600 border-blue-600 hover:text-blue-700 hover:bg-blue-50" title="Assign Transporter & Finalize Price">
+                     {assigningTransporterOrderId === order.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Edit className="h-4 w-4" />} <span className="ml-1">Finalize & Assign</span>
                   </Button>
                 )}
-                {!isCustomerView && user?.role === 'supplier' && order.status === 'Awaiting Transporter Assignment' && (
-                  <Button variant="outline" size="sm" onClick={() => handleOpenAssignTransporterDialog(order)} disabled={assigningTransporterOrderId === order.id || !!assigningTransporterOrderId || isCurrentUserSupplierSuspended} className="h-8 px-2 text-blue-600 border-blue-600 hover:text-blue-700 hover:bg-blue-50" title="Assign Transporter">
-                    {assigningTransporterOrderId === order.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Truck className="h-4 w-4" />} <span className="ml-1">Assign Transporter</span>
-                  </Button>
-                )}
+
                 {user?.role !== 'customer' && (
                   <Button variant="ghost" size="icon" onClick={() => handleDeleteOrder(order.id)} aria-label="Delete order" className="h-8 w-8" disabled={isCurrentUserSupplierSuspended && user?.role === 'supplier'}>
                     <Trash2 className="h-4 w-4 text-destructive" />
                   </Button>
                 )}
-                {isCurrentUserSupplierSuspended && !isCustomerView && user?.role === 'supplier' && (order.status === 'Awaiting Supplier Confirmation' || order.status === 'Awaiting Transporter Assignment') && (
+                {isCurrentUserSupplierSuspended && !isCustomerView && user?.role === 'supplier' && (order.status === 'Awaiting Supplier Confirmation') && (
                     <Badge variant="destructive" className="text-xs"><Ban className="h-3 w-3 mr-1"/> Suspended</Badge>
                 )}
                 {isCustomerView && !canPay && !canConfirmOrDeny && !canEvaluate && order.status !== 'Completed' && order.status !== 'Disputed' && (
@@ -579,15 +573,17 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
     {isAssignTransporterDialogOpen && currentOrderToAssign && (
       <Dialog open={isAssignTransporterDialogOpen} onOpenChange={(isOpen) => { if (!isOpen) { setCurrentOrderToAssign(null); setSelectedTransporter(null); } setIsAssignTransporterDialogOpen(isOpen); }}>
         <DialogContent className="sm:max-w-md">
-          <DialogHeader><DialogTitle>Assign Transporter: {currentOrderToAssign.productName}</DialogTitle><DialogDescription>Customer: {currentOrderToAssign.customerName}</DialogDescription></DialogHeader>
+          <DialogHeader><DialogTitle>Assign Transporter & Set Final Price</DialogTitle><DialogDescription>Order: {currentOrderToAssign.productName} for {currentOrderToAssign.customerName}</DialogDescription></DialogHeader>
           <div className="py-4 space-y-2">
+            <p className="text-sm">Product Cost: ${currentOrderToAssign.totalAmount.toFixed(2)}</p>
+            <p className="text-xs text-muted-foreground">Estimated shipping fee will be added to this to get the final price for the customer.</p>
             <Label htmlFor="transporter-select">Select Transporter</Label>
             <Select onValueChange={setSelectedTransporter} value={selectedTransporter || undefined}>
               <SelectTrigger id="transporter-select"><SelectValue placeholder="Choose..." /></SelectTrigger>
               <SelectContent>{availableTransporters.length > 0 ? availableTransporters.map(t => (<SelectItem key={t.id} value={t.id}>{t.name}{t.averageTransporterRating !== undefined && (<span className="ml-2 text-xs text-muted-foreground">(<Star className="inline-block h-3 w-3 mr-0.5 text-yellow-400 fill-yellow-400" />{t.averageTransporterRating.toFixed(1)} - {t.transporterRatingCount} ratings)</span>)}</SelectItem>)) : (<div className="p-4 text-sm text-muted-foreground">No transporters.</div>)}</SelectContent>
             </Select>
           </div>
-          <DialogFooter><DialogClose asChild><Button type="button" variant="outline">Cancel</Button></DialogClose><Button type="button" onClick={handleAssignTransporter} disabled={!selectedTransporter || assigningTransporterOrderId === currentOrderToAssign.id || !!assigningTransporterOrderId}>{(assigningTransporterOrderId === currentOrderToAssign.id) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Assign</Button></DialogFooter>
+          <DialogFooter><DialogClose asChild><Button type="button" variant="outline">Cancel</Button></DialogClose><Button type="button" onClick={handleAssignTransporter} disabled={!selectedTransporter || assigningTransporterOrderId === currentOrderToAssign.id || !!assigningTransporterOrderId}>{(assigningTransporterOrderId === currentOrderToAssign.id) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Confirm & Set Price</Button></DialogFooter>
         </DialogContent>
       </Dialog>
     )}
@@ -607,5 +603,3 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
     </>
   );
 }
-
-    

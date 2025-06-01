@@ -5,7 +5,7 @@ import type { Timestamp } from 'firebase/firestore';
 export type OrderStatus =
   | 'Pending'
   | 'Awaiting Supplier Confirmation'
-  | 'Awaiting Transporter Assignment'
+  | 'Awaiting Transporter Assignment' // This might be superseded by the new flow but kept for flexibility
   | 'Awaiting Payment'
   | 'Paid' // Signifies funds are in simulated escrow
   | 'Ready for Pickup'
@@ -30,7 +30,8 @@ export interface StoredOrder {
   quantity: number;
   unit: 'kg' | 'ton' | 'box' | 'pallet' | 'item';
   pricePerUnit: number;
-  totalAmount: number;
+  totalAmount: number; // Initial product total
+  finalTotalAmount?: number; // Product total + shipping, this is what customer pays
   currency: string;
   status: OrderStatus;
   notes?: string;
