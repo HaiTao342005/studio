@@ -315,10 +315,10 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
         toast({
             title: "Shipping Fee Error",
             description: `Cannot create order on-chain. The shipping fee for transporter ${transporter.name} must be greater than zero.
-            Calculated Fee: $${(calculatedTransporterFeeUSD ?? 0).toFixed(2)}.
+            Current calculated fee: $${(calculatedTransporterFeeUSD ?? 0).toFixed(2)}.
             Distance: ${distanceString}.
             ${transporter.name}'s Rates: ${ratesString}.
-            Please ensure rates are set to yield a positive fee.`,
+            Please ensure rates are set to yield a positive fee or adjust assignment.`,
             variant: "destructive",
             duration: 20000 
         });
@@ -409,18 +409,24 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
 
   const handlePayWithMetamaskOnChain = useCallback(async (orderId: string): Promise<boolean> => {
     const orderToPay = orders.find(o => o.id === orderId);
+    console.log('[handlePayWithMetamaskOnChain] Attempting to pay for order:', orderId);
     if (!orderToPay || !orderToPay.contractOrderId || orderToPay.finalTotalAmount === undefined) {
       toast({ title: "Error", description: "Order details missing for on-chain payment.", variant: "destructive" });
+      console.error('[handlePayWithMetamaskOnChain] Pre-condition failed: orderToPay, contractOrderId, or finalTotalAmount missing.', orderToPay);
       return false;
     }
+    console.log('[handlePayWithMetamaskOnChain] Order to pay (full):', JSON.stringify(orderToPay, null, 2));
+
     if (orderToPay.status !== 'AwaitingOnChainFunding') {
       toast({ title: "Payment Error", description: `Order is not awaiting funding. Status: ${orderToPay.status}`, variant: "destructive" });
+      console.error('[handlePayWithMetamaskOnChain] Pre-condition failed: Order status is not AwaitingOnChainFunding. Current status:', orderToPay.status);
       return false;
     }
     
     const customerUser = allUsersList.find(u => u.id === orderToPay.customerId);
     if (!customerUser?.ethereumAddress) {
          toast({ title: "Customer Wallet Error", description: `Customer ${orderToPay.customerName} Ethereum address not found in their profile.`, variant: "destructive", duration: 8000 });
+         console.error('[handlePayWithMetamaskOnChain] Pre-condition failed: Customer Ethereum address missing.');
          return false;
     }
     
@@ -429,25 +435,62 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
 
     if (connectedCustomerAddress.toLowerCase() !== customerUser.ethereumAddress.toLowerCase()) {
          toast({ title: "Wallet Mismatch", description: `Please ensure Metamask is connected with the customer's wallet: ${customerUser.ethereumAddress}. Currently connected: ${connectedCustomerAddress}`, variant: "destructive", duration: 10000 });
+         console.error('[handlePayWithMetamaskOnChain] Pre-condition failed: Wallet mismatch.');
          return false;
     }
 
     setActionOrderId(orderId);
     const currentEthUsdPrice = await fetchEthPrice();
-    const ethAmount = parseFloat((orderToPay.finalTotalAmount / currentEthUsdPrice).toFixed(18));
-    const amountInWei = ethers.parseEther(ethAmount.toString());
+    console.log('[handlePayWithMetamaskOnChain] Order finalTotalAmount (USD):', orderToPay.finalTotalAmount);
+    console.log('[handlePayWithMetamaskOnChain] Current ETH/USD price:', currentEthUsdPrice);
 
-    toast({ title: "Initiating On-Chain Payment", description: `Order: ${orderToPay.finalTotalAmount.toFixed(2)} USD. Sending: ${ethAmount.toFixed(6)} ETH. Confirm in Metamask.`, duration: 10000 });
+    if (orderToPay.finalTotalAmount! <= 0) {
+        toast({ title: "Payment Error", description: "Order total amount must be greater than zero to fund.", variant: "destructive", duration: 8000 });
+        console.error('[handlePayWithMetamaskOnChain] Pre-condition failed: finalTotalAmount is not positive.');
+        setActionOrderId(null);
+        return false;
+    }
+    
+    // Ensure toFixed(18) is applied to a number that can be represented as such.
+    // Small USD amounts might become extremely small ETH amounts.
+    const ethAmountValue = orderToPay.finalTotalAmount! / currentEthUsdPrice;
+    console.log('[handlePayWithMetamaskOnChain] Calculated raw ETH amount for sending:', ethAmountValue);
+    if (isNaN(ethAmountValue) || ethAmountValue <= 0) {
+        toast({ title: "Calculation Error", description: `Calculated ETH amount is invalid or zero: ${ethAmountValue}. Cannot proceed with payment. Check order total and ETH price.`, variant: "destructive", duration: 8000 });
+        console.error('[handlePayWithMetamaskOnChain] Calculated ethAmountValue is invalid or zero:', ethAmountValue);
+        setActionOrderId(null);
+        return false;
+    }
+    
+    // Formatting for parseEther
+    const ethAmountString = ethAmountValue.toFixed(18); // Use 18 for standard Ether precision
+    console.log('[handlePayWithMetamaskOnChain] ETH amount string (to 18 decimals):', ethAmountString);
+
+    const amountInWei = ethers.parseEther(ethAmountString);
+    console.log('[handlePayWithMetamaskOnChain] Amount in Wei to send:', amountInWei.toString());
+
+    if (amountInWei <= 0n) { // Check if Wei amount is zero or negative
+        toast({ title: "Payment Error", description: "Calculated ETH amount in Wei is zero or less. Cannot fund order.", variant: "destructive", duration: 8000 });
+        console.error('[handlePayWithMetamaskOnChain] Amount in Wei is zero or less:', amountInWei.toString());
+        setActionOrderId(null);
+        return false;
+    }
+
+
+    toast({ title: "Initiating On-Chain Payment", description: `Order: ${orderToPay.finalTotalAmount.toFixed(2)} USD. Sending: ${ethAmountValue.toFixed(8)} ETH. Confirm in Metamask.`, duration: 10000 });
 
     try {
       const contract = await getEscrowContract(); 
       if (!contract) {
+          console.error('[handlePayWithMetamaskOnChain] Failed to get escrow contract instance.');
           setActionOrderId(null);
           return false;
       }
+      console.log('[handlePayWithMetamaskOnChain] Sending transaction to contract.fundOrder with orderId:', orderToPay.contractOrderId, 'and value:', amountInWei.toString());
       const tx = await contract.fundOrder(orderToPay.contractOrderId, { value: amountInWei });
       toast({ title: "Transaction Submitted", description: `Tx Hash: ${tx.hash.substring(0,10)}... Waiting for confirmation.` });
       await tx.wait();
+      console.log('[handlePayWithMetamaskOnChain] Transaction confirmed on chain:', tx.hash);
 
       const orderRef = doc(db, "orders", orderId);
       const updatePayload: Partial<StoredOrder> = {
@@ -476,7 +519,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
       }
       return true;
     } catch (error: any) {
-      console.error("Error funding order on chain:", error);
+      console.error("[handlePayWithMetamaskOnChain] Error funding order on chain:", error);
       const readableError = error.reason || error.data?.message || error.message || "Unknown smart contract error";
       toast({ title: "Smart Contract Error", description: `Metamask payment failed: ${readableError}`, variant: "destructive", duration: 10000 });
       return false;
