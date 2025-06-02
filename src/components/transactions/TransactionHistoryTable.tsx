@@ -273,6 +273,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
     let calculatedTransporterFeeUSD: number | null = null;
     let finalTotalOrderAmountUSD = orderToAssign.totalAmount; 
     let predictedDeliveryDateISO: string | undefined = undefined;
+    let distanceKmForFeeCalc: number | undefined;
 
     try {
       const distanceInput = { 
@@ -287,6 +288,8 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
       if (distanceInfo.predictedDeliveryIsoDate) {
         predictedDeliveryDateISO = distanceInfo.predictedDeliveryIsoDate;
       }
+      distanceKmForFeeCalc = distanceInfo.distanceKm;
+
       if (distanceInfo.distanceKm !== undefined) {
         calculatedTransporterFeeUSD = calculateTieredShippingPrice(distanceInfo.distanceKm, transporter.shippingRates);
         if (calculatedTransporterFeeUSD !== null) {
@@ -305,11 +308,19 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
     }
     
     if (calculatedTransporterFeeUSD === null || calculatedTransporterFeeUSD <= 0) {
+        const rates = transporter.shippingRates;
+        const ratesString = rates ? `T1 (<100km): $${rates.tier1_0_100_km_price?.toFixed(2)}, T2 (101-500km): $${rates.tier2_101_500_km_price_per_km?.toFixed(2)}/km, T3 (>500km): $${rates.tier3_501_1000_km_price_per_km?.toFixed(2)}/km` : "Rates not set";
+        const distanceString = distanceKmForFeeCalc !== undefined ? `${distanceKmForFeeCalc.toFixed(1)} km` : "Unknown";
+
         toast({
             title: "Shipping Fee Error",
-            description: `Cannot create order on-chain. The shipping fee for transporter ${transporter.name} must be greater than zero. Ensure transporter rates are set and yield a positive fee for this distance. Current calculated fee: $${(calculatedTransporterFeeUSD ?? 0).toFixed(2)}`,
+            description: `Cannot create order on-chain. The shipping fee for transporter ${transporter.name} must be greater than zero.
+            Calculated Fee: $${(calculatedTransporterFeeUSD ?? 0).toFixed(2)}.
+            Distance: ${distanceString}.
+            ${transporter.name}'s Rates: ${ratesString}.
+            Please ensure rates are set to yield a positive fee.`,
             variant: "destructive",
-            duration: 12000
+            duration: 20000 
         });
         setActionOrderId(null);
         return false;
@@ -328,7 +339,6 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
     try {
         const contract = await getEscrowContract();
         if (!contract) {
-            // Toast message is handled by getEscrowContract if address/ABI is missing
             setActionOrderId(null);
             return false;
         }
@@ -432,7 +442,6 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
     try {
       const contract = await getEscrowContract(); 
       if (!contract) {
-          // Toast message is handled by getEscrowContract
           setActionOrderId(null);
           return false;
       }
@@ -478,7 +487,6 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
 
 
   const handleOpenAssignTransporterDialog = (order: StoredOrder) => {
-    // Check supplier's ETH address
     if (!user?.ethereumAddress) {
       toast({
         title: "Supplier ETH Address Missing",
@@ -489,7 +497,6 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
       return;
     }
 
-    // Check customer's ETH address
     const customerForOrder = allUsersList.find(u => u.id === order.customerId);
     if (!customerForOrder?.ethereumAddress) {
       toast({
