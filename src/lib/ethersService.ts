@@ -7,7 +7,8 @@ import { toast } from '@/hooks/use-toast';
 import FruitFlowEscrowABIFile from '@/contracts/FruitFlowEscrow.json';
 
 const contractAddress = process.env.NEXT_PUBLIC_ESCROW_CONTRACT_ADDRESS;
-console.log('[ethersService] Attempting to use Escrow Contract Address from env:', contractAddress); // Diagnostic log
+// Enhanced logging to make it very clear what address is being used.
+console.log('%c[ethersService] Environment Variable NEXT_PUBLIC_ESCROW_CONTRACT_ADDRESS: ' + contractAddress, 'color: blue; font-weight: bold; font-size: 14px;');
 
 const FruitFlowEscrowABI = FruitFlowEscrowABIFile.abi; // Assuming the ABI array is directly under the 'abi' key
 
@@ -43,9 +44,13 @@ export async function getEscrowContract(signer?: ethers.Signer | null): Promise<
     }
   }
 
+  // Critical check: Log the address actually being used by this function.
+  console.log('%c[ethersService] getEscrowContract is using contract address: ' + contractAddress, 'color: green; font-weight: bold; font-size: 14px;');
+
   if (!contractAddress) {
-    toast({ title: "Contract Error", description: "Escrow contract address is not configured. Please set NEXT_PUBLIC_ESCROW_CONTRACT_ADDRESS in your .env or .env.local file.", variant: "destructive", duration: 7000 });
-    console.error('[ethersService] Escrow contract address is UNDEFINED in environment variables.');
+    const errorMessage = "Escrow contract address is NOT CONFIGURED. Please ensure NEXT_PUBLIC_ESCROW_CONTRACT_ADDRESS is set in your .env file and the server is restarted.";
+    toast({ title: "CRITICAL Contract Error", description: errorMessage, variant: "destructive", duration: 10000 });
+    console.error('%c' + errorMessage, 'color: red; font-weight: bold; font-size: 16px;');
     return null;
   }
   if (!FruitFlowEscrowABI || FruitFlowEscrowABI.length === 0) {
@@ -92,4 +97,3 @@ export async function getCurrentWalletAddress(): Promise<string | null> {
         return null;
     }
 }
-
