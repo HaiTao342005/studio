@@ -35,6 +35,7 @@ export interface StoredOrder {
   totalAmount: number; // Initial product total (productAmount in SC)
   finalTotalAmount?: number; // Product total + shipping (totalAmount in SC)
   estimatedTransporterFee?: number; // (shippingFee in SC)
+  onChainTotalAmountWei?: string; // Authoritative total amount in Wei from the smart contract after creation
   currency: string;
   status: OrderStatus;
   notes?: string;
@@ -75,3 +76,4 @@ export interface Order extends Omit<StoredOrder, 'orderDate' | 'predictedDeliver
   payoutTimestamp?: Date;
   refundTimestamp?: Date;
 }
+

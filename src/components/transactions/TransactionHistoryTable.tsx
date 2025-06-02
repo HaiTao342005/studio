@@ -364,6 +364,11 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
         await tx.wait();
         toast({ title: "Order Created On-Chain!", description: `Smart contract order ID: ${orderIdBytes32.substring(0,10)}... Tx: ${tx.hash.substring(0,10)}...`});
 
+        // Fetch the totalAmount in Wei from the contract *after* creation
+        const onChainOrderData = await contract.getOrder(orderIdBytes32);
+        const onChainTotalAmountWei = onChainOrderData.totalAmount.toString();
+
+
         const orderRef = doc(db, "orders", orderToAssign.id);
         const updatePayload: Partial<StoredOrder> = {
             transporterId: selectedTransporterId,
@@ -379,6 +384,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
             finalTotalAmount: finalTotalOrderAmountUSD,
             contractOrderId: orderIdBytes32,
             contractCreationTxHash: tx.hash,
+            onChainTotalAmountWei: onChainTotalAmountWei, // Store the authoritative Wei amount
         };
         if (predictedDeliveryDateISO) {
             updatePayload.predictedDeliveryDate = Timestamp.fromDate(new Date(predictedDeliveryDateISO));
@@ -393,7 +399,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
               : o
           )
         );
-        toast({ title: "Firestore Updated", description: `Order ${orderToAssign.id} status to AwaitingOnChainFunding.`});
+        toast({ title: "Firestore Updated", description: `Order ${orderToAssign.id} status to AwaitingOnChainFunding. On-chain Wei total stored.`});
         setIsAssignTransporterDialogOpen(false);
         return true;
     } catch (error: any) {
@@ -414,7 +420,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
     if (!orderToPay) {
       toast({ title: "Error", description: "Order not found in local state.", variant: "destructive" });
       console.error(`[handlePayWithMetamaskOnChain] Order with Firestore ID ${orderId} not found in local 'orders' state.`);
-      setActionOrderId(null); // Clear action lock
+      setActionOrderId(null); 
       return false;
     }
 
@@ -426,15 +432,9 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
       setActionOrderId(null);
       return false;
     }
-    if (!ethers.isHexString(orderToPay.contractOrderId) || orderToPay.contractOrderId.length !== 66) { // 0x + 64 hex chars
+    if (!ethers.isHexString(orderToPay.contractOrderId) || orderToPay.contractOrderId.length !== 66) { 
         toast({ title: "Error", description: "Invalid smart contract Order ID format.", variant: "destructive" });
         console.error(`[handlePayWithMetamaskOnChain] Pre-condition failed: orderToPay.contractOrderId (${orderToPay.contractOrderId}) is not a valid bytes32 hex string. Firestore ID: ${orderId}`);
-        setActionOrderId(null);
-        return false;
-    }
-    if (orderToPay.finalTotalAmount === undefined || orderToPay.finalTotalAmount === null) {
-        toast({ title: "Error", description: "Order final total amount is missing. Cannot proceed with payment.", variant: "destructive" });
-        console.error(`[handlePayWithMetamaskOnChain] Pre-condition failed: orderToPay.finalTotalAmount is undefined or null. Firestore ID: ${orderId}`);
         setActionOrderId(null);
         return false;
     }
@@ -463,32 +463,40 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
          return false;
     }
 
-    setActionOrderId(orderId); // Set action lock
-    const currentEthUsdPrice = await fetchEthPrice();
-    console.log(`[handlePayWithMetamaskOnChain] Order finalTotalAmount for Firestore ID ${orderId} (USD): ${orderToPay.finalTotalAmount}`);
-    console.log(`[handlePayWithMetamaskOnChain] Current ETH/USD price for Firestore ID ${orderId}: ${currentEthUsdPrice}`);
+    setActionOrderId(orderId); 
 
-    if (orderToPay.finalTotalAmount <= 0) {
-        toast({ title: "Payment Error", description: "Order total amount must be greater than zero to fund.", variant: "destructive", duration: 8000 });
-        console.error(`[handlePayWithMetamaskOnChain] Pre-condition failed: finalTotalAmount is not positive. Firestore ID: ${orderId}`);
-        setActionOrderId(null);
-        return false;
+    let amountInWei: bigint;
+
+    if (orderToPay.onChainTotalAmountWei && /^\d+$/.test(orderToPay.onChainTotalAmountWei)) {
+        amountInWei = BigInt(orderToPay.onChainTotalAmountWei);
+        console.log(`[handlePayWithMetamaskOnChain] Using stored onChainTotalAmountWei for Firestore ID ${orderId}: ${amountInWei.toString()}`);
+        toast({ title: "Payment Info", description: `Using exact on-chain Wei amount: ${amountInWei.toString()} for funding.`, duration: 7000 });
+    } else {
+        // Fallback to recalculation if onChainTotalAmountWei is missing or invalid (should be rare for new orders)
+        console.warn(`[handlePayWithMetamaskOnChain] onChainTotalAmountWei missing or invalid for order ${orderId}. Falling back to USD recalculation.`);
+        if (orderToPay.finalTotalAmount === undefined || orderToPay.finalTotalAmount === null || orderToPay.finalTotalAmount <= 0) {
+            toast({ title: "Error", description: "Order final total amount is missing or invalid. Cannot proceed with payment.", variant: "destructive" });
+            console.error(`[handlePayWithMetamaskOnChain] Pre-condition failed: orderToPay.finalTotalAmount is invalid. Firestore ID: ${orderId}`);
+            setActionOrderId(null);
+            return false;
+        }
+        const currentEthUsdPrice = await fetchEthPrice();
+        console.log(`[handlePayWithMetamaskOnChain] Order finalTotalAmount for Firestore ID ${orderId} (USD): ${orderToPay.finalTotalAmount}`);
+        console.log(`[handlePayWithMetamaskOnChain] Current ETH/USD price for Firestore ID ${orderId}: ${currentEthUsdPrice}`);
+        const ethAmountValue = orderToPay.finalTotalAmount / currentEthUsdPrice;
+        console.log(`[handlePayWithMetamaskOnChain] Calculated raw ETH amount for sending for Firestore ID ${orderId}: ${ethAmountValue}`);
+        if (isNaN(ethAmountValue) || ethAmountValue <= 0) {
+            toast({ title: "Calculation Error", description: `Calculated ETH amount is invalid or zero: ${ethAmountValue}. Cannot proceed with payment. Check order total and ETH price.`, variant: "destructive", duration: 8000 });
+            console.error(`[handlePayWithMetamaskOnChain] Calculated ethAmountValue is invalid or zero: ${ethAmountValue}. Firestore ID: ${orderId}`);
+            setActionOrderId(null);
+            return false;
+        }
+        const ethAmountString = ethAmountValue.toFixed(18);
+        console.log(`[handlePayWithMetamaskOnChain] ETH amount string (to 18 decimals) for Firestore ID ${orderId}: ${ethAmountString}`);
+        amountInWei = ethers.parseEther(ethAmountString);
     }
     
-    const ethAmountValue = orderToPay.finalTotalAmount / currentEthUsdPrice;
-    console.log(`[handlePayWithMetamaskOnChain] Calculated raw ETH amount for sending for Firestore ID ${orderId}: ${ethAmountValue}`);
-    if (isNaN(ethAmountValue) || ethAmountValue <= 0) {
-        toast({ title: "Calculation Error", description: `Calculated ETH amount is invalid or zero: ${ethAmountValue}. Cannot proceed with payment. Check order total and ETH price.`, variant: "destructive", duration: 8000 });
-        console.error(`[handlePayWithMetamaskOnChain] Calculated ethAmountValue is invalid or zero: ${ethAmountValue}. Firestore ID: ${orderId}`);
-        setActionOrderId(null);
-        return false;
-    }
-    
-    const ethAmountString = ethAmountValue.toFixed(18);
-    console.log(`[handlePayWithMetamaskOnChain] ETH amount string (to 18 decimals) for Firestore ID ${orderId}: ${ethAmountString}`);
-
-    const amountInWei = ethers.parseEther(ethAmountString);
-    console.log(`[handlePayWithMetamaskOnChain] Amount in Wei to send for Firestore ID ${orderId}: ${amountInWei.toString()}`);
+    console.log(`[handlePayWithMetamaskOnChain] Final Amount in Wei to send for Firestore ID ${orderId}: ${amountInWei.toString()}`);
 
     if (amountInWei <= 0n) {
         toast({ title: "Payment Error", description: "Calculated ETH amount in Wei is zero or less. Cannot fund order.", variant: "destructive", duration: 8000 });
@@ -497,7 +505,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
         return false;
     }
 
-    toast({ title: "Initiating On-Chain Payment", description: `Order: ${orderToPay.finalTotalAmount.toFixed(2)} USD. Sending: ${ethAmountValue.toFixed(8)} ETH. Confirm in Metamask.`, duration: 10000 });
+    toast({ title: "Initiating On-Chain Payment", description: `Sending ${ethers.formatEther(amountInWei)} ETH. Confirm in Metamask.`, duration: 10000 });
 
     const contractForView = await getEscrowContract();
     if (!contractForView) {
@@ -517,7 +525,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
             productAmount: onChainOrderData.productAmount.toString(),
             shippingFee: onChainOrderData.shippingFee.toString(),
             totalAmount: onChainOrderData.totalAmount.toString(),
-            status: onChainOrderData.status.toString(), // Status enum: CREATED=0, FUNDED=1, etc.
+            status: onChainOrderData.status.toString(), 
             token: onChainOrderData.token,
         });
 
@@ -547,11 +555,11 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
          if (onChainOrderData.totalAmount.toString() !== amountInWei.toString()) {
             toast({
                 title: "Amount Mismatch (Pre-check)",
-                description: `The on-chain order totalAmount (${onChainOrderData.totalAmount.toString()} Wei) does not exactly match the amount calculated to be sent (${amountInWei.toString()} Wei). Cannot fund. This can be due to ETH/USD price fluctuations between order creation and funding. Contact support or retry if price changed recently.`,
+                description: `The on-chain order totalAmount (${ethers.formatEther(onChainOrderData.totalAmount)} ETH) does not exactly match the amount to be sent (${ethers.formatEther(amountInWei)} ETH). Cannot fund. This can be due to ETH/USD price fluctuations between order creation and funding if onChainTotalAmountWei was not used. Contact support or retry if price changed recently.`,
                 variant: "destructive",
                 duration: 15000 
             });
-            console.error(`[handlePayWithMetamaskOnChain] On-chain totalAmount mismatch. Expected (from contract): ${onChainOrderData.totalAmount.toString()}, Calculated to send (frontend): ${amountInWei.toString()}. Firestore ID: ${orderId}`);
+            console.error(`[handlePayWithMetamaskOnChain] On-chain totalAmount mismatch. Expected (from contract): ${onChainOrderData.totalAmount.toString()}, Calculated/Retrieved to send (frontend): ${amountInWei.toString()}. Firestore ID: ${orderId}`);
             setActionOrderId(null);
             return false;
         }
@@ -564,7 +572,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
     }
 
     try {
-      const contractWithSigner = await getEscrowContract(signer); // Ensure using signer for the transaction
+      const contractWithSigner = await getEscrowContract(signer); 
       if (!contractWithSigner) {
           console.error(`[handlePayWithMetamaskOnChain] Failed to get escrow contract instance with signer. Firestore ID: ${orderId}`);
           setActionOrderId(null);
@@ -609,7 +617,7 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
       toast({ title: "Smart Contract Error", description: `Metamask payment failed: ${readableError}`, variant: "destructive", duration: 10000 });
       return false;
     } finally {
-      setActionOrderId(null); // Clear action lock
+      setActionOrderId(null); 
     }
   }, [orders, toast, allUsersList]); 
 
