@@ -4,9 +4,11 @@ import { toast } from '@/hooks/use-toast';
 
 // Attempt to import the ABI from the contracts directory
 // The user needs to ensure this file exists and contains the correct ABI
-import FruitFlowEscrowABIFile from '@/contracts/FruitFlowEscrow.json'; 
+import FruitFlowEscrowABIFile from '@/contracts/FruitFlowEscrow.json';
 
 const contractAddress = process.env.NEXT_PUBLIC_ESCROW_CONTRACT_ADDRESS;
+console.log('[ethersService] Attempting to use Escrow Contract Address from env:', contractAddress); // Diagnostic log
+
 const FruitFlowEscrowABI = FruitFlowEscrowABIFile.abi; // Assuming the ABI array is directly under the 'abi' key
 
 export async function getSignerAndProvider() {
@@ -18,7 +20,7 @@ export async function getSignerAndProvider() {
   // Request accounts every time to ensure the user is prompted if not connected
   // or if accounts have changed.
   try {
-    await provider.send("eth_requestAccounts", []); 
+    await provider.send("eth_requestAccounts", []);
   } catch (error: any) {
     // Handle cases where user rejects connection or Metamask is locked
     toast({ title: "Metamask Connection Required", description: error.message || "Please connect/unlock Metamask to proceed.", variant: "destructive" });
@@ -43,13 +45,16 @@ export async function getEscrowContract(signer?: ethers.Signer | null): Promise<
 
   if (!contractAddress) {
     toast({ title: "Contract Error", description: "Escrow contract address is not configured. Please set NEXT_PUBLIC_ESCROW_CONTRACT_ADDRESS in your .env or .env.local file.", variant: "destructive", duration: 7000 });
-    return null; 
+    console.error('[ethersService] Escrow contract address is UNDEFINED in environment variables.');
+    return null;
   }
   if (!FruitFlowEscrowABI || FruitFlowEscrowABI.length === 0) {
     toast({ title: "Contract Error", description: "Escrow contract ABI is not loaded. Ensure src/contracts/FruitFlowEscrow.json exists and is correctly populated.", variant: "destructive", duration: 7000 });
-    return null; 
+    console.error('[ethersService] FruitFlowEscrowABI is not loaded or is empty.');
+    return null;
   }
-
+  
+  console.log('[ethersService] Instantiating contract with address:', contractAddress);
   return new ethers.Contract(contractAddress, FruitFlowEscrowABI, currentSigner);
 }
 
