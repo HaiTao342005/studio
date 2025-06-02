@@ -7,7 +7,7 @@ import React, {
   useState,
   useEffect,
   useCallback,
-  useRef, 
+  useRef,
   type ReactNode
 } from 'react';
 import { useToast } from '@/hooks/use-toast';
@@ -89,7 +89,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const [allUsersList, setAllUsersList] = useState<User[]>([]);
   const [isLoadingUsers, setIsLoadingUsers] = useState(true);
-  
+
   const allUsersListRef = useRef(allUsersList);
   const userRef = useRef(user);
 
@@ -352,7 +352,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
     }
     setIsLoading(false);
-  }, [toast, isLoadingUsers]); 
+  }, [toast, isLoadingUsers]);
 
   const approveUser = useCallback(async (userId: string) => {
     if (!db) {
@@ -497,7 +497,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             title: "Firebase Unavailable",
             description: "The application cannot connect to Firebase. Core features are disabled. Please check console for Firebase config errors or network issues.",
             variant: "destructive",
-            duration: 0, 
+            duration: 0,
           });
           setUser(null);
           setAllUsersList([]);
@@ -597,8 +597,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                     weight = 0.80;
                 } else if (purchaseCount >= 2) { // This implies 2-10
                     weight = 0.15;
-                }
-                // If purchaseCount is 1, weight remains 0.05
+                } // If purchaseCount is 1, weight remains 0.05
 
                 supplierWeightedRatingSumMap[orderData.supplierId] = (supplierWeightedRatingSumMap[orderData.supplierId] || 0) + (orderData.supplierRating * weight);
                 supplierTotalWeightsMap[orderData.supplierId] = (supplierTotalWeightsMap[orderData.supplierId] || 0) + weight;
@@ -626,7 +625,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               userWithRatings.transporterRatingCount = tRatingData ? tRatingData.count : 0;
 
               let shouldSuspend = false;
+              // Check for supplier suspension: if average rating is below RATING_THRESHOLD_FOR_SUSPENSION (currently 1.5) and they have enough ratings (MIN_RATINGS_FOR_SUSPENSION).
               if (u.role === 'supplier' && userWithRatings.supplierRatingCount >= MIN_RATINGS_FOR_SUSPENSION && userWithRatings.averageSupplierRating !== undefined && userWithRatings.averageSupplierRating < RATING_THRESHOLD_FOR_SUSPENSION) shouldSuspend = true;
+              // Check for transporter suspension with similar logic.
               if (u.role === 'transporter' && userWithRatings.transporterRatingCount >= MIN_RATINGS_FOR_SUSPENSION && userWithRatings.averageTransporterRating !== undefined && userWithRatings.averageTransporterRating < RATING_THRESHOLD_FOR_SUSPENSION) shouldSuspend = true;
 
               if (shouldSuspend && !userWithRatings.isSuspended) {
@@ -684,7 +685,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               if (!storedUserFromLocalStorage && isMounted) setUser(null);
           } finally {
              if (isMounted) {
-                setIsLoadingUsers(false); 
+                setIsLoadingUsers(false);
              }
           }
         }, (error) => {
@@ -753,7 +754,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                   userWithRatings.transporterRatingCount = tRatingData ? tRatingData.count : 0;
 
                   let shouldSuspend = false;
+                  // Check for supplier suspension: if average rating is below RATING_THRESHOLD_FOR_SUSPENSION (currently 1.5) and they have enough ratings (MIN_RATINGS_FOR_SUSPENSION).
                   if (userWithRatings.role === 'supplier' && userWithRatings.supplierRatingCount >= MIN_RATINGS_FOR_SUSPENSION && userWithRatings.averageSupplierRating !== undefined && userWithRatings.averageSupplierRating < RATING_THRESHOLD_FOR_SUSPENSION) shouldSuspend = true;
+                  // Check for transporter suspension with similar logic.
                   if (userWithRatings.role === 'transporter' && userWithRatings.transporterRatingCount >= MIN_RATINGS_FOR_SUSPENSION && userWithRatings.averageTransporterRating !== undefined && userWithRatings.averageTransporterRating < RATING_THRESHOLD_FOR_SUSPENSION) shouldSuspend = true;
 
                   if (shouldSuspend && !userWithRatings.isSuspended) {
