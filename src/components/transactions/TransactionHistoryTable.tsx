@@ -795,9 +795,9 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
                         <Zap className="h-3 w-3 mr-1" /> Payouts by Contract
                         {order.contractConfirmationTxHash && <Info className="h-3 w-3 ml-1 text-blue-500 cursor-help" />}
                       </p>
-                      {order.payoutTimestamp && (
+                      {order.payoutTimestamp && order.payoutTimestamp instanceof Timestamp && (
                         <p className="text-muted-foreground">
-                          Confirmed: {format((order.payoutTimestamp as Timestamp).toDate(), "MMM d, yy")}
+                          Confirmed: {format(order.payoutTimestamp.toDate(), "MMM d, yy")}
                         </p>
                       )}
                     </div>
@@ -950,3 +950,4 @@ export function TransactionHistoryTable({ initialOrders, isCustomerView = false 
     </>
   );
 }
+
