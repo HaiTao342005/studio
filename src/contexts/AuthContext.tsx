@@ -7,7 +7,7 @@ import React, {
   useState,
   useEffect,
   useCallback,
-  useRef, // Ensure useRef is imported
+  useRef, 
   type ReactNode
 } from 'react';
 import { useToast } from '@/hooks/use-toast';
@@ -89,6 +89,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const [allUsersList, setAllUsersList] = useState<User[]>([]);
   const [isLoadingUsers, setIsLoadingUsers] = useState(true);
+  
   const allUsersListRef = useRef(allUsersList);
   const userRef = useRef(user);
 
@@ -248,8 +249,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     let potentialUserFromList = currentAllUsers.find(u => u.id === userDocId || u.name.toLowerCase() === userDocId);
 
-    // Removed the premature return block.
-    // The login flow will now proceed to the direct Firestore query if potentialUserFromList is undefined.
 
     let userToVerify: User | undefined = potentialUserFromList;
     let userRefPath: string | undefined = potentialUserFromList ? potentialUserFromList.id : undefined;
@@ -353,7 +352,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
     }
     setIsLoading(false);
-  }, [toast, isLoadingUsers]); // isLoadingUsers dependency is fine, as it might influence the initial potentialUserFromList.
+  }, [toast, isLoadingUsers]); 
 
   const approveUser = useCallback(async (userId: string) => {
     if (!db) {
@@ -498,7 +497,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             title: "Firebase Unavailable",
             description: "The application cannot connect to Firebase. Core features are disabled. Please check console for Firebase config errors or network issues.",
             variant: "destructive",
-            duration: 0, // Persist this critical toast
+            duration: 0, 
           });
           setUser(null);
           setAllUsersList([]);
@@ -593,9 +592,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               const orderData = orderDoc.data() as StoredOrder;
               if (orderData.supplierId && typeof orderData.supplierRating === 'number' && orderData.customerId) {
                 const purchaseCount = customerSupplierPurchaseCount.get(orderData.customerId)?.get(orderData.supplierId) || 0;
-                let weight = 0.05;
-                if (purchaseCount > 10) weight = 0.80;
-                else if (purchaseCount >= 2) weight = 0.15;
+                let weight = 0.05; // Default for first purchase
+                if (purchaseCount > 10) {
+                    weight = 0.80;
+                } else if (purchaseCount >= 2) { // This implies 2-10
+                    weight = 0.15;
+                }
+                // If purchaseCount is 1, weight remains 0.05
 
                 supplierWeightedRatingSumMap[orderData.supplierId] = (supplierWeightedRatingSumMap[orderData.supplierId] || 0) + (orderData.supplierRating * weight);
                 supplierTotalWeightsMap[orderData.supplierId] = (supplierTotalWeightsMap[orderData.supplierId] || 0) + weight;
@@ -681,7 +684,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               if (!storedUserFromLocalStorage && isMounted) setUser(null);
           } finally {
              if (isMounted) {
-                setIsLoadingUsers(false); // Ensure isLoadingUsers is set to false after processing this snapshot
+                setIsLoadingUsers(false); 
              }
           }
         }, (error) => {
@@ -718,8 +721,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                   const orderData = orderDoc.data() as StoredOrder;
                   if (orderData.supplierId && typeof orderData.supplierRating === 'number' && orderData.customerId) {
                     const purchaseCount = customerSupplierPurchaseCount.get(orderData.customerId)?.get(orderData.supplierId) || 0;
-                    let weight = 0.05;
-                    if (purchaseCount > 10) weight = 0.80; else if (purchaseCount >= 2) weight = 0.15;
+                    let weight = 0.05; // Default for first purchase
+                    if (purchaseCount > 10) {
+                        weight = 0.80;
+                    } else if (purchaseCount >= 2) { // This implies 2-10
+                        weight = 0.15;
+                    }
                     supplierWeightedRatingSumMap[orderData.supplierId] = (supplierWeightedRatingSumMap[orderData.supplierId] || 0) + (orderData.supplierRating * weight);
                     supplierTotalWeightsMap[orderData.supplierId] = (supplierTotalWeightsMap[orderData.supplierId] || 0) + weight;
                     supplierRatingCountMap[orderData.supplierId] = (supplierRatingCountMap[orderData.supplierId] || 0) + 1;
@@ -822,7 +829,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } finally {
         if (isMounted) {
           setIsLoading(false);
-          // setIsLoadingUsers(false) is handled by the users listener's finally or error block.
         }
       }
     }
