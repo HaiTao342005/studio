@@ -243,20 +243,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsLoading(true);
 
     const userDocId = username.toLowerCase();
-
     const currentAllUsers = allUsersListRef.current;
     console.log("[LoginAttempt] Current allUsersList (from ref) count:", currentAllUsers.length);
 
-
-    // Check if the user is in the local list first
     let potentialUserFromList = currentAllUsers.find(u => u.id === userDocId || u.name.toLowerCase() === userDocId);
 
-    if (isLoadingUsers && !potentialUserFromList) {
-        toast({ title: "Login Info", description: "User data is still loading, please try again shortly.", variant: "outline" });
-        setIsLoading(false);
-        return;
-    }
-
+    // Removed the premature return block.
+    // The login flow will now proceed to the direct Firestore query if potentialUserFromList is undefined.
 
     let userToVerify: User | undefined = potentialUserFromList;
     let userRefPath: string | undefined = potentialUserFromList ? potentialUserFromList.id : undefined;
@@ -360,7 +353,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
     }
     setIsLoading(false);
-  }, [toast, isLoadingUsers]);
+  }, [toast, isLoadingUsers]); // isLoadingUsers dependency is fine, as it might influence the initial potentialUserFromList.
 
   const approveUser = useCallback(async (userId: string) => {
     if (!db) {
@@ -505,13 +498,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             title: "Firebase Unavailable",
             description: "The application cannot connect to Firebase. Core features are disabled. Please check console for Firebase config errors or network issues.",
             variant: "destructive",
-            duration: 0,
+            duration: 0, // Persist this critical toast
           });
           setUser(null);
           setAllUsersList([]);
         }
         localStorage.removeItem(CURRENT_USER_STORAGE_KEY);
-        // Ensure loading states are set to false even if db is not available
         if (isMounted) {
             setIsLoading(false);
             setIsLoadingUsers(false);
@@ -688,7 +680,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               }
               if (!storedUserFromLocalStorage && isMounted) setUser(null);
           } finally {
-            // This block will be executed by the main finally
+             if (isMounted) {
+                setIsLoadingUsers(false); // Ensure isLoadingUsers is set to false after processing this snapshot
+             }
           }
         }, (error) => {
           if (!isMounted) return;
@@ -828,7 +822,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } finally {
         if (isMounted) {
           setIsLoading(false);
-          setIsLoadingUsers(false);
+          // setIsLoadingUsers(false) is handled by the users listener's finally or error block.
         }
       }
     }
@@ -839,7 +833,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isMounted = false;
       unsubscribers.forEach(unsub => unsub());
     };
-  }, [toast, logoutCallback, seedDefaultManager, approveUser, addManager, updateUserProfile, updateTransporterShippingRates, login, signup]);
+  }, [toast, logoutCallback, seedDefaultManager]);
 
 
   useEffect(() => {
