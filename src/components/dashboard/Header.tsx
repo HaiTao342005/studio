@@ -68,7 +68,7 @@ export function Header({ title, children }: HeaderProps) {
         } else {
           toast({ title: "Connection Error", description: error.message || "Failed to connect wallet.", variant: "destructive" });
         }
-        console.error("Error connecting to Metamask:", error);
+        console.error("Error connecting to Metamask:", error.message || error, error.stack || '(no stack trace)');
       }
     } else {
       toast({ title: "Metamask Not Found", description: "Please install Metamask to use this feature.", variant: "destructive" });
